@@ -2435,6 +2435,13 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 				IsK12: func(auth *coreauth.Auth) bool {
 					return isK12AccountSpec(accountForAuthInManifest(m, auth))
 				},
+				IsSpillover: func(auth *coreauth.Auth) bool {
+					if m == nil || strings.TrimSpace(m.BoundOAuthAccountID) == "" {
+						return false
+					}
+					account := accountForAuthInManifest(m, auth)
+					return account != nil && account.ID == strings.TrimSpace(m.BoundOAuthAccountID)
+				},
 				QuotaSnapshot: func(auth *coreauth.Auth) coreauth.K12QuotaSnapshot {
 					return k12QuotaSnapshotForAuth(m, quota, auth, time.Now())
 				},

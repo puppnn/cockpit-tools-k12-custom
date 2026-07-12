@@ -17,7 +17,7 @@ const (
 	defaultK12SessionCooldown = 30 * time.Second
 	k12TentativeTTL           = 2 * time.Minute
 	defaultK12SpilloverTTL    = time.Hour
-	k12SingleCandidateWeight  = 2
+	k12MaxActiveSessions      = 2
 )
 
 // K12QuotaSnapshot describes the latest local quota observation used only to
@@ -35,6 +35,7 @@ type K12SessionPolicyConfig struct {
 	Cooldown      time.Duration
 	SpilloverTTL  time.Duration
 	IsK12         func(*Auth) bool
+	IsSpillover   func(*Auth) bool
 	QuotaSnapshot func(*Auth) K12QuotaSnapshot
 }
 
@@ -54,8 +55,6 @@ type k12CandidateReservation struct {
 	auth           *Auth
 	confirmedCount int
 	sessionLoad    int
-	k12ActiveLoad  int
-	spilloverLoad  int
 	spilled        bool
 	reused         bool
 	spilloverErr   error
@@ -64,6 +63,7 @@ type k12CandidateReservation struct {
 type k12SessionPolicy struct {
 	store         *k12SessionStore
 	isK12         func(*Auth) bool
+	isSpillover   func(*Auth) bool
 	quotaSnapshot func(*Auth) K12QuotaSnapshot
 	cooldown      time.Duration
 	spilloverTTL  time.Duration
@@ -96,6 +96,7 @@ func newK12SessionPolicy(cfg *K12SessionPolicyConfig) (*k12SessionPolicy, error)
 	return &k12SessionPolicy{
 		store:         store,
 		isK12:         cfg.IsK12,
+		isSpillover:   cfg.IsSpillover,
 		quotaSnapshot: cfg.QuotaSnapshot,
 		cooldown:      cooldown,
 		spilloverTTL:  spilloverTTL,
@@ -117,6 +118,13 @@ func (p *k12SessionPolicy) canStart(auth *Auth) bool {
 	}
 	snapshot := p.quota(auth)
 	return !snapshot.Fresh || snapshot.HourlyRemainingPercent == nil || *snapshot.HourlyRemainingPercent > 0
+}
+
+func (p *k12SessionPolicy) canSpillover(auth *Auth) bool {
+	if p == nil || auth == nil || p.isK12(auth) || auth.Disabled || auth.Status == StatusDisabled {
+		return false
+	}
+	return p.isSpillover == nil || p.isSpillover(auth)
 }
 
 func (p *k12SessionPolicy) tentativeAuth(sessionDigest string, now time.Time) string {
@@ -247,66 +255,51 @@ func (p *k12SessionPolicy) reserveCandidate(
 	}
 
 	confirmedCounts, recentCounts := p.store.confirmedAndRecentCounts(now.Add(-p.spilloverTTL), now)
-	sessionLoads := make(map[string]int, len(confirmedCounts)+len(p.tentative))
-	for authID, count := range confirmedCounts {
-		sessionLoads[authID] = count
+	activeLoads := make(map[string]int, len(recentCounts)+len(p.tentative))
+	for authID, count := range recentCounts {
+		activeLoads[authID] = count
 	}
 	for _, selection := range p.tentative {
-		sessionLoads[selection.authID]++
+		activeLoads[selection.authID]++
 	}
 
 	reservation := k12CandidateReservation{}
-	if len(k12Candidates) == 1 && len(spilloverCandidates) > 0 && pickSpillover != nil {
-		candidate := k12Candidates[0]
-		k12ActiveLoad := recentCounts[candidate.ID]
-		for _, selection := range p.tentative {
-			if selection.authID == candidate.ID {
-				k12ActiveLoad++
-			}
+	underCapacity := make([]*Auth, 0, len(k12Candidates))
+	for _, auth := range k12Candidates {
+		if activeLoads[auth.ID] < k12MaxActiveSessions {
+			underCapacity = append(underCapacity, auth)
 		}
-		spilloverIDs := make(map[string]struct{}, len(spilloverCandidates))
-		for _, auth := range spilloverCandidates {
-			if auth != nil && auth.ID != "" {
-				spilloverIDs[auth.ID] = struct{}{}
+	}
+	if len(underCapacity) > 0 {
+		k12Candidates = underCapacity
+	} else if len(spilloverCandidates) > 0 && pickSpillover != nil {
+		selected, spilloverErr := pickSpillover(spilloverCandidates)
+		if spilloverErr == nil && selected != nil && selected.ID != "" {
+			p.spillovers[sessionDigest] = k12SpilloverSelection{
+				authID:    selected.ID,
+				source:    source,
+				expiresAt: now.Add(p.spilloverTTL),
 			}
+			reservation.auth = selected
+			reservation.spilled = true
+			return reservation, nil
 		}
-		spilloverLoad := 0
-		for _, selection := range p.spillovers {
-			if _, ok := spilloverIDs[selection.authID]; ok {
-				spilloverLoad++
-			}
-		}
-		reservation.k12ActiveLoad = k12ActiveLoad
-		reservation.spilloverLoad = spilloverLoad
-		if k12ActiveLoad >= k12SingleCandidateWeight*(spilloverLoad+1) {
-			selected, spilloverErr := pickSpillover(spilloverCandidates)
-			if spilloverErr == nil && selected != nil && selected.ID != "" {
-				p.spillovers[sessionDigest] = k12SpilloverSelection{
-					authID:    selected.ID,
-					source:    source,
-					expiresAt: now.Add(p.spilloverTTL),
-				}
-				reservation.auth = selected
-				reservation.spilled = true
-				return reservation, nil
-			}
-			reservation.spilloverErr = spilloverErr
-			if spilloverErr == nil {
-				reservation.spilloverErr = fmt.Errorf("spillover selector returned an empty auth")
-			}
+		reservation.spilloverErr = spilloverErr
+		if spilloverErr == nil {
+			reservation.spilloverErr = fmt.Errorf("spillover selector returned an empty auth")
 		}
 	}
 
 	minLoad := -1
 	for _, auth := range k12Candidates {
-		load := sessionLoads[auth.ID]
+		load := activeLoads[auth.ID]
 		if minLoad < 0 || load < minLoad {
 			minLoad = load
 		}
 	}
 	balanced := make([]*Auth, 0, len(k12Candidates))
 	for _, auth := range k12Candidates {
-		if sessionLoads[auth.ID] == minLoad {
+		if activeLoads[auth.ID] == minLoad {
 			balanced = append(balanced, auth)
 		}
 	}
@@ -343,7 +336,7 @@ func (p *k12SessionPolicy) reserveCandidate(
 	}
 	reservation.auth = selected
 	reservation.confirmedCount = confirmedCounts[selected.ID]
-	reservation.sessionLoad = sessionLoads[selected.ID] + 1
+	reservation.sessionLoad = activeLoads[selected.ID] + 1
 	return reservation, nil
 }
 
@@ -415,11 +408,15 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 	}
 
 	nonK12 := make([]*Auth, 0, len(auths))
+	spilloverCandidates := make([]*Auth, 0, 1)
 	k12Candidates := make([]*Auth, 0, len(auths))
 	var earliestCooldown time.Duration
 	for _, auth := range auths {
 		if auth == nil || !s.k12.isK12(auth) {
 			nonK12 = append(nonK12, auth)
+			if s.k12.canSpillover(auth) {
+				spilloverCandidates = append(spilloverCandidates, auth)
+			}
 			continue
 		}
 		if !s.k12.canStart(auth) {
@@ -439,7 +436,7 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 			digest,
 			identity.Source,
 			k12Candidates,
-			nonK12,
+			spilloverCandidates,
 			now,
 			func(balanced []*Auth) (*Auth, error) {
 				return s.fallback.Pick(ctx, provider, model, opts, balanced)
@@ -465,13 +462,11 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		}
 		if reservation.spilled {
 			selectorLogEntry(ctx).Infof(
-				"k12-session-affinity: single-K12 load spillover | source=%s session=%s auth=%s k12_active_load=%d spillover_load=%d ratio=%d:1",
+				"k12-session-affinity: K12 capacity spillover | source=%s session=%s auth=%s max_active_per_k12=%d",
 				identity.Source,
 				shortSessionDigest(digest),
 				reservation.auth.ID,
-				reservation.k12ActiveLoad,
-				reservation.spilloverLoad+1,
-				k12SingleCandidateWeight,
+				k12MaxActiveSessions,
 			)
 			return reservation.auth, nil, true, nil
 		}

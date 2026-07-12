@@ -36,6 +36,9 @@ func newTestK12Selector(t *testing.T, statePath string, remaining map[string]*in
 			IsK12: func(auth *Auth) bool {
 				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "k12")
 			},
+			IsSpillover: func(auth *Auth) bool {
+				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "plus")
+			},
 			QuotaSnapshot: func(auth *Auth) K12QuotaSnapshot {
 				value, ok := remaining[auth.ID]
 				if !ok {
@@ -336,13 +339,13 @@ func TestK12TentativeSessionsReserveLoadBeforeFirstSuccess(t *testing.T) {
 	}
 }
 
-func TestK12SingleCandidateSpillsEveryThirdNewSessionToPlus(t *testing.T) {
+func TestK12SingleCandidateCapsActiveSessionsAtTwo(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
 	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")}
 
-	want := []string{"k12-a", "k12-a", "plus-a", "k12-a", "k12-a", "plus-a"}
+	want := []string{"k12-a", "k12-a", "plus-a", "plus-a", "plus-a", "plus-a"}
 	var spilledOpts cliproxyexecutor.Options
 	for index, wantAuthID := range want {
 		opts := promptCacheOptions(fmt.Sprintf("single-k12-parallel-%d", index))
@@ -362,7 +365,7 @@ func TestK12SingleCandidateSpillsEveryThirdNewSessionToPlus(t *testing.T) {
 	}
 }
 
-func TestK12SingleCandidateConcurrentSpilloverRatio(t *testing.T) {
+func TestK12SingleCandidateConcurrentCapacityLimit(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -411,8 +414,29 @@ func TestK12SingleCandidateConcurrentSpilloverRatio(t *testing.T) {
 	for authID := range results {
 		counts[authID]++
 	}
-	if counts["k12-a"] != 20 || counts["plus-a"] != 10 {
-		t.Fatalf("concurrent spillover distribution = %#v; want k12-a=20 plus-a=10", counts)
+	if counts["k12-a"] != 2 || counts["plus-a"] != 28 {
+		t.Fatalf("concurrent capacity distribution = %#v; want k12-a=2 plus-a=28", counts)
+	}
+}
+
+func TestK12MultipleCandidatesEachCapAtTwoBeforePlus(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80), "k12-b": intPtr(60)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b"), testPlusAuth("plus-a")}
+
+	want := []string{"k12-a", "k12-b", "k12-a", "k12-b", "plus-a", "plus-a"}
+	for index, wantAuthID := range want {
+		selected, err := selector.Pick(
+			context.Background(),
+			"codex",
+			"gpt-5",
+			promptCacheOptions(fmt.Sprintf("multi-k12-capacity-%d", index)),
+			auths,
+		)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("multi-K12 capacity selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
 	}
 }
 

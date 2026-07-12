@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -115,6 +116,57 @@ func TestCockpitSelectorMovesBoundOAuthAccountToFinalFallback(t *testing.T) {
 		if got[index] != want[index] {
 			t.Fatalf("ordered auths = %v, want %v", got, want)
 		}
+	}
+}
+
+func TestBuildCoreAuthSelectorUsesOnlyBoundOAuthForK12CapacitySpillover(t *testing.T) {
+	k12 := &accountSpec{ID: "k12", AuthID: "k12.json", PlanType: "K12"}
+	boundPlus := &accountSpec{ID: "bound-plus", AuthID: "bound-plus.json", PlanType: "Plus"}
+	other := &accountSpec{ID: "other", AuthID: "other.json", PlanType: "Team"}
+	m := &manifest{
+		APIKeys:             []apiKeySpec{{ID: "local", Key: "test-local-key", Enabled: true}},
+		Accounts:            []accountSpec{*k12, *boundPlus, *other},
+		RoutingStrategy:     "custom",
+		BoundOAuthAccountID: boundPlus.ID,
+		accountByAuthID: map[string]*accountSpec{
+			k12.AuthID:       k12,
+			boundPlus.AuthID: boundPlus,
+			other.AuthID:     other,
+		},
+		originalIndexByID: map[string]int{k12.ID: 0, boundPlus.ID: 1, other.ID: 2},
+	}
+	selector := buildCoreAuthSelector(&config.Config{}, &cockpitSelector{manifest: m}, m, nil)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		t.Cleanup(stoppable.Stop)
+	}
+	auths := []*coreauth.Auth{
+		{ID: k12.AuthID, Provider: "codex"},
+		{ID: other.AuthID, Provider: "codex"},
+		{ID: boundPlus.AuthID, Provider: "codex"},
+	}
+	want := []string{k12.AuthID, k12.AuthID, boundPlus.AuthID}
+	for index, wantAuthID := range want {
+		opts := cliproxyexecutor.Options{OriginalRequest: []byte(fmt.Sprintf(`{"prompt_cache_key":"bound-spillover-%d","input":[]}`, index))}
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("capacity selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
+	}
+
+	threshold := 10
+	remaining := 10
+	updatedAt := time.Now().Unix()
+	windowPresent := true
+	boundPlus.QuotaReserve = &quotaReserveSpec{
+		HourlyThresholdPercent:       &threshold,
+		SnapshotUpdatedAtUnixSeconds: &updatedAt,
+		HourlyRemainingPercent:       &remaining,
+		HourlyWindowPresent:          &windowPresent,
+	}
+	blockedOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"bound-plus-reserved","input":[]}`)}
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", blockedOpts, auths)
+	if err != nil || selected == nil || selected.ID != k12.AuthID {
+		t.Fatalf("capacity selection with reserved Plus = %#v, %v; want %s", selected, err, k12.AuthID)
 	}
 }
 

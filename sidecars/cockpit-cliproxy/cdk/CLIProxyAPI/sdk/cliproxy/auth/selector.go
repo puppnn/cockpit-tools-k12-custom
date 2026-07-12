@@ -476,7 +476,11 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 		skipGenericAffinity: cfg.SkipGenericAffinity,
 	}
 	if cfg.K12 != nil {
-		policy, err := newK12SessionPolicy(cfg.K12)
+		k12Config := *cfg.K12
+		if k12Config.SpilloverTTL <= 0 {
+			k12Config.SpilloverTTL = cfg.TTL
+		}
+		policy, err := newK12SessionPolicy(&k12Config)
 		if err != nil {
 			log.WithError(err).Warn("k12-session-affinity: state recovery failed; continuing with an empty state")
 		}

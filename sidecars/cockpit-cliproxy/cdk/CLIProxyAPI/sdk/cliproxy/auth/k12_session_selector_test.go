@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -332,6 +333,142 @@ func TestK12TentativeSessionsReserveLoadBeforeFirstSuccess(t *testing.T) {
 	)
 	if err != nil || selected == nil || selected.ID != "plus-a" {
 		t.Fatalf("Plus selected before all K12 were unavailable: %#v, %v", selected, err)
+	}
+}
+
+func TestK12SingleCandidateSpillsEveryThirdNewSessionToPlus(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")}
+
+	want := []string{"k12-a", "k12-a", "plus-a", "k12-a", "k12-a", "plus-a"}
+	var spilledOpts cliproxyexecutor.Options
+	for index, wantAuthID := range want {
+		opts := promptCacheOptions(fmt.Sprintf("single-k12-parallel-%d", index))
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("single-K12 selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
+		if index == 2 {
+			spilledOpts = opts
+			selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+		}
+	}
+
+	reused, err := selector.Pick(context.Background(), "codex", "gpt-5-mini", spilledOpts, auths)
+	if err != nil || reused == nil || reused.ID != "plus-a" {
+		t.Fatalf("spillover session affinity = %#v, %v; want plus-a", reused, err)
+	}
+}
+
+func TestK12SingleCandidateConcurrentSpilloverRatio(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")}
+
+	const sessionCount = 30
+	start := make(chan struct{})
+	results := make(chan string, sessionCount)
+	errs := make(chan error, sessionCount)
+	var workers sync.WaitGroup
+	for index := 0; index < sessionCount; index++ {
+		index := index
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			selected, err := selector.Pick(
+				context.Background(),
+				"codex",
+				"gpt-5",
+				promptCacheOptions(fmt.Sprintf("concurrent-spillover-%d", index)),
+				auths,
+			)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if selected == nil {
+				errs <- errors.New("selector returned nil auth")
+				return
+			}
+			results <- selected.ID
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	counts := map[string]int{}
+	for authID := range results {
+		counts[authID]++
+	}
+	if counts["k12-a"] != 20 || counts["plus-a"] != 10 {
+		t.Fatalf("concurrent spillover distribution = %#v; want k12-a=20 plus-a=10", counts)
+	}
+}
+
+func TestK12ConfirmedSessionNeverSpillsToPlus(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")}
+	opts := promptCacheOptions("confirmed-k12-does-not-spill")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != "k12-a" {
+		t.Fatalf("initial K12 selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+
+	for attempt := 0; attempt < 4; attempt++ {
+		reused, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+		if err != nil || reused == nil || reused.ID != "k12-a" {
+			t.Fatalf("confirmed K12 selection %d = %#v, %v", attempt, reused, err)
+		}
+	}
+}
+
+func TestK12SingleCandidateKeepsK12WhenSpilloverUnavailable(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	k12 := testK12Auth("k12-a")
+	disabledPlus := testPlusAuth("plus-a")
+	disabledPlus.Disabled = true
+	auths := []*Auth{k12, disabledPlus}
+
+	for index := 0; index < 3; index++ {
+		selected, err := selector.Pick(
+			context.Background(),
+			"codex",
+			"gpt-5",
+			promptCacheOptions(fmt.Sprintf("disabled-spillover-%d", index)),
+			auths,
+		)
+		if err != nil || selected == nil || selected.ID != "k12-a" {
+			t.Fatalf("selection with unavailable Plus %d = %#v, %v", index, selected, err)
+		}
+	}
+
+	enabledPlus := testPlusAuth("plus-a")
+	selected, err := selector.Pick(
+		context.Background(),
+		"codex",
+		"gpt-5",
+		promptCacheOptions("enabled-spillover"),
+		[]*Auth{k12, enabledPlus},
+	)
+	if err != nil || selected == nil || selected.ID != "plus-a" {
+		t.Fatalf("selection after Plus became available = %#v, %v", selected, err)
 	}
 }
 

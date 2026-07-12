@@ -32,7 +32,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 - **Established sessions keep running**: A confirmed session stays on its original K12 for as long as the upstream accepts requests, even when Cockpit displays zero remaining 5h or weekly quota for that account.
 - **Quota-aware admission for new sessions**: A fresh quota snapshot showing zero 5h quota prevents only new sessions from using that K12. Existing confirmed sessions remain eligible. A missing or stale snapshot permits one real request to verify availability.
 - **Parallel session distribution**: New sessions prefer K12 accounts with fewer confirmed sessions, then compare remaining 5h quota and the existing custom route order. Tentative selections also reserve load so concurrent requests are less likely to land on the same account.
-- **K12 first**: Eligible K12 accounts are used before falling back to other eligible accounts. The OAuth-bound Plus account is moved to the final fallback position.
+- **K12 first with single-account spillover**: With two or more K12 accounts eligible for new sessions, traffic is still balanced only across K12. When just one eligible K12 remains under concurrent load, new sessions are distributed approximately **2:1** between that K12 and eligible non-K12 / Plus accounts. Existing confirmed K12 sessions are never moved by this policy.
 - **Affinity across model aliases**: A K12 binding does not include the model ID, so switching model aliases within the same Codex session keeps the original account when possible. Disabled or unsupported models still return their normal model error.
 - **Unchanged non-K12 behavior**: Other account types retain their existing in-memory session affinity and custom load-balancing behavior. Persistent cross-model affinity applies only to K12 accounts.
 
@@ -45,7 +45,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 ### OAuth / Plus Quota Reserve
 
-- The OAuth account bound to the API service is kept as the final fallback instead of being consumed while K12 accounts are still available.
+- The OAuth account bound to the API service normally remains the final fallback. It is allowed to take roughly one third of new sessions early only when a single K12 remains eligible and has recent load.
 - By default, the final **10% of its 5h quota** is reserved. The account stops receiving requests at exactly 10% remaining.
 - The weekly reserve can be left empty, meaning no local weekly cap. This rule applies only to the bound OAuth account; other accounts are unchanged.
 - A missing or stale quota snapshot fails closed for the bound account so its reserve is not consumed when the remaining quota cannot be verified.

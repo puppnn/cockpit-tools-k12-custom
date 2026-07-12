@@ -300,21 +300,26 @@ func (s *k12SessionStore) pruneAuths(valid map[string]struct{}, now time.Time) e
 	return s.persistLocked()
 }
 
-func (s *k12SessionStore) confirmedCounts(now time.Time) map[string]int {
+func (s *k12SessionStore) confirmedAndRecentCounts(since, now time.Time) (map[string]int, map[string]int) {
 	counts := make(map[string]int)
+	recent := make(map[string]int)
 	if s == nil {
-		return counts
+		return counts, recent
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := s.cleanupLocked(now)
+	sinceUnix := since.Unix()
 	for _, binding := range s.bindings {
 		counts[binding.AuthID]++
+		if binding.LastSuccessAt >= sinceUnix {
+			recent[binding.AuthID]++
+		}
 	}
 	if changed {
 		_ = s.persistLocked()
 	}
-	return counts
+	return counts, recent
 }
 
 func (s *k12SessionStore) cleanupLocked(now time.Time) bool {

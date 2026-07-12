@@ -1,11 +1,13 @@
-# Cockpit Tools
+# Cockpit Tools K12 Custom
 
 [English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
-[![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
-[![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub release](https://img.shields.io/github/v/release/jlcodes99/cockpit-tools?style=flat)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub issues](https://img.shields.io/github/issues/jlcodes99/cockpit-tools)](https://github.com/jlcodes99/cockpit-tools/issues)
+[![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom/tree/codex/k12-session-quota-policy)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.1.5-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.1.5)
+[![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
+
+> [!IMPORTANT]
+> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。下方的通用账号管理功能继承自上游；本 Fork 的定制功能不包含在上游官方 Release 中。
 
 一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Gemini Cli**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN** 和 **Zed**，并支持多账号多实例并行运行。
 
@@ -18,7 +20,45 @@
 
 🇺🇸 English · 🇨🇳 简体中文 · 繁體中文 · 🇯🇵 日本語 · 🇩🇪 Deutsch · 🇪🇸 Español · 🇫🇷 Français · 🇮🇹 Italiano · 🇰🇷 한국어 · 🇧🇷 Português · 🇷🇺 Русский · 🇹🇷 Türkçe · 🇵🇱 Polski · 🇨🇿 Čeština · 🇸🇦 العربية · 🇻🇳 Tiếng Việt · 🇮🇩 Bahasa Indonesia
 
-**官方支持平台**：macOS、Windows、Linux。
+**上游支持平台**：macOS、Windows、Linux。
+
+---
+
+## 本 Fork 的改进
+
+### K12 会话级路由
+
+- **真实会话锁定**：优先识别 Codex 原生会话字段，并在请求首次成功或流式首包成功后把会话确认到实际使用的 K12 账号；仅被选中但尚未成功的请求不会形成永久绑定。
+- **稳定识别会话**：会话身份依次参考 `execution_session_id`、`prompt_cache_key`、Codex turn/window metadata、Session/Conversation headers 等原生标识，并保留 Claude 会话字段和消息哈希作为兼容回退。
+- **已建立会话继续运行**：只要上游仍接受请求，已确认会话会继续使用原 K12，即使 Cockpit 中显示该账号的 5h 或周额度已经为 0。
+- **新会话受配额约束**：新鲜配额快照中 5h 剩余为 0 的 K12 不再承接新会话，但不会因此阻断该账号上已经成功建立的会话；快照缺失或过期时允许一次真实请求验证。
+- **并发会话分流**：多个新会话优先分配给已确认会话数较少的 K12，再比较 5h 剩余额度和原有自定义路由顺序。临时选择也计入负载，减少并发请求同时挤到同一个账号的情况。
+- **K12 优先**：先使用仍可承接请求的 K12；K12 池不可用后才回退其他合格账号。通过 OAuth 绑定的 Plus 账号被放在最终兜底位置。
+- **跨模型保持亲和**：K12 会话绑定不包含模型 ID，同一个 Codex 会话切换模型别名时仍优先使用原账号；模型本身被禁用或不受支持时仍正常返回模型错误。
+- **非 K12 行为不变**：其他账号继续使用原有的内存会话亲和与自定义负载策略，持久化的跨模型会话策略只作用于 K12。
+
+### 连续任务与故障切换
+
+- **429 自动换号**：K12 真正返回 429 时释放本次无效绑定，并在同一请求中尝试其他有额度账号，避免一个账号耗尽后让整个长任务直接停止。
+- **首包超时恢复**：流式请求迟迟没有首包时会释放无响应的 K12 绑定并重试；账号切换后重新计算首包等待时间，额外总宽限最多 60 秒。
+- **故障相互隔离**：一个新会话的失败不会给整个 K12 设置全局冷却，也不会影响该账号上的其他已确认会话。
+- **硬失效清理**：账号被删除、禁用或凭据明确失效时会清除对应会话绑定，允许请求改用其他账号。
+
+### OAuth / Plus 额度保留
+
+- 通过 API 服务绑定的 OAuth 账号作为最终兜底，不会在 K12 仍可用时被优先消耗。
+- 默认保留绑定账号最后 **10% 的 5h 额度**：剩余恰好 10% 时即停止路由到该账号。
+- 周额度阈值可留空，表示不对绑定账号设置本地周额度限制；此规则只作用于被绑定的 OAuth 账号，其他账号不受影响。
+- 绑定账号的配额快照缺失或过期时采用保守策略，避免在无法确认剩余额度时误用保留额度。
+
+### 满额 Ping 与状态持久化
+
+- **满额 Ping**：对 5h 显示为 99% 或 100%、周额度剩余大于 10%，且确认尚未开始当前 5h 窗口的账号，可手动发送一次最小 `ping` 请求来启动额度倒计时；成功后会延迟刷新账号状态。
+- **会话跨重启恢复**：K12 成功绑定会滚动保存 7 天，sidecar 重启后可以恢复仍有效的会话亲和。
+- **隐私保护**：持久化会话键由本地 API 服务密钥派生并使用 HMAC-SHA256 摘要。K12 状态文件不保存原始会话 ID、提示词、消息内容、账号令牌或请求日志。
+
+> [!CAUTION]
+> Cockpit 展示的配额是快照，不是已建立上游会话能否继续的最终依据。本 Fork 不能保证 K12 一定延续到周额度的某个固定比例（例如 30%），也不会伪造会话或在后台发送保活请求。上游真正拒绝请求后可以自动切换账号以保持任务运行，但切换账号可能失去原上游会话的连续性。
 
 ---
 

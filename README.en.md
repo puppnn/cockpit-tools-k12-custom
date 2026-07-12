@@ -1,11 +1,13 @@
-# Cockpit Tools
+# Cockpit Tools K12 Custom
 
 English · [Portuguese (BR)](README.pt-br.md) · [简体中文](README.md)
 
-[![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
-[![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub release](https://img.shields.io/github/v/release/jlcodes99/cockpit-tools?style=flat)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub issues](https://img.shields.io/github/issues/jlcodes99/cockpit-tools)](https://github.com/jlcodes99/cockpit-tools/issues)
+[![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom/tree/codex/k12-session-quota-policy)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.1.5-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.1.5)
+[![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
+
+> [!IMPORTANT]
+> This is a custom fork of [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools), focused on K12 session routing, long-running task failover, and OAuth quota reserves in the local Codex API service. The general account-management features documented below are inherited from upstream. These custom changes are not included in upstream releases.
 
 A **universal AI IDE account management tool**, currently supporting **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Gemini Cli**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TRAE SOLO**, **Trae CN**, **TRAE SOLO CN**, and **Zed**, with multi-instance parallel workflows.
 
@@ -17,7 +19,45 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 🇺🇸 English · 🇨🇳 简体中文 · 繁體中文 · 🇯🇵 日本語 · 🇩🇪 Deutsch · 🇪🇸 Español · 🇫🇷 Français · 🇮🇹 Italiano · 🇰🇷 한국어 · 🇧🇷 Português · 🇷🇺 Русский · 🇹🇷 Türkçe · 🇵🇱 Polski · 🇨🇿 Čeština · 🇸🇦 العربية · 🇻🇳 Tiếng Việt · 🇮🇩 Bahasa Indonesia
 
-**Officially supported platforms**: macOS, Windows, and Linux.
+**Upstream-supported platforms**: macOS, Windows, and Linux.
+
+---
+
+## Custom Fork Enhancements
+
+### Session-Aware K12 Routing
+
+- **Real session affinity**: Native Codex session fields are preferred. A session is confirmed on the K12 account that actually served it only after the first successful response or first successful stream payload; selection alone does not create a persistent binding.
+- **Stable session identity**: Identity sources prioritize `execution_session_id`, `prompt_cache_key`, Codex turn/window metadata, and Session/Conversation headers, with Claude session fields and a message hash retained as compatibility fallbacks.
+- **Established sessions keep running**: A confirmed session stays on its original K12 for as long as the upstream accepts requests, even when Cockpit displays zero remaining 5h or weekly quota for that account.
+- **Quota-aware admission for new sessions**: A fresh quota snapshot showing zero 5h quota prevents only new sessions from using that K12. Existing confirmed sessions remain eligible. A missing or stale snapshot permits one real request to verify availability.
+- **Parallel session distribution**: New sessions prefer K12 accounts with fewer confirmed sessions, then compare remaining 5h quota and the existing custom route order. Tentative selections also reserve load so concurrent requests are less likely to land on the same account.
+- **K12 first**: Eligible K12 accounts are used before falling back to other eligible accounts. The OAuth-bound Plus account is moved to the final fallback position.
+- **Affinity across model aliases**: A K12 binding does not include the model ID, so switching model aliases within the same Codex session keeps the original account when possible. Disabled or unsupported models still return their normal model error.
+- **Unchanged non-K12 behavior**: Other account types retain their existing in-memory session affinity and custom load-balancing behavior. Persistent cross-model affinity applies only to K12 accounts.
+
+### Continuity and Failover
+
+- **Automatic 429 failover**: When a K12 actually returns 429, the unusable binding is released and another account is attempted within the same request, preventing one exhausted account from stopping a long-running task.
+- **First-payload timeout recovery**: A stream that never opens releases its unresponsive K12 binding and retries. The first-payload timeout is refreshed after credential failover, with no more than 60 seconds of additional total grace.
+- **Failure isolation**: A failed new session does not put the entire K12 account into global cooldown or disturb other confirmed sessions on that account.
+- **Hard-failure cleanup**: Bindings are removed when an account is deleted, disabled, or has clearly invalid credentials, allowing requests to move to another account.
+
+### OAuth / Plus Quota Reserve
+
+- The OAuth account bound to the API service is kept as the final fallback instead of being consumed while K12 accounts are still available.
+- By default, the final **10% of its 5h quota** is reserved. The account stops receiving requests at exactly 10% remaining.
+- The weekly reserve can be left empty, meaning no local weekly cap. This rule applies only to the bound OAuth account; other accounts are unchanged.
+- A missing or stale quota snapshot fails closed for the bound account so its reserve is not consumed when the remaining quota cannot be verified.
+
+### Full-Quota Ping and Persistence
+
+- **Full-quota ping**: An account displaying 99% or 100% 5h quota, more than 10% weekly quota, and a confirmed unstarted 5h window can receive one manual minimal `ping` request to start its countdown. Cockpit refreshes the account state shortly after a successful ping.
+- **Restart-safe affinity**: Successful K12 bindings use a rolling seven-day lifetime and can be restored after a sidecar restart while still valid.
+- **Privacy-preserving state**: Persistent session keys are derived from the local API service key and stored as HMAC-SHA256 digests. The K12 state file contains no raw session IDs, prompts, message content, account tokens, or request logs.
+
+> [!CAUTION]
+> Cockpit quota values are snapshots, not the final authority on whether an established upstream session can continue. This fork cannot guarantee continuation to any fixed weekly percentage, such as 30%, and it does not fabricate sessions or send background keepalive requests. Once the upstream truly rejects a request, automatic account failover can keep the task running, but changing accounts may lose continuity of the original upstream session.
 
 ---
 

@@ -105,6 +105,7 @@ import {
   type CodexResetCreditsSnapshot,
 } from "../types/codex";
 import { filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
+import { isCodexFullQuotaPingEligible } from "../utils/codexFullQuotaPing";
 import { isBlockingCodexQuotaError } from "../utils/codexQuotaError";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 
@@ -354,6 +355,10 @@ const EXPIRY_FILTER_FIELD = CODEX_OVERVIEW_FILTER_FIELDS.expiryFilter;
 const GROUP_FILTER_FIELD = CODEX_OVERVIEW_FILTER_FIELDS.groupFilter;
 const ACTIVE_GROUP_ID_FIELD = CODEX_OVERVIEW_FILTER_FIELDS.activeGroupId;
 const OAUTH_BINDING_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const DEFAULT_BOUND_OAUTH_QUOTA_RESERVE: CodexLocalAccessOAuthQuotaReserve = {
+  hourlyPercent: 10,
+  weeklyPercent: null,
+};
 
 type CodexOverviewLayoutMode = "compact" | "list" | "grid";
 type OAuthBindingTargetKind = "api_key_account" | "local_access";
@@ -4660,19 +4665,24 @@ export function CodexAccountsPage() {
   const openLocalAccessOAuthBindingModal = useCallback(
     (options?: { autoSwitch?: boolean }) => {
       const persistedQuotaReserve =
-        localAccessCollection?.boundOauthQuotaReserve ?? null;
+        localAccessCollection?.boundOauthQuotaReserve ??
+        DEFAULT_BOUND_OAUTH_QUOTA_RESERVE;
       const hourlyPercent = persistedQuotaReserve
         ? parseOAuthQuotaReservePercent(
             String(persistedQuotaReserve.hourlyPercent),
           )
         : null;
       const weeklyPercent = persistedQuotaReserve
-        ? parseOAuthQuotaReservePercent(
-            String(persistedQuotaReserve.weeklyPercent),
-          )
+        ? persistedQuotaReserve.weeklyPercent === null
+          ? null
+          : parseOAuthQuotaReservePercent(
+              String(persistedQuotaReserve.weeklyPercent),
+            )
         : null;
       const quotaReserve =
-        hourlyPercent !== null && weeklyPercent !== null
+        hourlyPercent !== null &&
+        (persistedQuotaReserve?.weeklyPercent === null ||
+          weeklyPercent !== null)
           ? { hourlyPercent, weeklyPercent }
           : null;
       setOauthBindingTargetKind("local_access");
@@ -4707,10 +4717,11 @@ export function CodexAccountsPage() {
     setOauthBindingHourlyReserveDraft(
       oauthBindingQuotaReserve
         ? String(oauthBindingQuotaReserve.hourlyPercent)
-        : "",
+        : "10",
     );
     setOauthBindingWeeklyReserveDraft(
-      oauthBindingQuotaReserve
+      oauthBindingQuotaReserve?.weeklyPercent !== null &&
+        oauthBindingQuotaReserve?.weeklyPercent !== undefined
         ? String(oauthBindingQuotaReserve.weeklyPercent)
         : "",
     );
@@ -4745,7 +4756,9 @@ export function CodexAccountsPage() {
       field: keyof OAuthBindingQuotaReserveFieldErrors,
       rawValue: string,
     ) => {
-      const valid = parseOAuthQuotaReservePercent(rawValue) !== null;
+      const valid =
+        (field === "weeklyPercent" && rawValue.trim() === "") ||
+        parseOAuthQuotaReservePercent(rawValue) !== null;
       setOauthBindingQuotaReserveFieldErrors((prev) => ({
         ...prev,
         [field]: valid
@@ -4763,9 +4776,10 @@ export function CodexAccountsPage() {
     const hourlyPercent = parseOAuthQuotaReservePercent(
       oauthBindingHourlyReserveDraft,
     );
-    const weeklyPercent = parseOAuthQuotaReservePercent(
-      oauthBindingWeeklyReserveDraft,
-    );
+    const weeklyPercent =
+      oauthBindingWeeklyReserveDraft.trim() === ""
+        ? null
+        : parseOAuthQuotaReservePercent(oauthBindingWeeklyReserveDraft);
     const invalidMessage = t(
       "codex.localAccess.oauthBinding.quotaReserveInvalid",
       "请输入 1 到 100 的整数",
@@ -4774,10 +4788,13 @@ export function CodexAccountsPage() {
     if (hourlyPercent === null) {
       fieldErrors.hourlyPercent = invalidMessage;
     }
-    if (weeklyPercent === null) {
+    if (
+      oauthBindingWeeklyReserveDraft.trim() !== "" &&
+      weeklyPercent === null
+    ) {
       fieldErrors.weeklyPercent = invalidMessage;
     }
-    if (hourlyPercent === null || weeklyPercent === null) {
+    if (hourlyPercent === null || fieldErrors.weeklyPercent) {
       setOauthBindingQuotaReserveFieldErrors(fieldErrors);
       window.requestAnimationFrame(() => {
         const target = fieldErrors.hourlyPercent
@@ -8523,13 +8540,26 @@ export function CodexAccountsPage() {
         .map((account) => account.id),
     [filteredAccounts, isAbnormalAccount],
   );
+  const refreshWakeupAccountQuotas = useCallback(
+    async (accountIds: string[]) => {
+      const uniqueAccountIds = Array.from(new Set(accountIds.filter(Boolean)));
+      await Promise.allSettled(
+        uniqueAccountIds.map((accountId) => codexService.refreshCodexQuota(accountId)),
+      );
+      await fetchAccounts();
+      await fetchCurrentAccount();
+    },
+    [fetchAccounts, fetchCurrentAccount],
+  );
   const hasDetectableFullQuotaWakeupAccounts = useMemo(
+    () => filteredAccounts.some(isCodexFullQuotaPingEligible),
+    [filteredAccounts],
+  );
+  const fullQuotaWakeupAccountIds = useMemo(
     () =>
-      filteredAccounts.some(
-        (account) =>
-          !isCodexApiKeyAccount(account) &&
-          Boolean(account.tokens.refresh_token?.trim()),
-      ),
+      filteredAccounts
+        .filter(isCodexFullQuotaPingEligible)
+        .map((account) => account.id),
     [filteredAccounts],
   );
   const handleClearErrorAccounts = useCallback(() => {
@@ -8548,7 +8578,7 @@ export function CodexAccountsPage() {
       setMessage({
         text: t(
           "codex.wakeup.fullQuotaNoAccounts",
-          "当前列表没有可唤醒的 OAuth 账号。",
+          "当前列表没有 5h 已满且周额度大于 10% 的 OAuth 账号。",
         ),
         tone: "error",
       });
@@ -8557,11 +8587,17 @@ export function CodexAccountsPage() {
     fullQuotaWakeupOpenSignalRef.current += 1;
     setFullQuotaWakeupOpenRequest({
       signal: fullQuotaWakeupOpenSignalRef.current,
+      accountIds: fullQuotaWakeupAccountIds,
       variant: "fullQuota",
       defaultSortBy: "hourly",
       defaultSortDirection: "desc",
     });
-  }, [hasDetectableFullQuotaWakeupAccounts, setMessage, t]);
+  }, [
+    fullQuotaWakeupAccountIds,
+    hasDetectableFullQuotaWakeupAccounts,
+    setMessage,
+    t,
+  ]);
   const exportSelectionCount = getScopedSelectedCount(filteredIds);
   const pagination = usePagination({
     items: filteredAccounts,
@@ -10076,7 +10112,7 @@ export function CodexAccountsPage() {
                   }`}
                   title={t(
                     "codex.localAccess.oauthBinding.quotaReserveDesc",
-                    "API 服务仅在 5 小时和周剩余额度均高于保留值时使用该 OAuth 账号。",
+                    "API 服务仅在已设置的额度窗口剩余值高于保留值时使用该 OAuth 账号；周保留可留空，留空表示不限制周额度。",
                   )}
                 >
                   <CircleAlert size={13} />
@@ -12701,12 +12737,12 @@ export function CodexAccountsPage() {
                         disabled={!hasDetectableFullQuotaWakeupAccounts}
                         title={t(
                           "codex.wakeup.fullQuotaActionTitle",
-                          "打开账号唤醒测试，账号默认按 5h 额度从高到低排序。",
+                          "对 5h 已满且周额度大于 10% 的账号发送微小请求，启动 5h 倒计时。",
                         )}
                       >
                         <Power size={14} />
                         <span>
-                          {t("codex.wakeup.fullQuotaAction", "唤醒账号")}
+                          {t("codex.wakeup.fullQuotaAction", "启动 5h 倒计时")}
                         </span>
                       </button>
                       {errorAccountIds.length > 0 && (
@@ -14103,7 +14139,7 @@ export function CodexAccountsPage() {
                                 className="codex-oauth-binding-gateway-toggle codex-oauth-binding-quota-toggle"
                                 title={t(
                                   "codex.localAccess.oauthBinding.quotaReserveDesc",
-                                  "API 服务仅在 5 小时和周剩余额度均高于保留值时使用该 OAuth 账号。",
+                                  "API 服务仅在已设置的额度窗口剩余值高于保留值时使用该 OAuth 账号；周保留可留空，留空表示不限制周额度。",
                                 )}
                               >
                                 <input
@@ -14139,7 +14175,15 @@ export function CodexAccountsPage() {
                                   )} ${oauthBindingQuotaReserve.hourlyPercent}% · ${t(
                                     "codex.localAccess.oauthBinding.quotaReserveWeeklyLabel",
                                     "周保留",
-                                  )} ${oauthBindingQuotaReserve.weeklyPercent}%`}
+                                  )} ${
+                                    oauthBindingQuotaReserve.weeklyPercent ===
+                                    null
+                                      ? t(
+                                          "codex.newApi.quota.unlimited",
+                                          "不限量",
+                                        )
+                                      : `${oauthBindingQuotaReserve.weeklyPercent}%`
+                                  }`}
                                   aria-label={`${t("instances.actions.edit", "编辑")} ${t(
                                     "codex.localAccess.oauthBinding.quotaReserveToggle",
                                     "保留 OAuth 额度",
@@ -14493,7 +14537,7 @@ export function CodexAccountsPage() {
                       <p className="section-desc codex-oauth-binding-quota-desc">
                         {t(
                           "codex.localAccess.oauthBinding.quotaReserveDesc",
-                          "API 服务仅在 5 小时和周剩余额度均高于保留值时使用该 OAuth 账号。",
+                          "API 服务仅在已设置的额度窗口剩余值高于保留值时使用该 OAuth 账号；周保留可留空，留空表示不限制周额度。",
                         )}
                       </p>
                       <div className="codex-oauth-binding-quota-fields">
@@ -14585,7 +14629,14 @@ export function CodexAccountsPage() {
                                 )
                               }
                             />
-                            <span aria-hidden="true">%</span>
+                            <span aria-hidden="true">
+                              {oauthBindingWeeklyReserveDraft.trim() === ""
+                                ? t(
+                                    "codex.newApi.quota.unlimited",
+                                    "不限量",
+                                  )
+                                : "%"}
+                            </span>
                           </div>
                           {oauthBindingQuotaReserveFieldErrors.weeklyPercent && (
                             <span className="codex-account-note-field-error codex-oauth-binding-quota-error">
@@ -16479,6 +16530,7 @@ export function CodexAccountsPage() {
             await fetchAccounts();
             await fetchCurrentAccount();
           }}
+          onRefreshAccountQuotas={refreshWakeupAccountQuotas}
         />
       )}
 
@@ -16491,6 +16543,7 @@ export function CodexAccountsPage() {
             await fetchAccounts();
             await fetchCurrentAccount();
           }}
+          onRefreshAccountQuotas={refreshWakeupAccountQuotas}
         />
       )}
 

@@ -700,6 +700,48 @@ func TestSessionAffinitySelector_FailoverWhenAuthUnavailable(t *testing.T) {
 	}
 }
 
+func TestSessionAffinitySelector_DoesNotStickToSkippedAuth(t *testing.T) {
+	t.Parallel()
+
+	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+		Fallback: &RoundRobinSelector{},
+		TTL:      time.Minute,
+		SkipGenericAffinity: func(auth *Auth) bool {
+			return auth != nil && auth.ID == "auth-bound"
+		},
+	})
+	defer selector.Stop()
+
+	auths := []*Auth{{ID: "auth-bound"}, {ID: "auth-other"}}
+	opts := cliproxyexecutor.Options{
+		OriginalRequest: []byte(`{"prompt_cache_key":"skip-generic-affinity"}`),
+	}
+
+	first, err := selector.Pick(context.Background(), "codex", "gpt-5.4-mini", opts, auths)
+	if err != nil {
+		t.Fatalf("first Pick() error = %v", err)
+	}
+	if first.ID != "auth-bound" {
+		t.Fatalf("first Pick() auth.ID = %q, want auth-bound", first.ID)
+	}
+
+	second, err := selector.Pick(context.Background(), "codex", "gpt-5.4-mini", opts, auths)
+	if err != nil {
+		t.Fatalf("second Pick() error = %v", err)
+	}
+	if second.ID != "auth-other" {
+		t.Fatalf("second Pick() auth.ID = %q, want auth-other", second.ID)
+	}
+
+	third, err := selector.Pick(context.Background(), "codex", "gpt-5.4-mini", opts, auths)
+	if err != nil {
+		t.Fatalf("third Pick() error = %v", err)
+	}
+	if third.ID != "auth-other" {
+		t.Fatalf("third Pick() auth.ID = %q, want sticky auth-other", third.ID)
+	}
+}
+
 func TestRoundRobinSelectorPick_MixedVirtualAndNonVirtualFallsBackToFlat(t *testing.T) {
 	t.Parallel()
 

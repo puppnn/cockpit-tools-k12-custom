@@ -85,6 +85,39 @@ func TestVisibleModelsForAPIKeyUsesPrefixAndFilters(t *testing.T) {
 	}
 }
 
+func TestCockpitSelectorMovesBoundOAuthAccountToFinalFallback(t *testing.T) {
+	bound := &accountSpec{ID: "bound", AuthID: "bound.json"}
+	preferred := &accountSpec{ID: "preferred", AuthID: "preferred.json"}
+	other := &accountSpec{ID: "other", AuthID: "other.json"}
+	m := &manifest{
+		Accounts:            []accountSpec{*bound, *preferred, *other},
+		RoutingStrategy:     "custom",
+		BoundOAuthAccountID: "bound",
+		CustomRoutingRules: []customRoutingRule{
+			{AccountID: "bound", Priority: 100, Weight: 1},
+			{AccountID: "preferred", Priority: 10, Weight: 1},
+			{AccountID: "other", Priority: 0, Weight: 1},
+		},
+		accountByAuthID: map[string]*accountSpec{
+			"bound.json":     bound,
+			"preferred.json": preferred,
+			"other.json":     other,
+		},
+		originalIndexByID: map[string]int{"bound": 0, "preferred": 1, "other": 2},
+	}
+	selector := &cockpitSelector{manifest: m}
+	auths := []*coreauth.Auth{{ID: "bound.json"}, {ID: "preferred.json"}, {ID: "other.json"}}
+
+	ordered := selector.orderAuths(auths, 0)
+	got := []string{ordered[0].ID, ordered[1].ID, ordered[2].ID}
+	want := []string{"preferred.json", "other.json", "bound.json"}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("ordered auths = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestClientCatalogModelsIncludesAutoReviewWithoutPrefix(t *testing.T) {
 	spec := &apiKeySpec{
 		ModelPrefix:    "team",
@@ -278,6 +311,42 @@ func TestCockpitSelectorPickIgnoresExplicitlyMissingQuotaWindow(t *testing.T) {
 	}
 }
 
+func TestCockpitSelectorNullableWeeklyReserveUsesOnlyFiveHourBoundary(t *testing.T) {
+	hourlyThreshold := 10
+	snapshotUpdatedAt := time.Now().Unix()
+	weeklyRemaining := 0
+	windowPresent := true
+	account := &accountSpec{
+		ID:     "protected",
+		AuthID: "protected.json",
+		QuotaReserve: &quotaReserveSpec{
+			HourlyThresholdPercent:       &hourlyThreshold,
+			WeeklyThresholdPercent:       nil,
+			SnapshotUpdatedAtUnixSeconds: &snapshotUpdatedAt,
+			WeeklyRemainingPercent:       &weeklyRemaining,
+			HourlyWindowPresent:          &windowPresent,
+			WeeklyWindowPresent:          &windowPresent,
+		},
+	}
+	selector := &cockpitSelector{manifest: &manifest{
+		accountByAuthID: map[string]*accountSpec{"protected.json": account},
+	}}
+	auths := []*coreauth.Auth{{ID: "protected.json"}}
+
+	hourlyRemaining := 11
+	account.QuotaReserve.HourlyRemainingPercent = &hourlyRemaining
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", cliproxyexecutor.Options{}, auths)
+	if err != nil || selected == nil || selected.ID != "protected.json" {
+		t.Fatalf("11%% hourly with unlimited weekly should be available: auth=%#v err=%v", selected, err)
+	}
+
+	hourlyRemaining = 10
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", cliproxyexecutor.Options{}, auths)
+	if selected != nil || err == nil || !strings.Contains(err.Error(), "5h remaining 10% <= reserve 10%") {
+		t.Fatalf("10%% hourly should be blocked at the boundary: auth=%#v err=%v", selected, err)
+	}
+}
+
 func TestCockpitSelectorPickFailsClosedForUnknownBoundOAuthQuota(t *testing.T) {
 	hourlyThreshold := 10
 	weeklyThreshold := 20
@@ -396,7 +465,7 @@ func TestQuotaReserveStateStoreHotReloadsSnapshot(t *testing.T) {
 	}
 	writeState := func(hourly, weekly int) {
 		t.Helper()
-		content, err := json.Marshal(quotaReserveStateFile{Accounts: map[string]quotaReserveSnapshot{
+		content, err := json.Marshal(quotaReserveStateFile{Version: quotaReserveStateVersion, Accounts: map[string]quotaReserveSnapshot{
 			"protected": {
 				SnapshotUpdatedAtUnixSeconds: int64PointerForTest(time.Now().Unix()),
 				HourlyRemainingPercent:       intPointerForTest(hourly),
@@ -428,6 +497,24 @@ func TestQuotaReserveStateStoreHotReloadsSnapshot(t *testing.T) {
 	}
 	if reason := quotaReserveBlockReasonWithState(account, store, time.Now()); !strings.Contains(reason, "5h remaining 20% <= reserve 20%") {
 		t.Fatalf("expected hot-reloaded reserve block, got %q", reason)
+	}
+}
+
+func TestQuotaReserveStateStoreRejectsUnknownVersion(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "quota-reserve.json")
+	content, err := json.Marshal(quotaReserveStateFile{
+		Version:  quotaReserveStateVersion + 1,
+		Accounts: map[string]quotaReserveSnapshot{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newQuotaReserveStateStore(statePath, nil)
+	if err := store.load(); err == nil || !strings.Contains(err.Error(), "unsupported quota reserve state version") {
+		t.Fatalf("unknown state version was accepted: %v", err)
 	}
 }
 
@@ -1883,6 +1970,53 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 	}
 }
 
+func TestRelayServerRefreshesOpenTimeoutAfterAuthFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := streamOpenTimeout
+	oldAttempts := streamOpenMaxAttempts
+	streamOpenTimeout = 20 * time.Millisecond
+	streamOpenMaxAttempts = 1
+	defer func() {
+		streamOpenTimeout = oldTimeout
+		streamOpenMaxAttempts = oldAttempts
+	}()
+
+	stream := make(chan cliproxyexecutor.StreamChunk, 1)
+	stream <- cliproxyexecutor.StreamChunk{Payload: []byte(`[DONE]`)}
+	close(stream)
+	runtime := &fakeRuntime{
+		streamAuthSelections:   []string{"k12-a", "k12-b"},
+		streamAuthSelectionGap: 15 * time.Millisecond,
+		streamResult: &cliproxyexecutor.StreamResult{
+			Headers: http.Header{"Content-Type": []string{"application/json"}},
+			Chunks:  stream,
+		},
+	}
+	router := testRelayRouter(runtime)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("auth failover should receive a fresh open timeout, got status=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := runtime.observedAuthSelections; len(got) != 2 || got[0] != "k12-a" || got[1] != "k12-b" {
+		t.Fatalf("unexpected auth selection callbacks: %#v", got)
+	}
+}
+
+func TestStreamOpenFailoverBudgetCapsExtraWait(t *testing.T) {
+	if got := streamOpenFailoverBudget(20 * time.Millisecond); got != 40*time.Millisecond {
+		t.Fatalf("short timeout budget = %s", got)
+	}
+	if got := streamOpenFailoverBudget(2 * time.Minute); got != 3*time.Minute {
+		t.Fatalf("long timeout budget = %s", got)
+	}
+}
+
 func TestRelayServerUsesLongOpenTimeoutForImageGenerationTool(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldOpenTimeout := streamOpenTimeout
@@ -2006,6 +2140,13 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 	}
 	if runtime.streamCalls != 2 {
 		t.Fatalf("expected retry to call stream runtime twice, got %d", runtime.streamCalls)
+	}
+	if len(runtime.streamCancelCauses) != 1 {
+		t.Fatalf("expected one canceled attempt cause, got %#v", runtime.streamCancelCauses)
+	}
+	statusCause, ok := runtime.streamCancelCauses[0].(interface{ StatusCode() int })
+	if !ok || statusCause.StatusCode() != http.StatusGatewayTimeout || !strings.Contains(runtime.streamCancelCauses[0].Error(), "stream_open attempt=1/2") {
+		t.Fatalf("first retry cause should be a typed stream-open 504: %#v", runtime.streamCancelCauses[0])
 	}
 	if !strings.Contains(w.Body.String(), "[DONE]") {
 		t.Fatalf("retry should stream successful second attempt: %s", w.Body.String())
@@ -2271,6 +2412,10 @@ type fakeRuntime struct {
 	streamOpenDelay         time.Duration
 	streamResultDelay       time.Duration
 	streamResultPayload     []byte
+	streamCancelCauses      []error
+	streamAuthSelections    []string
+	streamAuthSelectionGap  time.Duration
+	observedAuthSelections  []string
 
 	executeCalls int
 	streamCalls  int
@@ -2291,7 +2436,26 @@ func (r *fakeRuntime) ExecuteStream(ctx context.Context, _ []string, req cliprox
 	r.lastOpts = opts
 	if r.streamWaitForContext || r.streamCalls <= r.streamWaitAttempts {
 		<-ctx.Done()
+		r.streamCancelCauses = append(r.streamCancelCauses, context.Cause(ctx))
 		return nil, ctx.Err()
+	}
+	if callback, ok := opts.Metadata[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string)); ok && callback != nil {
+		for _, authID := range r.streamAuthSelections {
+			callback(authID)
+			r.observedAuthSelections = append(r.observedAuthSelections, authID)
+			if r.streamAuthSelectionGap <= 0 {
+				continue
+			}
+			timer := time.NewTimer(r.streamAuthSelectionGap)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
 	}
 	if r.streamOpenDelay > 0 {
 		timer := time.NewTimer(r.streamOpenDelay)

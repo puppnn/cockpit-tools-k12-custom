@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -114,11 +115,39 @@ type Result struct {
 	RetryAfter *time.Duration
 	// Error describes the failure when Success is false.
 	Error *Error
+	// SuppressAvailabilityUpdate records the request without applying account or
+	// model cooldown state. Session-aware selectors use this for isolated K12 failures.
+	SuppressAvailabilityUpdate bool
 }
 
 // Selector chooses an auth candidate for execution.
 type Selector interface {
 	Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error)
+}
+
+// PreAvailabilitySelector may recover a confirmed binding before ordinary
+// cooldown filtering. It is used for session policies whose upstream state is
+// more specific than account-wide limiter state.
+type PreAvailabilitySelector interface {
+	PickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, bool, error)
+}
+
+// SelectionResultDirective controls retry and cooldown behavior for one selected auth.
+type SelectionResultDirective struct {
+	SuppressAvailabilityUpdate bool
+	StopAuthAttempt            bool
+	StopCredentialFallback     bool
+}
+
+// SelectionResultSelector observes the result of an auth selection.
+type SelectionResultSelector interface {
+	OnSelectionResult(ctx context.Context, result Result, opts cliproxyexecutor.Options) SelectionResultDirective
+}
+
+// AuthSnapshotSelector receives full auth snapshots so persistent bindings can
+// be pruned after account deletion or explicit disablement.
+type AuthSnapshotSelector interface {
+	SyncAuths(auths []*Auth)
 }
 
 // StoppableSelector is an optional interface for selectors that hold resources.
@@ -229,10 +258,22 @@ func isBuiltInSelector(selector Selector) bool {
 }
 
 func (m *Manager) syncSchedulerFromSnapshot(auths []*Auth) {
-	if m == nil || m.scheduler == nil {
+	if m == nil {
 		return
 	}
-	m.scheduler.rebuild(auths)
+	m.syncSelectorAuths(auths)
+	if m.scheduler != nil {
+		m.scheduler.rebuild(auths)
+	}
+}
+
+func (m *Manager) syncSelectorAuths(auths []*Auth) {
+	if m == nil {
+		return
+	}
+	if observer, ok := m.selector.(AuthSnapshotSelector); ok && observer != nil {
+		observer.SyncAuths(auths)
+	}
 }
 
 func (m *Manager) syncScheduler() {
@@ -364,6 +405,39 @@ func (m *Manager) SetSelector(selector Selector) {
 		m.scheduler.setSelector(selector)
 		m.syncScheduler()
 	}
+}
+
+func (m *Manager) pickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, bool, error) {
+	if m == nil {
+		return nil, false, nil
+	}
+	selector := m.selector
+	preSelector, ok := selector.(PreAvailabilitySelector)
+	if !ok || preSelector == nil {
+		return nil, false, nil
+	}
+	return preSelector.PickBeforeAvailability(ctx, provider, model, opts, auths)
+}
+
+func (m *Manager) notifySelectionResult(ctx context.Context, result Result, opts cliproxyexecutor.Options) SelectionResultDirective {
+	if m == nil {
+		return SelectionResultDirective{}
+	}
+	m.mu.RLock()
+	selector := m.selector
+	m.mu.RUnlock()
+	observer, ok := selector.(SelectionResultSelector)
+	if !ok || observer == nil {
+		return SelectionResultDirective{}
+	}
+	return observer.OnSelectionResult(ctx, result, opts)
+}
+
+func (m *Manager) markSelectionResult(ctx context.Context, result Result, opts cliproxyexecutor.Options) SelectionResultDirective {
+	directive := m.notifySelectionResult(ctx, result, opts)
+	result.SuppressAvailabilityUpdate = directive.SuppressAvailabilityUpdate
+	m.MarkResult(ctx, result)
+	return directive
 }
 
 // SetStore swaps the underlying persistence store.
@@ -706,6 +780,14 @@ func selectionArgForSelector(selector Selector, routeModel string) string {
 	return routeModel
 }
 
+func modelNotSupportedError(model string) *Error {
+	message := "requested model is not supported"
+	if strings.TrimSpace(model) != "" {
+		message = fmt.Sprintf("requested model %s is not supported by the confirmed K12 session account", model)
+	}
+	return &Error{Code: "model_not_supported", Message: message, HTTPStatus: http.StatusBadRequest}
+}
+
 func (m *Manager) authSupportsRouteModel(registryRef *registry.ModelRegistry, auth *Auth, routeModel string) bool {
 	if registryRef == nil || auth == nil {
 		return true
@@ -734,6 +816,44 @@ func discardStreamChunks(ch <-chan cliproxyexecutor.StreamChunk) {
 type streamBootstrapError struct {
 	cause   error
 	headers http.Header
+}
+
+type selectionFailureError struct {
+	cause error
+}
+
+func newSelectionFailureError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &selectionFailureError{cause: err}
+}
+
+func (e *selectionFailureError) Error() string {
+	if e == nil || e.cause == nil {
+		return ""
+	}
+	return e.cause.Error()
+}
+
+func (e *selectionFailureError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func selectionStopsCredentialFallback(err error) bool {
+	var selectionErr *selectionFailureError
+	return errors.As(err, &selectionErr) && selectionErr != nil
+}
+
+func unwrapSelectionFailure(err error) error {
+	var selectionErr *selectionFailureError
+	if errors.As(err, &selectionErr) && selectionErr != nil && selectionErr.cause != nil {
+		return selectionErr.cause
+	}
+	return err
 }
 
 func cloneHTTPHeader(headers http.Header) http.Header {
@@ -816,7 +936,39 @@ func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamC
 	}
 }
 
-func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, resultModel string, headers http.Header, buffered []cliproxyexecutor.StreamChunk, remaining <-chan cliproxyexecutor.StreamChunk) *cliproxyexecutor.StreamResult {
+// reportableContextCause distinguishes an internal cancellation with a typed
+// cause from an ordinary caller cancellation or deadline.
+func reportableContextCause(ctx context.Context) (error, bool) {
+	if ctx == nil || ctx.Err() == nil {
+		return nil, false
+	}
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return ctx.Err(), false
+	}
+	return cause, true
+}
+
+func executionContextError(ctx context.Context) error {
+	if cause, report := reportableContextCause(ctx); report {
+		return cause
+	}
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
+}
+
+func streamChunksHavePayload(chunks []cliproxyexecutor.StreamChunk) bool {
+	for _, chunk := range chunks {
+		if len(chunk.Payload) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, resultModel string, opts cliproxyexecutor.Options, headers http.Header, buffered []cliproxyexecutor.StreamChunk, remaining <-chan cliproxyexecutor.StreamChunk) *cliproxyexecutor.StreamResult {
 	out := make(chan cliproxyexecutor.StreamChunk)
 	go func() {
 		defer close(out)
@@ -829,7 +981,9 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 				if se, ok := errors.AsType[cliproxyexecutor.StatusError](chunk.Err); ok && se != nil {
 					rerr.HTTPStatus = se.StatusCode()
 				}
-				m.MarkResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr})
+				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+				result.RetryAfter = retryAfterFromError(chunk.Err)
+				m.markSelectionResult(ctx, result, opts)
 			}
 			if !forward {
 				return false
@@ -873,21 +1027,37 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 	var lastErr error
 	for idx, execModel := range execModels {
 		resultModel := m.stateModelForExecution(auth, routeModel, execModel, pooled)
+		markFailure := func(executionErr error) SelectionResultDirective {
+			rerr := &Error{Message: executionErr.Error()}
+			if se, ok := errors.AsType[cliproxyexecutor.StatusError](executionErr); ok && se != nil {
+				rerr.HTTPStatus = se.StatusCode()
+			}
+			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+			result.RetryAfter = retryAfterFromError(executionErr)
+			return m.markSelectionResult(ctx, result, opts)
+		}
 		execReq := req
 		execReq.Model = execModel
 		streamResult, errStream := executor.ExecuteStream(ctx, auth, execReq, opts)
 		if errStream != nil {
 			if errCtx := ctx.Err(); errCtx != nil {
+				if cause, report := reportableContextCause(ctx); report {
+					directive := markFailure(cause)
+					if directive.StopCredentialFallback {
+						return nil, newSelectionFailureError(cause)
+					}
+					return nil, cause
+				}
 				return nil, errCtx
 			}
-			rerr := &Error{Message: errStream.Error()}
-			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errStream); ok && se != nil {
-				rerr.HTTPStatus = se.StatusCode()
+			directive := markFailure(errStream)
+			if directive.StopCredentialFallback {
+				return nil, newSelectionFailureError(errStream)
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
-			result.RetryAfter = retryAfterFromError(errStream)
-			m.MarkResult(ctx, result)
 			if isRequestInvalidError(errStream) {
+				return nil, errStream
+			}
+			if directive.StopAuthAttempt {
 				return nil, errStream
 			}
 			lastErr = errStream
@@ -898,46 +1068,52 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		if bootstrapErr != nil {
 			if errCtx := ctx.Err(); errCtx != nil {
 				discardStreamChunks(streamResult.Chunks)
+				if cause, report := reportableContextCause(ctx); report {
+					directive := markFailure(cause)
+					if directive.StopCredentialFallback {
+						return nil, newSelectionFailureError(cause)
+					}
+					return nil, cause
+				}
 				return nil, errCtx
 			}
 			if isRequestInvalidError(bootstrapErr) {
-				rerr := &Error{Message: bootstrapErr.Error()}
-				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
-					rerr.HTTPStatus = se.StatusCode()
-				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
-				result.RetryAfter = retryAfterFromError(bootstrapErr)
-				m.MarkResult(ctx, result)
+				directive := markFailure(bootstrapErr)
 				discardStreamChunks(streamResult.Chunks)
+				if directive.StopCredentialFallback {
+					return nil, newSelectionFailureError(newStreamBootstrapError(bootstrapErr, streamResult.Headers))
+				}
 				return nil, bootstrapErr
 			}
 			if idx < len(execModels)-1 {
-				rerr := &Error{Message: bootstrapErr.Error()}
-				if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
-					rerr.HTTPStatus = se.StatusCode()
-				}
-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
-				result.RetryAfter = retryAfterFromError(bootstrapErr)
-				m.MarkResult(ctx, result)
+				directive := markFailure(bootstrapErr)
 				discardStreamChunks(streamResult.Chunks)
+				if directive.StopCredentialFallback {
+					return nil, newSelectionFailureError(newStreamBootstrapError(bootstrapErr, streamResult.Headers))
+				}
+				if directive.StopAuthAttempt {
+					return nil, newStreamBootstrapError(bootstrapErr, streamResult.Headers)
+				}
 				lastErr = bootstrapErr
 				continue
 			}
-			rerr := &Error{Message: bootstrapErr.Error()}
-			if se, ok := errors.AsType[cliproxyexecutor.StatusError](bootstrapErr); ok && se != nil {
-				rerr.HTTPStatus = se.StatusCode()
-			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
-			result.RetryAfter = retryAfterFromError(bootstrapErr)
-			m.MarkResult(ctx, result)
+			directive := markFailure(bootstrapErr)
 			discardStreamChunks(streamResult.Chunks)
+			if directive.StopCredentialFallback {
+				return nil, newSelectionFailureError(newStreamBootstrapError(bootstrapErr, streamResult.Headers))
+			}
 			return nil, newStreamBootstrapError(bootstrapErr, streamResult.Headers)
 		}
 
-		if closed && len(buffered) == 0 {
+		if closed && !streamChunksHavePayload(buffered) {
 			emptyErr := &Error{Code: "empty_stream", Message: "upstream stream closed before first payload", Retryable: true}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: emptyErr}
-			m.MarkResult(ctx, result)
+			directive := markFailure(emptyErr)
+			if directive.StopCredentialFallback {
+				return nil, newSelectionFailureError(newStreamBootstrapError(emptyErr, streamResult.Headers))
+			}
+			if directive.StopAuthAttempt {
+				return nil, newStreamBootstrapError(emptyErr, streamResult.Headers)
+			}
 			if idx < len(execModels)-1 {
 				lastErr = emptyErr
 				continue
@@ -951,7 +1127,8 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			close(closedCh)
 			remaining = closedCh
 		}
-		return m.wrapStreamResult(ctx, auth.Clone(), provider, resultModel, streamResult.Headers, buffered, remaining), nil
+		m.notifySelectionResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: true}, opts)
+		return m.wrapStreamResult(ctx, auth.Clone(), provider, resultModel, opts, streamResult.Headers, buffered, remaining), nil
 	}
 	if lastErr == nil {
 		lastErr = &Error{Code: "auth_not_found", Message: "no upstream model available"}
@@ -1152,6 +1329,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
 	if m.scheduler != nil {
 		m.scheduler.upsertAuth(authClone)
 	}
+	m.syncSelectorAuths(m.snapshotAuths())
 	m.queueRefreshReschedule(auth.ID)
 	_ = m.persist(ctx, auth)
 	m.hook.OnAuthRegistered(ctx, auth.Clone())
@@ -1186,6 +1364,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 	if m.scheduler != nil {
 		m.scheduler.upsertAuth(authClone)
 	}
+	m.syncSelectorAuths(m.snapshotAuths())
 	m.queueRefreshReschedule(auth.ID)
 	_ = m.persist(ctx, auth)
 	m.hook.OnAuthUpdated(ctx, auth.Clone())
@@ -1237,6 +1416,9 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		resp, errExec := m.executeMixedOnce(ctx, normalized, req, opts, maxRetryCredentials)
 		if errExec == nil {
 			return resp, nil
+		}
+		if selectionStopsCredentialFallback(errExec) {
+			return cliproxyexecutor.Response{}, unwrapSelectionFailure(errExec)
 		}
 		lastErr = errExec
 		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, normalized, req.Model, maxWait)
@@ -1303,6 +1485,13 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		result, errStream := m.executeStreamMixedOnce(ctx, normalized, req, opts, maxRetryCredentials)
 		if errStream == nil {
 			return result, nil
+		}
+		if errCtx := executionContextError(ctx); errCtx != nil {
+			return nil, errCtx
+		}
+		if selectionStopsCredentialFallback(errStream) {
+			lastErr = unwrapSelectionFailure(errStream)
+			break
 		}
 		lastErr = errStream
 		wait, shouldRetry := m.shouldRetryAfterError(errStream, attempt, normalized, req.Model, maxWait)
@@ -1382,7 +1571,10 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
-			m.MarkResult(execCtx, result)
+			directive := m.markSelectionResult(execCtx, result, opts)
+			if directive.StopCredentialFallback {
+				return cliproxyexecutor.Response{}, newSelectionFailureError(errPrepare)
+			}
 			lastErr = errPrepare
 			continue
 		}
@@ -1404,14 +1596,20 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				if ra := retryAfterFromError(errExec); ra != nil {
 					result.RetryAfter = ra
 				}
-				m.MarkResult(execCtx, result)
+				directive := m.markSelectionResult(execCtx, result, opts)
+				if directive.StopCredentialFallback {
+					return cliproxyexecutor.Response{}, newSelectionFailureError(errExec)
+				}
 				if isRequestInvalidError(errExec) {
 					return cliproxyexecutor.Response{}, errExec
 				}
 				authErr = errExec
+				if directive.StopAuthAttempt {
+					break
+				}
 				continue
 			}
-			m.MarkResult(execCtx, result)
+			m.markSelectionResult(execCtx, result, opts)
 			return resp, nil
 		}
 		if authErr != nil {
@@ -1578,15 +1776,21 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
-			m.MarkResult(execCtx, result)
+			directive := m.markSelectionResult(execCtx, result, opts)
+			if directive.StopCredentialFallback {
+				return nil, newSelectionFailureError(errPrepare)
+			}
 			lastErr = errPrepare
 			continue
 		}
 		execReq := sanitizeDownstreamWebsocketFallbackRequest(execCtx, auth, req)
 		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, execReq, opts, routeModel, models, pooled)
 		if errStream != nil {
-			if errCtx := execCtx.Err(); errCtx != nil {
+			if errCtx := executionContextError(execCtx); errCtx != nil {
 				return nil, errCtx
+			}
+			if selectionStopsCredentialFallback(errStream) {
+				return nil, errStream
 			}
 			if isRequestInvalidError(errStream) {
 				return nil, errStream
@@ -2330,7 +2534,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			} else {
 				clearAuthStateOnSuccess(auth, now)
 			}
-		} else {
+		} else if !result.SuppressAvailabilityUpdate {
 			if result.Model != "" {
 				if !isRequestScopedNotFoundResultError(result.Error) {
 					disableCooling := quotaCooldownDisabledForAuth(auth)
@@ -3077,6 +3281,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		return nil, nil, &Error{Code: "executor_not_found", Message: "executor not registered"}
 	}
 	candidates := make([]*Auth, 0, len(m.auths))
+	preAvailabilityCandidates := make([]*Auth, 0, len(m.auths))
 	modelKey := strings.TrimSpace(model)
 	// Always use base model name (without thinking suffix) for auth matching.
 	if modelKey != "" {
@@ -3102,10 +3307,36 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		if _, used := tried[candidate.ID]; used {
 			continue
 		}
+		preAvailabilityCandidates = append(preAvailabilityCandidates, candidate)
 		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
 			continue
 		}
 		candidates = append(candidates, candidate)
+	}
+	if selected, handled, errPick := m.pickBeforeAvailability(ctx, provider, selectionArgForSelector(m.selector, model), opts, preAvailabilityCandidates); handled {
+		if errPick != nil {
+			m.mu.RUnlock()
+			return nil, nil, errPick
+		}
+		if selected == nil {
+			m.mu.RUnlock()
+			return nil, nil, &Error{Code: "auth_not_found", Message: "selector returned no auth"}
+		}
+		if modelKey != "" && !m.authSupportsRouteModel(registryRef, selected, model) {
+			m.mu.RUnlock()
+			return nil, nil, modelNotSupportedError(model)
+		}
+		authCopy := selected.Clone()
+		m.mu.RUnlock()
+		if !selected.indexAssigned {
+			m.mu.Lock()
+			if current := m.auths[authCopy.ID]; current != nil && !current.indexAssigned {
+				current.EnsureIndex()
+				authCopy = current.Clone()
+			}
+			m.mu.Unlock()
+		}
+		return authCopy, executor, nil
 	}
 	if len(candidates) == 0 {
 		m.mu.RUnlock()
@@ -3226,6 +3457,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 
 	m.mu.RLock()
 	candidates := make([]*Auth, 0, len(m.auths))
+	preAvailabilityCandidates := make([]*Auth, 0, len(m.auths))
 	modelKey := strings.TrimSpace(model)
 	// Always use base model name (without thinking suffix) for auth matching.
 	if modelKey != "" {
@@ -3261,10 +3493,42 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		if _, ok := m.executors[providerKey]; !ok {
 			continue
 		}
+		preAvailabilityCandidates = append(preAvailabilityCandidates, candidate)
 		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
 			continue
 		}
 		candidates = append(candidates, candidate)
+	}
+	if selected, handled, errPick := m.pickBeforeAvailability(ctx, "mixed", selectionArgForSelector(m.selector, model), opts, preAvailabilityCandidates); handled {
+		if errPick != nil {
+			m.mu.RUnlock()
+			return nil, nil, "", errPick
+		}
+		if selected == nil {
+			m.mu.RUnlock()
+			return nil, nil, "", &Error{Code: "auth_not_found", Message: "selector returned no auth"}
+		}
+		if modelKey != "" && !m.authSupportsRouteModel(registryRef, selected, model) {
+			m.mu.RUnlock()
+			return nil, nil, "", modelNotSupportedError(model)
+		}
+		providerKey := strings.TrimSpace(strings.ToLower(selected.Provider))
+		executor, okExecutor := m.executors[providerKey]
+		if !okExecutor {
+			m.mu.RUnlock()
+			return nil, nil, "", &Error{Code: "executor_not_found", Message: "executor not registered"}
+		}
+		authCopy := selected.Clone()
+		m.mu.RUnlock()
+		if !selected.indexAssigned {
+			m.mu.Lock()
+			if current := m.auths[authCopy.ID]; current != nil && !current.indexAssigned {
+				current.EnsureIndex()
+				authCopy = current.Clone()
+			}
+			m.mu.Unlock()
+		}
+		return authCopy, executor, providerKey, nil
 	}
 	if len(candidates) == 0 {
 		m.mu.RUnlock()

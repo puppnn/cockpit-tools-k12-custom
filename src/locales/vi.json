@@ -1941,7 +1941,7 @@
         "desc": "Tùy chọn. Chỉ có thể chọn tài khoản OAuth có refresh_token. Khi chưa liên kết, dịch vụ API chạy theo luồng API Key cũ; sau khi liên kết, trạng thái đăng nhập dùng tài khoản OAuth và Provider dùng cấu hình dịch vụ API hiện tại.",
         "currentService": "Dịch vụ API: {{name}}",
         "quotaReserveToggle": "Giữ lại hạn mức OAuth",
-        "quotaReserveDesc": "Dịch vụ API chỉ dùng tài khoản OAuth này khi hạn mức còn lại của 5 giờ và tuần đều cao hơn mức giữ lại.",
+        "quotaReserveDesc": "Dịch vụ API chỉ dùng tài khoản OAuth này khi phần còn lại của từng cửa sổ hạn mức đã đặt cao hơn mức giữ lại. Để trống mức giữ lại theo tuần nếu không muốn giới hạn theo tuần.",
         "quotaReserveHourlyLabel": "Giữ lại 5 giờ",
         "quotaReserveWeeklyLabel": "Giữ lại theo tuần",
         "quotaReserveInvalid": "Nhập số nguyên từ 1 đến 100.",

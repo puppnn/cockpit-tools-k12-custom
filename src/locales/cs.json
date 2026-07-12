@@ -1941,7 +1941,7 @@
         "desc": "Volitelné. Vybrat lze pouze účty OAuth s refresh_token. Bez propojení služba API používá původní logiku API Key; po propojení se přihlášení bere z účtu OAuth a Provider z konfigurace služby API.",
         "currentService": "Služba API: {{name}}",
         "quotaReserveToggle": "Rezervovat kvótu OAuth",
-        "quotaReserveDesc": "Služba API používá tento účet OAuth jen tehdy, když je zbývající 5hodinová i týdenní kvóta vyšší než rezervovaná hodnota.",
+        "quotaReserveDesc": "Služba API používá tento účet OAuth jen tehdy, když každé nastavené kvótové okno zůstává nad svou rezervou. Nechte týdenní rezervu prázdnou, pokud týdenní limit nechcete.",
         "quotaReserveHourlyLabel": "Rezerva 5 hodin",
         "quotaReserveWeeklyLabel": "Týdenní rezerva",
         "quotaReserveInvalid": "Zadejte celé číslo od 1 do 100.",

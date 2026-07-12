@@ -1941,7 +1941,7 @@
         "desc": "任意です。refresh_token があり自動更新できる OAuth アカウントのみ選択できます。未連携の場合、API サービスは従来の API Key ロジックで動作します。連携後はログイン状態に OAuth アカウントを使い、Provider は現在の API サービス設定を使います。",
         "currentService": "API サービス：{{name}}",
         "quotaReserveToggle": "OAuth クォータを確保",
-        "quotaReserveDesc": "API サービスは、5 時間と週間の残りクォータがどちらも確保値を上回る場合にのみ、この OAuth アカウントを使用します。",
+        "quotaReserveDesc": "API サービスは、設定した各クォータ期間の残量が確保値を上回る場合にのみ、この OAuth アカウントを使用します。週間制限を設けない場合は週間確保を空欄にしてください。",
         "quotaReserveHourlyLabel": "5 時間確保",
         "quotaReserveWeeklyLabel": "週間確保",
         "quotaReserveInvalid": "1 から 100 の整数を入力してください。",

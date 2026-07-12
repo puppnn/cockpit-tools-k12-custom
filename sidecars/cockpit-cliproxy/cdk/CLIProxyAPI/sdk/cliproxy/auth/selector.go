@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -435,14 +437,20 @@ var sessionPattern = regexp.MustCompile(`_session_([a-f0-9-]+)$`)
 // It extracts session ID from multiple sources and maintains session-to-auth
 // mappings with automatic failover when the bound auth becomes unavailable.
 type SessionAffinitySelector struct {
-	fallback Selector
-	cache    *SessionCache
+	fallback            Selector
+	cache               *SessionCache
+	k12                 *k12SessionPolicy
+	genericEnabled      bool
+	skipGenericAffinity func(*Auth) bool
 }
 
 // SessionAffinityConfig configures the session affinity selector.
 type SessionAffinityConfig struct {
-	Fallback Selector
-	TTL      time.Duration
+	Fallback            Selector
+	TTL                 time.Duration
+	DisableGeneric      bool
+	SkipGenericAffinity func(*Auth) bool
+	K12                 *K12SessionPolicyConfig
 }
 
 // NewSessionAffinitySelector creates a new session-aware selector.
@@ -461,66 +469,109 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 	if cfg.TTL <= 0 {
 		cfg.TTL = time.Hour
 	}
-	return &SessionAffinitySelector{
-		fallback: cfg.Fallback,
-		cache:    NewSessionCache(cfg.TTL),
+	selector := &SessionAffinitySelector{
+		fallback:            cfg.Fallback,
+		cache:               NewSessionCache(cfg.TTL),
+		genericEnabled:      !cfg.DisableGeneric,
+		skipGenericAffinity: cfg.SkipGenericAffinity,
 	}
+	if cfg.K12 != nil {
+		policy, err := newK12SessionPolicy(cfg.K12)
+		if err != nil {
+			log.WithError(err).Warn("k12-session-affinity: state recovery failed; continuing with an empty state")
+		}
+		selector.k12 = policy
+	}
+	return selector
 }
 
 // Pick selects an auth with session affinity when possible.
 // Priority for session ID extraction:
-//  1. metadata.user_id (Claude Code format with _session_{uuid}) - highest priority
-//  2. X-Session-ID header
-//  3. Session_id header (Codex)
-//  4. X-Amp-Thread-Id header (Amp CLI thread ID)
-//  5. X-Client-Request-Id header (PI)
-//  6. metadata.user_id (non-Claude Code format)
-//  7. conversation_id field in request body
-//  8. Stable hash from first few messages content (fallback)
+//  1. Native Codex execution session and prompt-cache fields
+//  2. Codex turn/window metadata, Session_id, and Conversation_id
+//  3. Claude metadata and X-Session-ID compatibility fields
+//  4. Other client thread/request identifiers
+//  5. Stable hash from the first few messages (fallback)
 //
 // Note: The cache key includes provider, session ID, and model to handle cases where
 // a session uses multiple models (e.g., gemini-2.5-pro and gemini-3-flash-preview)
 // that may be supported by different auth credentials, and to avoid cross-provider conflicts.
 func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
 	entry := selectorLogEntry(ctx)
-	primaryID, fallbackID := extractSessionIDs(opts.Headers, opts.OriginalRequest, opts.Metadata)
-	if primaryID == "" {
+	primary, fallback := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	if primary.ID == "" {
 		entry.Debugf("session-affinity: no session ID extracted, falling back to default selector | provider=%s model=%s", provider, model)
+		if s.k12 == nil {
+			return s.fallback.Pick(ctx, provider, model, opts, auths)
+		}
+		nonK12 := make([]*Auth, 0, len(auths))
+		for _, auth := range auths {
+			if auth == nil || !s.k12.isK12(auth) {
+				nonK12 = append(nonK12, auth)
+			}
+		}
+		if len(nonK12) == 0 {
+			return nil, &Error{Code: "auth_unavailable", Message: "K12 routing requires a stable session identity"}
+		}
+		return s.fallback.Pick(ctx, provider, model, opts, nonK12)
+	}
+
+	if s.k12 != nil {
+		selected, remaining, handled, err := s.pickK12(ctx, provider, model, opts, primary, auths)
+		if handled {
+			return selected, err
+		}
+		auths = remaining
+	}
+	if !s.genericEnabled {
 		return s.fallback.Pick(ctx, provider, model, opts, auths)
 	}
 
+	return s.pickGenericSession(ctx, provider, model, opts, primary, fallback, auths)
+}
+
+func (s *SessionAffinitySelector) pickGenericSession(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, primary, fallback sessionIdentity, auths []*Auth) (*Auth, error) {
+	entry := selectorLogEntry(ctx)
 	now := time.Now()
 	available, err := getAvailableAuths(auths, provider, model, now)
 	if err != nil {
 		return nil, err
 	}
 
-	cacheKey := provider + "::" + primaryID + "::" + model
-
+	cacheKey := provider + "::" + primary.ID + "::" + model
 	if cachedAuthID, ok := s.cache.GetAndRefresh(cacheKey); ok {
 		for _, auth := range available {
 			if auth.ID == cachedAuthID {
-				entry.Infof("session-affinity: cache hit | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
+				if s.skipGenericAffinity != nil && s.skipGenericAffinity(auth) {
+					s.cache.Invalidate(cacheKey)
+					break
+				}
+				entry.Infof("session-affinity: cache hit | source=%s session=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), auth.ID, provider, model)
 				return auth, nil
 			}
 		}
-		// Cached auth not available, reselect via fallback selector for even distribution
 		auth, err := s.fallback.Pick(ctx, provider, model, opts, auths)
 		if err != nil {
 			return nil, err
 		}
-		s.cache.Set(cacheKey, auth.ID)
-		entry.Infof("session-affinity: cache hit but auth unavailable, reselected | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
+		if s.skipGenericAffinity == nil || !s.skipGenericAffinity(auth) {
+			s.cache.Set(cacheKey, auth.ID)
+		}
+		entry.Infof("session-affinity: cache hit but auth unavailable, reselected | source=%s session=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), auth.ID, provider, model)
 		return auth, nil
 	}
 
-	if fallbackID != "" && fallbackID != primaryID {
-		fallbackKey := provider + "::" + fallbackID + "::" + model
+	if fallback.ID != "" && fallback.ID != primary.ID {
+		fallbackKey := provider + "::" + fallback.ID + "::" + model
 		if cachedAuthID, ok := s.cache.Get(fallbackKey); ok {
 			for _, auth := range available {
 				if auth.ID == cachedAuthID {
+					if s.skipGenericAffinity != nil && s.skipGenericAffinity(auth) {
+						s.cache.Invalidate(fallbackKey)
+						break
+					}
 					s.cache.Set(cacheKey, auth.ID)
-					entry.Infof("session-affinity: fallback cache hit | session=%s fallback=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), truncateSessionID(fallbackID), auth.ID, provider, model)
+					entry.Infof("session-affinity: fallback cache hit | source=%s session=%s fallback=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), sessionLogSummary(fallback.ID), auth.ID, provider, model)
 					return auth, nil
 				}
 			}
@@ -531,8 +582,10 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 	if err != nil {
 		return nil, err
 	}
-	s.cache.Set(cacheKey, auth.ID)
-	entry.Infof("session-affinity: cache miss, new binding | session=%s auth=%s provider=%s model=%s", truncateSessionID(primaryID), auth.ID, provider, model)
+	if s.skipGenericAffinity == nil || !s.skipGenericAffinity(auth) {
+		s.cache.Set(cacheKey, auth.ID)
+	}
+	entry.Infof("session-affinity: cache miss, new binding | source=%s session=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), auth.ID, provider, model)
 	return auth, nil
 }
 
@@ -548,10 +601,15 @@ func selectorLogEntry(ctx context.Context) *log.Entry {
 
 // truncateSessionID shortens session ID for logging (first 8 chars + "...")
 func truncateSessionID(id string) string {
-	if len(id) <= 20 {
-		return id
+	return sessionLogSummary(id)
+}
+
+func sessionLogSummary(id string) string {
+	if id == "" {
+		return ""
 	}
-	return id[:8] + "..."
+	digest := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(digest[:6])
 }
 
 // Stop releases resources held by the selector.
@@ -569,89 +627,151 @@ func (s *SessionAffinitySelector) InvalidateAuth(authID string) {
 	}
 }
 
-// ExtractSessionID extracts session identifier from multiple sources.
-// Priority order:
-//  1. metadata.user_id (Claude Code format with _session_{uuid}) - highest priority for Claude Code clients
-//  2. X-Session-ID header
-//  3. Session_id header (Codex)
-//  4. X-Amp-Thread-Id header (Amp CLI thread ID)
-//  5. X-Client-Request-Id header (PI)
-//  6. metadata.user_id (non-Claude Code format)
-//  7. conversation_id field in request body
-//  8. Stable hash from first few messages content (fallback)
+type sessionIdentity struct {
+	ID     string
+	Source string
+}
+
+// ExtractSessionID extracts a stable session identifier. Native Codex session
+// fields take precedence so /v1/responses requests do not fall back to content hashes.
 func ExtractSessionID(headers http.Header, payload []byte, metadata map[string]any) string {
-	primary, _ := extractSessionIDs(headers, payload, metadata)
-	return primary
+	primary, _ := extractSessionIdentities(headers, payload, metadata)
+	return primary.ID
 }
 
 // extractSessionIDs returns (primaryID, fallbackID) for session affinity.
 // primaryID: full hash including assistant response (stable after first turn)
 // fallbackID: short hash without assistant (used to inherit binding from first turn)
 func extractSessionIDs(headers http.Header, payload []byte, metadata map[string]any) (string, string) {
-	// 1. metadata.user_id with Claude Code session format (highest priority)
+	primary, fallback := extractSessionIdentities(headers, payload, metadata)
+	return primary.ID, fallback.ID
+}
+
+func extractSessionIdentities(headers http.Header, payload []byte, metadata map[string]any) (sessionIdentity, sessionIdentity) {
+	identity := func(prefix, value, source string) sessionIdentity {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return sessionIdentity{}
+		}
+		return sessionIdentity{ID: prefix + value, Source: source}
+	}
+
+	// Native Codex identity, ordered from strongest to compatibility fallbacks.
+	if value := sessionMetadataString(metadata, cliproxyexecutor.ExecutionSessionMetadataKey); value != "" {
+		return identity("execution:", value, "execution_session_id"), sessionIdentity{}
+	}
+	if value := strings.TrimSpace(gjson.GetBytes(payload, "execution_session_id").String()); value != "" {
+		return identity("execution:", value, "execution_session_id_body"), sessionIdentity{}
+	}
+	if value := sessionMetadataString(metadata, "prompt_cache_key"); value != "" {
+		return identity("prompt-cache:", value, "prompt_cache_key_metadata"), sessionIdentity{}
+	}
+	if value := strings.TrimSpace(gjson.GetBytes(payload, "prompt_cache_key").String()); value != "" {
+		return identity("prompt-cache:", value, "prompt_cache_key"), sessionIdentity{}
+	}
+
+	turnMetadataValues := make([]string, 0, 2)
+	if value := strings.TrimSpace(gjson.GetBytes(payload, "client_metadata.x-codex-turn-metadata").String()); value != "" {
+		turnMetadataValues = append(turnMetadataValues, value)
+	}
+	if value := strings.TrimSpace(sessionHeaderValue(headers, "X-Codex-Turn-Metadata")); value != "" {
+		turnMetadataValues = append(turnMetadataValues, value)
+	}
+	for _, turnMetadata := range turnMetadataValues {
+		if value := strings.TrimSpace(gjson.Get(turnMetadata, "prompt_cache_key").String()); value != "" {
+			return identity("prompt-cache:", value, "codex_turn_metadata.prompt_cache_key"), sessionIdentity{}
+		}
+	}
+
+	if value := strings.TrimSpace(gjson.GetBytes(payload, "client_metadata.x-codex-window-id").String()); value != "" {
+		return identity("window:", value, "codex_window_id_body"), sessionIdentity{}
+	}
+	for _, turnMetadata := range turnMetadataValues {
+		if value := strings.TrimSpace(gjson.Get(turnMetadata, "window_id").String()); value != "" {
+			return identity("window:", value, "codex_turn_metadata.window_id"), sessionIdentity{}
+		}
+	}
+	if value := strings.TrimSpace(sessionHeaderValue(headers, "X-Codex-Window-Id")); value != "" {
+		return identity("window:", value, "codex_window_id_header"), sessionIdentity{}
+	}
+	for _, name := range []string{"Session_id", "Session-Id"} {
+		if value := strings.TrimSpace(sessionHeaderValue(headers, name)); value != "" {
+			return identity("codex:", value, "session_id_header"), sessionIdentity{}
+		}
+	}
+	for _, name := range []string{"Conversation_id", "Conversation-Id"} {
+		if value := strings.TrimSpace(sessionHeaderValue(headers, name)); value != "" {
+			return identity("conv:", value, "conversation_id_header"), sessionIdentity{}
+		}
+	}
+
+	// Claude Code compatibility identity.
 	if len(payload) > 0 {
+		if sid := strings.TrimSpace(gjson.GetBytes(payload, "metadata.user_id.session_id").String()); sid != "" {
+			return identity("claude:", sid, "claude_metadata_session_id"), sessionIdentity{}
+		}
 		userID := gjson.GetBytes(payload, "metadata.user_id").String()
 		if userID != "" {
-			// Old format: user_{hash}_account__session_{uuid}
 			if matches := sessionPattern.FindStringSubmatch(userID); len(matches) >= 2 {
-				id := "claude:" + matches[1]
-				return id, ""
+				return identity("claude:", matches[1], "claude_user_id_session"), sessionIdentity{}
 			}
-			// New format: JSON object with session_id field
-			// e.g. {"device_id":"...","account_uuid":"...","session_id":"uuid"}
 			if len(userID) > 0 && userID[0] == '{' {
 				if sid := gjson.Get(userID, "session_id").String(); sid != "" {
-					return "claude:" + sid, ""
+					return identity("claude:", sid, "claude_user_id_json"), sessionIdentity{}
 				}
 			}
 		}
 	}
-
-	// 2. X-Session-ID header
-	if headers != nil {
-		if sid := headers.Get("X-Session-ID"); sid != "" {
-			return "header:" + sid, ""
-		}
+	if value := strings.TrimSpace(sessionHeaderValue(headers, "X-Session-ID")); value != "" {
+		return identity("header:", value, "x_session_id"), sessionIdentity{}
 	}
-
-	// 3. Session_id header (Codex)
-	if headers != nil {
-		if sid := headers.Get("Session_id"); sid != "" {
-			return "codex:" + sid, ""
-		}
+	if value := strings.TrimSpace(sessionHeaderValue(headers, "X-Amp-Thread-Id")); value != "" {
+		return identity("amp:", value, "amp_thread_id"), sessionIdentity{}
 	}
-
-	// 4. X-Amp-Thread-Id header (Amp CLI thread ID)
-	if headers != nil {
-		if tid := headers.Get("X-Amp-Thread-Id"); tid != "" {
-			return "amp:" + tid, ""
-		}
+	if value := strings.TrimSpace(sessionHeaderValue(headers, "X-Client-Request-Id")); value != "" {
+		return identity("clientreq:", value, "client_request_id"), sessionIdentity{}
 	}
-
-	// 5. X-Client-Request-Id header (PI)
-	if headers != nil {
-		if rid := headers.Get("X-Client-Request-Id"); rid != "" {
-			return "clientreq:" + rid, ""
-		}
-	}
-
 	if len(payload) == 0 {
-		return "", ""
+		return sessionIdentity{}, sessionIdentity{}
+	}
+	if userID := gjson.GetBytes(payload, "metadata.user_id").String(); userID != "" {
+		return identity("user:", userID, "metadata_user_id"), sessionIdentity{}
+	}
+	if value := strings.TrimSpace(gjson.GetBytes(payload, "conversation_id").String()); value != "" {
+		return identity("conv:", value, "conversation_id"), sessionIdentity{}
 	}
 
-	// 6. metadata.user_id (non-Claude Code format)
-	userID := gjson.GetBytes(payload, "metadata.user_id").String()
-	if userID != "" {
-		return "user:" + userID, ""
-	}
+	primaryHash, fallbackHash := extractMessageHashIDs(payload)
+	return sessionIdentity{ID: primaryHash, Source: "message_hash"}, sessionIdentity{ID: fallbackHash, Source: "message_hash_fallback"}
+}
 
-	// 7. conversation_id field
-	if convID := gjson.GetBytes(payload, "conversation_id").String(); convID != "" {
-		return "conv:" + convID, ""
+func sessionMetadataString(metadata map[string]any, key string) string {
+	if len(metadata) == 0 {
+		return ""
 	}
+	switch value := metadata[key].(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case []byte:
+		return strings.TrimSpace(string(value))
+	default:
+		return ""
+	}
+}
 
-	// 8. Hash-based fallback from message content
-	return extractMessageHashIDs(payload)
+func sessionHeaderValue(headers http.Header, name string) string {
+	if headers == nil {
+		return ""
+	}
+	if value := headers.Get(name); value != "" {
+		return value
+	}
+	for key, values := range headers {
+		if strings.EqualFold(strings.TrimSpace(key), name) && len(values) > 0 {
+			return values[0]
+		}
+	}
+	return ""
 }
 
 func extractMessageHashIDs(payload []byte) (primaryID, fallbackID string) {

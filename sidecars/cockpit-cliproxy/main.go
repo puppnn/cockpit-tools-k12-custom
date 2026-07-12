@@ -56,6 +56,7 @@ const ginUserAPIKeyKey = "userApiKey"
 
 const defaultStreamKeepAliveSeconds = 15
 const quotaReserveMaxSnapshotAge = 3 * time.Minute
+const quotaReserveStateVersion = 1
 const codexAutoReviewModel = "codex-auto-review"
 const defaultImagesMainModel = "gpt-5.4-mini"
 const defaultImagesToolModel = "gpt-image-2"
@@ -72,7 +73,7 @@ const ollamaBridgeVersion = "0.18.3"
 const maxImageUploadBytes int64 = 64 * 1024 * 1024
 
 var (
-	streamOpenTimeout      = 10 * time.Second
+	streamOpenTimeout      = 120 * time.Second
 	streamOpenMaxAttempts  = 2
 	streamIdleTimeout      = 60 * time.Second
 	imageStreamOpenTimeout = 10 * time.Second
@@ -80,14 +81,15 @@ var (
 )
 
 type manifest struct {
-	APIKeys            []apiKeySpec        `json:"apiKeys"`
-	Accounts           []accountSpec       `json:"accounts"`
-	ModelIDs           []string            `json:"modelIds"`
-	ModelAliases       []modelAliasSpec    `json:"modelAliases"`
-	ExcludedModels     []string            `json:"excludedModels"`
-	RoutingStrategy    string              `json:"routingStrategy"`
-	CustomRoutingRules []customRoutingRule `json:"customRoutingRules"`
-	DebugLogs          *bool               `json:"debugLogs,omitempty"`
+	APIKeys             []apiKeySpec        `json:"apiKeys"`
+	Accounts            []accountSpec       `json:"accounts"`
+	ModelIDs            []string            `json:"modelIds"`
+	ModelAliases        []modelAliasSpec    `json:"modelAliases"`
+	ExcludedModels      []string            `json:"excludedModels"`
+	RoutingStrategy     string              `json:"routingStrategy"`
+	BoundOAuthAccountID string              `json:"boundOauthAccountId"`
+	CustomRoutingRules  []customRoutingRule `json:"customRoutingRules"`
+	DebugLogs           *bool               `json:"debugLogs,omitempty"`
 
 	apiKeyByValue     map[string]*apiKeySpec
 	accountByID       map[string]*accountSpec
@@ -126,6 +128,7 @@ type providerGatewayModelCapability struct {
 type accountSpec struct {
 	ID                   string            `json:"id"`
 	Email                string            `json:"email"`
+	PlanType             string            `json:"planType,omitempty"`
 	AuthID               string            `json:"authId,omitempty"`
 	UpstreamAPIKey       string            `json:"upstreamApiKey,omitempty"`
 	PlanRank             *int              `json:"planRank,omitempty"`
@@ -153,15 +156,17 @@ type quotaReserveSnapshot struct {
 }
 
 type quotaReserveStateFile struct {
+	Version  int                             `json:"version,omitempty"`
 	Accounts map[string]quotaReserveSnapshot `json:"accounts"`
 }
 
 type quotaReserveStateStore struct {
-	path     string
-	snapshot atomic.Value
-	mu       sync.Mutex
-	lastHash [sha256.Size]byte
-	hasHash  bool
+	path           string
+	k12SessionPath string
+	snapshot       atomic.Value
+	mu             sync.Mutex
+	lastHash       [sha256.Size]byte
+	hasHash        bool
 }
 
 type modelAliasSpec struct {
@@ -228,6 +233,8 @@ type requestDiagnosticPayload struct {
 }
 
 const executorWaitLogInterval = 30 * time.Second
+const streamOpenCancelWait = 2 * time.Second
+const streamOpenFailoverGraceMax = 60 * time.Second
 
 type relayTimeoutError struct {
 	phase   string
@@ -1411,6 +1418,44 @@ type quotaReserveSelector struct {
 	quota    *quotaReserveStateStore
 }
 
+func (s *quotaReserveSelector) PickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, bool, error) {
+	if s == nil || s.fallback == nil {
+		return nil, false, nil
+	}
+	preSelector, ok := s.fallback.(coreauth.PreAvailabilitySelector)
+	if !ok || preSelector == nil {
+		return nil, false, nil
+	}
+	selected, handled, err := preSelector.PickBeforeAvailability(ctx, provider, model, opts, auths)
+	if !handled || err != nil || selected == nil {
+		return selected, handled, err
+	}
+	if reason := quotaReserveBlockReasonWithState(accountForAuthInManifest(s.manifest, selected), s.quota, time.Now()); reason != "" {
+		return nil, true, noAuthAvailableError([]string{reason})
+	}
+	return selected, true, nil
+}
+
+func (s *quotaReserveSelector) OnSelectionResult(ctx context.Context, result coreauth.Result, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {
+	if s == nil || s.fallback == nil {
+		return coreauth.SelectionResultDirective{}
+	}
+	observer, ok := s.fallback.(coreauth.SelectionResultSelector)
+	if !ok || observer == nil {
+		return coreauth.SelectionResultDirective{}
+	}
+	return observer.OnSelectionResult(ctx, result, opts)
+}
+
+func (s *quotaReserveSelector) SyncAuths(auths []*coreauth.Auth) {
+	if s == nil || s.fallback == nil {
+		return
+	}
+	if observer, ok := s.fallback.(coreauth.AuthSnapshotSelector); ok && observer != nil {
+		observer.SyncAuths(auths)
+	}
+}
+
 func quotaReserveSnapshotsFromManifest(m *manifest) map[string]quotaReserveSnapshot {
 	snapshots := make(map[string]quotaReserveSnapshot)
 	if m == nil {
@@ -1434,7 +1479,12 @@ func quotaReserveSnapshotsFromManifest(m *manifest) map[string]quotaReserveSnaps
 }
 
 func newQuotaReserveStateStore(path string, m *manifest) *quotaReserveStateStore {
-	store := &quotaReserveStateStore{path: strings.TrimSpace(path)}
+	normalizedPath := strings.TrimSpace(path)
+	k12SessionPath := ""
+	if normalizedPath != "" {
+		k12SessionPath = filepath.Join(filepath.Dir(normalizedPath), "k12-sessions.json")
+	}
+	store := &quotaReserveStateStore{path: normalizedPath, k12SessionPath: k12SessionPath}
 	store.snapshot.Store(quotaReserveSnapshotsFromManifest(m))
 	return store
 }
@@ -1456,6 +1506,9 @@ func (s *quotaReserveStateStore) load() error {
 	var state quotaReserveStateFile
 	if err := json.Unmarshal(content, &state); err != nil {
 		return err
+	}
+	if state.Version != quotaReserveStateVersion {
+		return fmt.Errorf("unsupported quota reserve state version %d", state.Version)
 	}
 	if state.Accounts == nil {
 		state.Accounts = make(map[string]quotaReserveSnapshot)
@@ -1702,7 +1755,10 @@ func quotaReserveWindowBlockReason(window string, threshold, remaining *int, pre
 	if present != nil && !*present {
 		return ""
 	}
-	if threshold == nil || *threshold < 1 || *threshold > 100 {
+	if threshold == nil {
+		return ""
+	}
+	if *threshold < 1 || *threshold > 100 {
 		return fmt.Sprintf("%s reserve threshold unknown", window)
 	}
 	if remaining == nil || *remaining < 0 || *remaining > 100 {
@@ -1775,7 +1831,7 @@ func (s *cockpitSelector) orderAuths(auths []*coreauth.Auth, start int) []*corea
 	}
 	strategy := strings.TrimSpace(strings.ToLower(s.manifest.RoutingStrategy))
 	if strategy == "custom" {
-		return s.orderCustom(auths, start)
+		return s.moveBoundOAuthLast(s.orderCustom(auths, start))
 	}
 	out := append([]*coreauth.Auth(nil), auths...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -1786,7 +1842,28 @@ func (s *cockpitSelector) orderAuths(auths []*coreauth.Auth, start int) []*corea
 		}
 		return s.rotatedIndex(left, start) < s.rotatedIndex(right, start)
 	})
-	return out
+	return s.moveBoundOAuthLast(out)
+}
+
+func (s *cockpitSelector) moveBoundOAuthLast(auths []*coreauth.Auth) []*coreauth.Auth {
+	if len(auths) <= 1 || s == nil || s.manifest == nil || strings.EqualFold(strings.TrimSpace(s.manifest.RoutingStrategy), "single_account") {
+		return auths
+	}
+	boundAccountID := strings.TrimSpace(s.manifest.BoundOAuthAccountID)
+	if boundAccountID == "" {
+		return auths
+	}
+	out := make([]*coreauth.Auth, 0, len(auths))
+	var bound []*coreauth.Auth
+	for _, auth := range auths {
+		account := s.accountForAuth(auth)
+		if account != nil && account.ID == boundAccountID {
+			bound = append(bound, auth)
+			continue
+		}
+		out = append(out, auth)
+	}
+	return append(out, bound...)
 }
 
 func compareAccountSpecs(left, right *accountSpec, strategy string) int {
@@ -2277,18 +2354,104 @@ func (h *authHook) emit(eventType string, auth *coreauth.Auth) {
 	})
 }
 
+func isK12AccountSpec(account *accountSpec) bool {
+	return account != nil && strings.EqualFold(strings.TrimSpace(account.PlanType), "k12")
+}
+
+func hasK12Accounts(m *manifest) bool {
+	if m == nil {
+		return false
+	}
+	for index := range m.Accounts {
+		if isK12AccountSpec(&m.Accounts[index]) {
+			return true
+		}
+	}
+	return false
+}
+
+func k12SessionHMACKey(m *manifest) []byte {
+	if m == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(m.APIKeys))
+	for _, spec := range m.APIKeys {
+		if spec.Enabled && strings.TrimSpace(spec.Key) != "" {
+			keys = append(keys, strings.TrimSpace(spec.Key))
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Strings(keys)
+	hasher := sha256.New()
+	_, _ = hasher.Write([]byte("cockpit-tools:k12-session-key-material:v1\n"))
+	for _, key := range keys {
+		_, _ = hasher.Write([]byte(key))
+		_, _ = hasher.Write([]byte{0})
+	}
+	return hasher.Sum(nil)
+}
+
+func k12QuotaSnapshotForAuth(m *manifest, quota *quotaReserveStateStore, auth *coreauth.Auth, now time.Time) coreauth.K12QuotaSnapshot {
+	account := accountForAuthInManifest(m, auth)
+	if !isK12AccountSpec(account) || quota == nil {
+		return coreauth.K12QuotaSnapshot{}
+	}
+	snapshot := quota.forAccount(account.ID)
+	if snapshot == nil || quotaReserveSnapshotBlockReason(snapshot.SnapshotUpdatedAtUnixSeconds, now) != "" {
+		return coreauth.K12QuotaSnapshot{}
+	}
+	result := coreauth.K12QuotaSnapshot{Fresh: true}
+	if snapshot.HourlyWindowPresent != nil && !*snapshot.HourlyWindowPresent {
+		return result
+	}
+	if snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent >= 0 && *snapshot.HourlyRemainingPercent <= 100 {
+		remaining := *snapshot.HourlyRemainingPercent
+		result.HourlyRemainingPercent = &remaining
+	}
+	return result
+}
+
 func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *manifest, quota *quotaReserveStateStore) coreauth.Selector {
 	if selector == nil {
 		selector = &coreauth.RoundRobinSelector{}
 	}
-	if cfg != nil && cfg.Routing.SessionAffinity {
+	k12Enabled := hasK12Accounts(m) && len(k12SessionHMACKey(m)) > 0
+	if cfg != nil && (cfg.Routing.SessionAffinity || k12Enabled) {
 		ttl := time.Hour
 		if parsed, err := time.ParseDuration(strings.TrimSpace(cfg.Routing.SessionAffinityTTL)); err == nil && parsed > 0 {
 			ttl = parsed
 		}
+		var k12Policy *coreauth.K12SessionPolicyConfig
+		if k12Enabled {
+			statePath := ""
+			if quota != nil {
+				statePath = quota.k12SessionPath
+			}
+			k12Policy = &coreauth.K12SessionPolicyConfig{
+				StatePath: statePath,
+				HMACKey:   k12SessionHMACKey(m),
+				IsK12: func(auth *coreauth.Auth) bool {
+					return isK12AccountSpec(accountForAuthInManifest(m, auth))
+				},
+				QuotaSnapshot: func(auth *coreauth.Auth) coreauth.K12QuotaSnapshot {
+					return k12QuotaSnapshotForAuth(m, quota, auth, time.Now())
+				},
+			}
+		}
 		selector = coreauth.NewSessionAffinitySelectorWithConfig(coreauth.SessionAffinityConfig{
-			Fallback: selector,
-			TTL:      ttl,
+			Fallback:       selector,
+			TTL:            ttl,
+			DisableGeneric: !cfg.Routing.SessionAffinity,
+			SkipGenericAffinity: func(auth *coreauth.Auth) bool {
+				if m == nil || strings.TrimSpace(m.BoundOAuthAccountID) == "" {
+					return false
+				}
+				account := accountForAuthInManifest(m, auth)
+				return account != nil && account.ID == strings.TrimSpace(m.BoundOAuthAccountID)
+			},
+			K12: k12Policy,
 		})
 	}
 	if m != nil {
@@ -4135,6 +4298,49 @@ type executeStreamResult struct {
 	err    error
 }
 
+func withSelectedAuthObserver(opts cliproxyexecutor.Options, observer func(string)) cliproxyexecutor.Options {
+	if observer == nil {
+		return opts
+	}
+	meta := make(map[string]any, len(opts.Metadata)+1)
+	for key, value := range opts.Metadata {
+		meta[key] = value
+	}
+	existing, _ := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string))
+	meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey] = func(authID string) {
+		observer(authID)
+		if existing != nil {
+			existing(authID)
+		}
+	}
+	opts.Metadata = meta
+	return opts
+}
+
+func streamOpenFailoverBudget(openTimeout time.Duration) time.Duration {
+	if openTimeout <= 0 {
+		return 0
+	}
+	grace := openTimeout
+	if grace > streamOpenFailoverGraceMax {
+		grace = streamOpenFailoverGraceMax
+	}
+	return openTimeout + grace
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if timer == nil || duration <= 0 {
+		return
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
+}
+
 func (s *relayServer) executeStreamWithOpenTimeout(
 	c *gin.Context,
 	ctx context.Context,
@@ -4153,8 +4359,16 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 		openTimeout = streamOpenTimeout
 	}
 	for attempt := 1; attempt <= attempts; attempt++ {
-		attemptCtx, cancelAttempt := context.WithCancel(ctx)
+		authSelections := make(chan string, 16)
+		attemptOpts := withSelectedAuthObserver(opts, func(authID string) {
+			select {
+			case authSelections <- strings.TrimSpace(authID):
+			default:
+			}
+		})
+		attemptCtx, cancelAttempt := context.WithCancelCause(ctx)
 		done := make(chan executeStreamResult, 1)
+		attemptDeadline := time.Now().Add(streamOpenFailoverBudget(openTimeout))
 		s.emitExecutorDiagnostic(
 			c,
 			"stream_open_attempt",
@@ -4164,40 +4378,81 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 			fmt.Sprintf("attempt=%d/%d open_timeout=%s", attempt, attempts, openTimeout),
 		)
 		go func() {
-			result, err := s.runtime.ExecuteStream(attemptCtx, providers, req, opts)
+			result, err := s.runtime.ExecuteStream(attemptCtx, providers, req, attemptOpts)
 			done <- executeStreamResult{result: result, err: err}
 		}()
 
 		timer := time.NewTimer(openTimeout)
-		select {
-		case out := <-done:
-			timer.Stop()
-			if out.err != nil || out.result == nil {
-				cancelAttempt()
+		selectedAuthID := ""
+		authSwitches := 0
+	waitForOpen:
+		for {
+			select {
+			case authID := <-authSelections:
+				if authID == "" || authID == selectedAuthID {
+					continue
+				}
+				if selectedAuthID != "" {
+					authSwitches++
+				}
+				selectedAuthID = authID
+				remaining := time.Until(attemptDeadline)
+				if remaining <= 0 {
+					continue
+				}
+				resetAfter := openTimeout
+				if remaining < resetAfter {
+					resetAfter = remaining
+				}
+				resetTimer(timer, resetAfter)
+				if authSwitches > 0 {
+					s.emitExecutorDiagnostic(
+						c,
+						"stream_open_auth_failover",
+						model,
+						"execute_stream",
+						startedAt,
+						fmt.Sprintf("attempt=%d/%d auth_switch=%d timeout_reset=%s total_remaining=%s", attempt, attempts, authSwitches, resetAfter.Round(time.Millisecond), remaining.Round(time.Millisecond)),
+					)
+				}
+			case out := <-done:
+				timer.Stop()
+				if out.err != nil || out.result == nil {
+					cancelAttempt(out.err)
+				}
+				return out.result, out.err
+			case <-ctx.Done():
+				timer.Stop()
+				cancelAttempt(context.Cause(ctx))
+				s.emitExecutorDiagnostic(
+					c,
+					"stream_open_canceled",
+					model,
+					"execute_stream",
+					startedAt,
+					fmt.Sprintf("cancel_source=downstream_context err=%v", ctx.Err()),
+				)
+				return nil, ctx.Err()
+			case <-timer.C:
+				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: openTimeout}
+				cancelAttempt(err)
+				detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel %s", err.Error())
+				cancelWait := time.NewTimer(streamOpenCancelWait)
+				select {
+				case <-done:
+					if !cancelWait.Stop() {
+						<-cancelWait.C
+					}
+				case <-cancelWait.C:
+					s.emitExecutorDiagnostic(c, "stream_open_cancel_wait_timeout", model, "execute_stream", startedAt, detail)
+				}
+				if attempt < attempts {
+					s.emitExecutorDiagnostic(c, "stream_open_retry", model, "execute_stream", startedAt, detail)
+					break waitForOpen
+				}
+				s.emitExecutorDiagnostic(c, "stream_open_retry_failed", model, "execute_stream", startedAt, detail)
+				return nil, err
 			}
-			return out.result, out.err
-		case <-ctx.Done():
-			timer.Stop()
-			cancelAttempt()
-			s.emitExecutorDiagnostic(
-				c,
-				"stream_open_canceled",
-				model,
-				"execute_stream",
-				startedAt,
-				fmt.Sprintf("cancel_source=downstream_context err=%v", ctx.Err()),
-			)
-			return nil, ctx.Err()
-		case <-timer.C:
-			cancelAttempt()
-			err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: openTimeout}
-			detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel %s", err.Error())
-			if attempt < attempts {
-				s.emitExecutorDiagnostic(c, "stream_open_retry", model, "execute_stream", startedAt, detail)
-				continue
-			}
-			s.emitExecutorDiagnostic(c, "stream_open_retry_failed", model, "execute_stream", startedAt, detail)
-			return nil, err
 		}
 	}
 	return nil, relayTimeoutError{phase: "stream_open", timeout: openTimeout}

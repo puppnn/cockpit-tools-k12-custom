@@ -1941,7 +1941,7 @@
         "desc": "İsteğe bağlı. Yalnızca refresh_token içeren OAuth hesapları seçilebilir. Bağlantı yoksa API hizmeti eski API Key akışıyla çalışır; bağlanınca oturum OAuth hesabını, Provider ise API hizmeti yapılandırmasını kullanır.",
         "currentService": "API hizmeti: {{name}}",
         "quotaReserveToggle": "OAuth kotasını koru",
-        "quotaReserveDesc": "API hizmeti bu OAuth hesabını yalnızca kalan 5 saatlik ve haftalık kotalar koruma değerlerinin üzerindeyken kullanır.",
+        "quotaReserveDesc": "API hizmeti bu OAuth hesabını yalnızca yapılandırılmış her kota penceresi koruma değerinin üzerindeyken kullanır. Haftalık sınır uygulamamak için haftalık koruma alanını boş bırakın.",
         "quotaReserveHourlyLabel": "5 saatlik koruma",
         "quotaReserveWeeklyLabel": "Haftalık koruma",
         "quotaReserveInvalid": "1 ile 100 arasında bir tam sayı girin.",

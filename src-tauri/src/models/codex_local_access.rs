@@ -177,7 +177,7 @@ fn default_legacy_stream_total_timeout_ms() -> u64 {
 }
 
 fn default_sidecar_stream_open_timeout_ms() -> u64 {
-    60 * 1000
+    120 * 1000
 }
 
 fn default_sidecar_stream_idle_timeout_ms() -> u64 {
@@ -193,7 +193,7 @@ fn default_sidecar_image_stream_idle_timeout_ms() -> u64 {
 }
 
 fn default_sidecar_stream_open_max_attempts() -> u8 {
-    1
+    2
 }
 
 fn default_sidecar_stream_keepalive_seconds() -> u16 {
@@ -403,7 +403,8 @@ fn default_true() -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessQuotaReserve {
     pub hourly_percent: i32,
-    pub weekly_percent: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekly_percent: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

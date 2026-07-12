@@ -35,7 +35,7 @@ export interface CodexLocalAccessCustomRoutingRule {
 
 export interface CodexLocalAccessOAuthQuotaReserve {
   hourlyPercent: number;
-  weeklyPercent: number;
+  weeklyPercent: number | null;
 }
 
 export interface CodexLocalAccessAccountModelRule {

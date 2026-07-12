@@ -1941,7 +1941,7 @@
         "desc": "可選綁定。只能選擇帶 refresh_token、可自動續期的 OAuth 帳號；未綁定時 API 服務會沿用原 API Key 邏輯；綁定後登入狀態使用 OAuth 帳號，Provider 使用目前 API 服務設定。",
         "currentService": "API 服務：{{name}}",
         "quotaReserveToggle": "保留 OAuth 額度",
-        "quotaReserveDesc": "API 服務只會在 5 小時與每週剩餘額度皆高於保留值時使用此 OAuth 帳號。",
+        "quotaReserveDesc": "API 服務只會在已設定的額度視窗剩餘量高於保留值時使用此 OAuth 帳號；每週保留可留空，留空表示不限制每週額度。",
         "quotaReserveHourlyLabel": "5 小時保留",
         "quotaReserveWeeklyLabel": "每週保留",
         "quotaReserveInvalid": "請輸入 1 到 100 的整數",

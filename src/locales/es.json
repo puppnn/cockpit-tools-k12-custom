@@ -1941,7 +1941,7 @@
         "desc": "Opcional. Solo se pueden seleccionar cuentas OAuth con refresh_token. Sin enlace, el servicio API mantiene el flujo de API Key anterior; al enlazar, la sesión usa la cuenta OAuth y el Provider usa la configuración del servicio API.",
         "currentService": "Servicio API: {{name}}",
         "quotaReserveToggle": "Reservar cuota OAuth",
-        "quotaReserveDesc": "El servicio API usa esta cuenta OAuth solo mientras las cuotas restantes de 5 horas y semanal sean superiores a los valores reservados.",
+        "quotaReserveDesc": "El servicio API usa esta cuenta OAuth solo mientras cada ventana de cuota configurada permanezca por encima de su reserva. Deja vacía la reserva semanal para no aplicar un límite semanal.",
         "quotaReserveHourlyLabel": "Reserva de 5 h",
         "quotaReserveWeeklyLabel": "Reserva semanal",
         "quotaReserveInvalid": "Introduce un entero del 1 al 100.",

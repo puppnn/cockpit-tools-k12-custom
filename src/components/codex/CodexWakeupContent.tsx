@@ -69,6 +69,12 @@ import {
   maskSensitiveValue,
   PRIVACY_MODE_CHANGED_EVENT,
 } from '../../utils/privacy';
+import {
+  FULL_QUOTA_PING_MODEL,
+  FULL_QUOTA_PING_PROMPT,
+  FULL_QUOTA_PING_REFRESH_DELAY_MS,
+  isCodexFullQuotaPingEligible,
+} from '../../utils/codexFullQuotaPing';
 
 const WAKEUP_ACCOUNT_PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
@@ -89,6 +95,7 @@ interface CodexWakeupGeneralConfig {
 interface CodexWakeupContentProps {
   accounts: CodexAccount[];
   onRefreshAccounts: () => Promise<void>;
+  onRefreshAccountQuotas?: (accountIds: string[]) => Promise<void>;
   openPresetManagerSignal?: number;
   openTestRequest?: CodexWakeupTestOpenRequest | null;
   modalOnly?: boolean;
@@ -244,6 +251,13 @@ const QUICK_TIME_OPTIONS = ['07:00', '08:00', '09:00', '10:00', '14:00', '18:00'
 const REASONING_EFFORT_OPTIONS: CodexWakeupReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
 const DEFAULT_WAKEUP_MODEL = 'gpt-5.3-codex';
 const DEFAULT_WAKEUP_REASONING_EFFORT: CodexWakeupReasoningEffort = 'medium';
+const FULL_QUOTA_PING_PRESET: CodexWakeupModelPreset = {
+  id: '__full-quota-ping-mini__',
+  name: 'GPT-5.4-Mini',
+  model: FULL_QUOTA_PING_MODEL,
+  allowed_reasoning_efforts: ['low'],
+  default_reasoning_effort: 'low',
+};
 const QUOTA_RESET_MIN_REFRESH_MINUTES = 2;
 const MAX_STARTUP_DELAY_MINUTES = 1440;
 const CODEX_WAKEUP_MODEL_SELECTION_STORAGE_KEY = 'agtools.codex.wakeup.model_selection';
@@ -907,6 +921,7 @@ function calculatePreviewRuns(taskDraft: TaskDraft, count: number = 5) {
 export function CodexWakeupContent({
   accounts,
   onRefreshAccounts,
+  onRefreshAccountQuotas,
   openPresetManagerSignal = 0,
   openTestRequest = null,
   modalOnly = false,
@@ -1225,7 +1240,12 @@ export function CodexWakeupContent({
     [modelPresetMap, taskDraft.modelPresetId],
   );
   const selectedTestPreset = useMemo(
-    () => (testModelPresetId ? modelPresetMap.get(testModelPresetId) : undefined),
+    () =>
+      testModelPresetId === FULL_QUOTA_PING_PRESET.id
+        ? FULL_QUOTA_PING_PRESET
+        : testModelPresetId
+          ? modelPresetMap.get(testModelPresetId)
+          : undefined,
     [modelPresetMap, testModelPresetId],
   );
   const taskAllowedReasoningEfforts = selectedTaskPreset?.allowed_reasoning_efforts ?? [];
@@ -1237,6 +1257,13 @@ export function CodexWakeupContent({
         label: preset.name,
       })),
     [state.model_presets],
+  );
+  const testModelPresetOptions = useMemo<WakeupSingleSelectOption[]>(
+    () =>
+      testModalVariant === 'fullQuota'
+        ? [{ value: FULL_QUOTA_PING_PRESET.id, label: FULL_QUOTA_PING_PRESET.name }]
+        : modelPresetOptions,
+    [modelPresetOptions, testModalVariant],
   );
   const taskReasoningOptions = useMemo<WakeupSingleSelectOption[]>(
     () =>
@@ -1640,8 +1667,13 @@ export function CodexWakeupContent({
     [filterWakeupAccounts, taskAccountFilters],
   );
   const filteredTestAccounts = useMemo(
-    () =>
-      [...filterWakeupAccounts(testAccountFilters)].sort((left, right) =>
+    () => {
+      const candidates = filterWakeupAccounts(testAccountFilters);
+      const eligible =
+        testModalVariant === 'fullQuota'
+          ? candidates.filter(isCodexFullQuotaPingEligible)
+          : candidates;
+      return [...eligible].sort((left, right) =>
         compareWakeupAccountsBySort(
           left,
           right,
@@ -1649,9 +1681,11 @@ export function CodexWakeupContent({
           testAccountSortDirection,
           wakeupAccountOrderIndex,
         ),
-      ),
+      );
+    },
     [
       filterWakeupAccounts,
+      testModalVariant,
       testAccountFilters,
       testAccountSortBy,
       testAccountSortDirection,
@@ -2023,7 +2057,10 @@ export function CodexWakeupContent({
 
   const handleSelectTestPreset = useCallback(
     (presetId: string) => {
-      const preset = modelPresetMap.get(presetId);
+      const preset =
+        presetId === FULL_QUOTA_PING_PRESET.id
+          ? FULL_QUOTA_PING_PRESET
+          : modelPresetMap.get(presetId);
       if (!preset) {
         setTestModelPresetId('');
         setTestModel('');
@@ -2165,15 +2202,25 @@ export function CodexWakeupContent({
       openTestRequest.defaultSortDirection ?? (nextVariant === 'fullQuota' ? 'desc' : 'asc'),
     );
     setTestAccountIds(nextAccountIds);
-    setTestModelPresetId(resolvedModelSelection.modelPresetId);
-    setTestModel(resolvedModelSelection.model);
-    setTestModelReasoningEffort(resolvedModelSelection.modelReasoningEffort);
+    const nextModelSelection =
+      nextVariant === 'fullQuota'
+        ? buildWakeupModelSelectionFromPreset(FULL_QUOTA_PING_PRESET, 'low')
+        : resolvedModelSelection;
+    setTestModelPresetId(nextModelSelection.modelPresetId);
+    setTestModel(nextModelSelection.model);
+    setTestModelReasoningEffort(nextModelSelection.modelReasoningEffort);
+    setTestPrompt(nextVariant === 'fullQuota' ? FULL_QUOTA_PING_PROMPT : '');
     setShowTestModal(true);
 
     if (openTestRequest.notice) {
       setNotice({ tone: 'success', text: openTestRequest.notice });
     }
-  }, [oauthAccounts, openTestRequest, resolvedModelSelection, setTestModalError]);
+  }, [
+    oauthAccounts,
+    openTestRequest,
+    resolvedModelSelection,
+    setTestModalError,
+  ]);
 
   const closeTaskModal = useCallback(() => {
     if (saving) return;
@@ -2480,8 +2527,22 @@ export function CodexWakeupContent({
   );
 
   const handleRunTest = useCallback(async () => {
-    if (testAccountIds.length === 0) {
-      setTestModalError(t('codex.wakeup.testAccountsRequired'));
+    const runnableAccountIds =
+      testModalVariant === 'fullQuota'
+        ? testAccountIds.filter((accountId) => {
+            const account = accountMap.get(accountId);
+            return account ? isCodexFullQuotaPingEligible(account) : false;
+          })
+        : testAccountIds;
+    if (runnableAccountIds.length === 0) {
+      setTestModalError(
+        testModalVariant === 'fullQuota'
+          ? t(
+              'codex.wakeup.fullQuotaNoAccounts',
+              '当前没有 5h 已满且周额度大于 10% 的 OAuth 账号。',
+            )
+          : t('codex.wakeup.testAccountsRequired'),
+      );
       return;
     }
     if (!selectedTestPreset) {
@@ -2507,7 +2568,7 @@ export function CodexWakeupContent({
       buildExecutionSession(
         runId,
         'test',
-        testAccountIds,
+        runnableAccountIds,
         promptValue,
         undefined,
         undefined,
@@ -2519,7 +2580,7 @@ export function CodexWakeupContent({
     setShowTestModal(false);
     try {
       const result = await runTest(
-        testAccountIds,
+        runnableAccountIds,
         runId,
         promptValue,
         selectedTestPreset.model,
@@ -2530,7 +2591,28 @@ export function CodexWakeupContent({
       if (activeTestRunTokenRef.current !== runToken) {
         return;
       }
-      await onRefreshAccounts();
+      const successfulFullQuotaAccountIds =
+        testModalVariant === 'fullQuota'
+          ? Array.from(
+              new Set(
+                result.records
+                  .filter((item) => item.success)
+                  .map((item) => item.account_id)
+                  .filter(Boolean),
+              ),
+            )
+          : [];
+      if (successfulFullQuotaAccountIds.length > 0 && onRefreshAccountQuotas) {
+        await new Promise<void>((resolve) => {
+          globalThis.setTimeout(resolve, FULL_QUOTA_PING_REFRESH_DELAY_MS);
+        });
+        if (activeTestRunTokenRef.current !== runToken) {
+          return;
+        }
+        await onRefreshAccountQuotas(successfulFullQuotaAccountIds);
+      } else {
+        await onRefreshAccounts();
+      }
       if (activeTestRunTokenRef.current !== runToken) {
         return;
       }
@@ -2608,7 +2690,9 @@ export function CodexWakeupContent({
     }
   }, [
     buildExecutionSession,
+    accountMap,
     onRefreshAccounts,
+    onRefreshAccountQuotas,
     releaseTestScope,
     resolvedModelSelection,
     runTest,
@@ -2616,6 +2700,7 @@ export function CodexWakeupContent({
     t,
     testAccountIds,
     testModelReasoningEffort,
+    testModalVariant,
     testPrompt,
   ]);
 
@@ -3563,18 +3648,21 @@ export function CodexWakeupContent({
               <div className="wakeup-form-group">
                 <div className="codex-wakeup-inline-header">
                   <label>{t('codex.wakeup.testModelLabel')}</label>
-                  <button type="button" className="btn btn-secondary" onClick={() => openPresetModal('test')}>
-                    {t('codex.wakeup.managePresets')}
-                  </button>
+                  {testModalVariant !== 'fullQuota' && (
+                    <button type="button" className="btn btn-secondary" onClick={() => openPresetModal('test')}>
+                      {t('codex.wakeup.managePresets')}
+                    </button>
+                  )}
                 </div>
                 <p className="wakeup-hint">{t('codex.wakeup.testModelHint')}</p>
                 <div className="codex-wakeup-dual-select">
                   <div className="codex-wakeup-dual-select-field">
                     <WakeupSingleSelectDropdown
                       value={testModelPresetId}
-                      options={modelPresetOptions}
+                      options={testModelPresetOptions}
                       placeholder={t('codex.wakeup.selectPresetPlaceholder')}
                       onSelect={handleSelectTestPreset}
+                      disabled={testModalVariant === 'fullQuota'}
                     />
                   </div>
                   <div className="codex-wakeup-dual-select-field codex-wakeup-dual-select-field-compact">
@@ -3591,7 +3679,7 @@ export function CodexWakeupContent({
                           );
                         }
                       }}
-                      disabled={testReasoningOptions.length === 0}
+                      disabled={testModalVariant === 'fullQuota' || testReasoningOptions.length === 0}
                     />
                   </div>
                 </div>
@@ -3608,6 +3696,7 @@ export function CodexWakeupContent({
                   className="token-input codex-wakeup-prompt-input"
                   value={testPrompt}
                   onChange={(event) => setTestPrompt(event.target.value)}
+                  readOnly={testModalVariant === 'fullQuota'}
                   placeholder={t('codex.wakeup.promptPlaceholder', { prompt: DEFAULT_PROMPT })}
                 />
               </div>

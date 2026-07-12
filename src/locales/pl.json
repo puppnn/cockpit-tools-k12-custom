@@ -1941,7 +1941,7 @@
         "desc": "Opcjonalne. Można wybrać tylko konta OAuth z refresh_token. Bez powiązania usługa API działa według dotychczasowej logiki API Key; po powiązaniu logowanie używa konta OAuth, a Provider konfiguracji usługi API.",
         "currentService": "Usługa API: {{name}}",
         "quotaReserveToggle": "Zachowaj limit OAuth",
-        "quotaReserveDesc": "Usługa API używa tego konta OAuth tylko wtedy, gdy pozostałe limity 5-godzinny i tygodniowy są wyższe od wartości rezerwy.",
+        "quotaReserveDesc": "Usługa API używa tego konta OAuth tylko wtedy, gdy każde skonfigurowane okno limitu pozostaje powyżej rezerwy. Pozostaw rezerwę tygodniową pustą, aby nie stosować limitu tygodniowego.",
         "quotaReserveHourlyLabel": "Rezerwa 5 godz.",
         "quotaReserveWeeklyLabel": "Rezerwa tygodniowa",
         "quotaReserveInvalid": "Wpisz liczbę całkowitą od 1 do 100.",

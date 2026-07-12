@@ -1990,7 +1990,7 @@
         "desc": "Opsional. Hanya akun OAuth dengan refresh_token yang dapat dipilih. Tanpa tautan, layanan API tetap memakai alur API Key lama; setelah ditautkan, status masuk memakai akun OAuth dan Provider memakai konfigurasi layanan API.",
         "currentService": "Layanan API: {{name}}",
         "quotaReserveToggle": "Simpan kuota OAuth",
-        "quotaReserveDesc": "Layanan API hanya memakai akun OAuth ini selama sisa kuota 5 jam dan mingguan lebih tinggi dari nilai simpanan.",
+        "quotaReserveDesc": "Layanan API hanya memakai akun OAuth ini selama sisa setiap jendela kuota yang diatur berada di atas nilai simpanannya. Kosongkan simpanan mingguan agar tidak ada batas mingguan.",
         "quotaReserveHourlyLabel": "Simpanan 5 jam",
         "quotaReserveWeeklyLabel": "Simpanan mingguan",
         "quotaReserveInvalid": "Masukkan bilangan bulat dari 1 sampai 100.",

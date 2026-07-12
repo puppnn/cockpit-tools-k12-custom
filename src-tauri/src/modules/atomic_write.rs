@@ -1,9 +1,12 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
+
+const ATOMIC_REPLACE_MAX_ATTEMPTS: usize = 8;
+const ATOMIC_REPLACE_MAX_DELAY_MS: u64 = 160;
 
 fn format_io_error(action: &str, path: &Path, err: &std::io::Error) -> String {
     format!("{}失败: path={}, error={}", action, path.display(), err)
@@ -105,6 +108,60 @@ fn write_synced_temp_file(temp_path: &Path, content: &str) -> Result<(), String>
     write_synced_temp_file_bytes(temp_path, content.as_bytes())
 }
 
+fn is_retryable_replace_error(error: &std::io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::AlreadyExists
+            | std::io::ErrorKind::Interrupted
+    ) {
+        return true;
+    }
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33 | 80 | 183))
+}
+
+fn replace_temp_file_with_retry(
+    temp_path: &Path,
+    target_path: &Path,
+    expected_content: &[u8],
+) -> std::io::Result<()> {
+    replace_temp_file_with_retry_observer(temp_path, target_path, expected_content, |_, _| {})
+}
+
+fn replace_temp_file_with_retry_observer<F>(
+    temp_path: &Path,
+    target_path: &Path,
+    expected_content: &[u8],
+    mut on_retry: F,
+) -> std::io::Result<()>
+where
+    F: FnMut(usize, &std::io::Error),
+{
+    for attempt in 0..ATOMIC_REPLACE_MAX_ATTEMPTS {
+        match fs::rename(temp_path, target_path) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if fs::read(target_path)
+                    .map(|content| content == expected_content)
+                    .unwrap_or(false)
+                {
+                    let _ = fs::remove_file(temp_path);
+                    return Ok(());
+                }
+                if !is_retryable_replace_error(&error) || attempt + 1 >= ATOMIC_REPLACE_MAX_ATTEMPTS
+                {
+                    return Err(error);
+                }
+                on_retry(attempt, &error);
+                let delay_ms = (10_u64 << attempt.min(4)).min(ATOMIC_REPLACE_MAX_DELAY_MS);
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+        }
+    }
+    unreachable!("atomic replace retry loop must return")
+}
+
 fn write_string_atomic_internal(
     path: &Path,
     content: &str,
@@ -136,7 +193,7 @@ fn write_string_atomic_internal(
         let _ = fs::remove_file(&temp_path);
         return Err(err);
     }
-    if let Err(err) = fs::rename(&temp_path, path) {
+    if let Err(err) = replace_temp_file_with_retry(&temp_path, path, content.as_bytes()) {
         let _ = fs::remove_file(&temp_path);
         return Err(format_io_error("替换文件", path, &err));
     }
@@ -157,7 +214,7 @@ pub fn write_bytes_atomic(path: &Path, content: &[u8]) -> Result<(), String> {
         let _ = fs::remove_file(&temp_path);
         return Err(err);
     }
-    if let Err(err) = fs::rename(&temp_path, path) {
+    if let Err(err) = replace_temp_file_with_retry(&temp_path, path, content) {
         let _ = fs::remove_file(&temp_path);
         return Err(format_io_error("替换文件", path, &err));
     }
@@ -205,9 +262,20 @@ pub fn parse_json_with_auto_restore<T: DeserializeOwned>(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::replace_temp_file_with_retry_observer;
     use super::{build_backup_path, quarantine_file, restore_from_backup, write_string_atomic};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[cfg(windows)]
+    use std::fs::OpenOptions;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+    #[cfg(windows)]
+    use std::sync::mpsc;
+    #[cfg(windows)]
+    use std::thread;
 
     fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
         let unique = SystemTime::now()
@@ -244,6 +312,55 @@ mod tests {
             fs::read_to_string(&backup_path).expect("read backup again"),
             r#"{"version":1}"#
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_temp_file_retries_a_temporary_windows_lock() {
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+
+        let dir = make_temp_dir("atomic_write_windows_retry");
+        let path = dir.join("state.json");
+        let temp_path = dir.join("state.json.tmp");
+        let replacement = br#"{"version":2}"#;
+        fs::write(&path, r#"{"version":1}"#).expect("initial write");
+        fs::write(&temp_path, replacement).expect("write replacement temp file");
+
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&path)
+            .expect("open target without delete sharing");
+        let (retry_sender, retry_receiver) = mpsc::channel();
+        let writer_path = path.clone();
+        let writer_temp_path = temp_path.clone();
+        let writer = thread::spawn(move || {
+            replace_temp_file_with_retry_observer(
+                &writer_temp_path,
+                &writer_path,
+                replacement,
+                |attempt, _| {
+                    if attempt == 0 {
+                        let _ = retry_sender.send(());
+                    }
+                },
+            )
+        });
+
+        retry_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("the first replace attempt should hit the target lock");
+        drop(lock);
+        writer
+            .join()
+            .expect("writer thread should not panic")
+            .expect("atomic replace should recover after lock release");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read replaced target"),
+            r#"{"version":2}"#
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

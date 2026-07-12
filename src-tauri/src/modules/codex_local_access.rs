@@ -138,6 +138,8 @@ const BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS: i64 = 3 * 60;
 const BOUND_OAUTH_QUOTA_RESERVE_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 const BOUND_OAUTH_QUOTA_RESERVE_MONITOR_TICK: Duration = Duration::from_secs(5);
 const BOUND_OAUTH_QUOTA_RESERVE_REQUEST_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(30);
+const SIDECAR_QUOTA_RESERVE_WRITE_ERROR_PREFIX: &str = "API 服务配额快照热更新失败: ";
+const LEGACY_BOUND_OAUTH_QUOTA_RESERVE_WRITE_ERROR_PREFIX: &str = "OAuth 保留额度快照热更新失败: ";
 const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const GATEWAY_PORT_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const GATEWAY_PORT_RELEASE_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -189,6 +191,7 @@ static UPSTREAM_HTTP_CLIENT: OnceLock<Mutex<Option<CachedUpstreamHttpClient>>> =
 static BOUND_OAUTH_QUOTA_REFRESH_FAILURES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_REFRESH_CONTROL: OnceLock<TokioMutex<BoundOauthQuotaRefreshControl>> =
     OnceLock::new();
+static SIDECAR_QUOTA_RESERVE_WRITE_LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_MONITOR_STARTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
@@ -503,6 +506,10 @@ fn upstream_http_client_cache() -> &'static Mutex<Option<CachedUpstreamHttpClien
 
 fn bound_oauth_quota_refresh_failures() -> &'static Mutex<HashSet<String>> {
     BOUND_OAUTH_QUOTA_REFRESH_FAILURES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn sidecar_quota_reserve_write_lock() -> &'static TokioMutex<()> {
+    SIDECAR_QUOTA_RESERVE_WRITE_LOCK.get_or_init(|| TokioMutex::new(()))
 }
 
 fn duration_to_millis(duration: Duration) -> u64 {
@@ -7440,9 +7447,36 @@ fn write_sidecar_quota_reserve_state_in_dir(
         .map_err(|error| format!("创建 API 服务 sidecar 目录失败: {}", error))?;
     let path = sidecar_quota_reserve_path(&base_dir);
     let content = serde_json::to_string_pretty(&sidecar_quota_reserve_state_value(collection))
-        .map_err(|error| format!("序列化 OAuth 保留额度快照失败: {}", error))?;
+        .map_err(|error| format!("序列化 API 服务配额快照失败: {}", error))?;
     write_string_atomic_if_changed(&path, &content)?;
     Ok(path)
+}
+
+fn is_sidecar_quota_reserve_write_error(message: &str) -> bool {
+    message.starts_with(SIDECAR_QUOTA_RESERVE_WRITE_ERROR_PREFIX)
+        || message.starts_with(LEGACY_BOUND_OAUTH_QUOTA_RESERVE_WRITE_ERROR_PREFIX)
+        || message.contains(CODEX_LOCAL_ACCESS_SIDECAR_QUOTA_RESERVE_FILE)
+}
+
+fn reconcile_gateway_result_last_error(
+    last_error: &mut Option<String>,
+    operation_error: Option<&str>,
+) {
+    match operation_error {
+        Some(error) if !is_sidecar_quota_reserve_write_error(error) => {
+            *last_error = Some(error.to_string());
+        }
+        Some(_) => {}
+        None => {
+            if !last_error
+                .as_deref()
+                .map(is_sidecar_quota_reserve_write_error)
+                .unwrap_or(false)
+            {
+                *last_error = None;
+            }
+        }
+    }
 }
 
 fn sidecar_account_manifest_value(
@@ -7792,15 +7826,44 @@ async fn prepare_sidecar_launch_config(
         let runtime = gateway_runtime().lock().await;
         runtime.account_health.clone()
     };
-    let default_service_tier = api_service_default_service_tier()?;
-    prepare_sidecar_launch_config_in_dir(
+    let default_service_tier = match api_service_default_service_tier() {
+        Ok(value) => value,
+        Err(error) => {
+            gateway_runtime().lock().await.last_error = Some(error.clone());
+            return Err(error);
+        }
+    };
+    let sidecar_dir = match local_access_sidecar_dir() {
+        Ok(value) => value,
+        Err(error) => {
+            gateway_runtime().lock().await.last_error = Some(error.clone());
+            return Err(error);
+        }
+    };
+    let _write_guard = sidecar_quota_reserve_write_lock().lock().await;
+    let result = prepare_sidecar_launch_config_in_dir(
         collection,
-        local_access_sidecar_dir()?,
+        sidecar_dir,
         health_snapshot,
         default_service_tier,
         HashMap::new(),
     )
-    .await
+    .await;
+    let mut runtime = gateway_runtime().lock().await;
+    match &result {
+        Ok(_) => {
+            if runtime
+                .last_error
+                .as_deref()
+                .map(is_sidecar_quota_reserve_write_error)
+                .unwrap_or(false)
+            {
+                runtime.last_error = None;
+            }
+        }
+        Err(error) => runtime.last_error = Some(error.clone()),
+    }
+    result
 }
 
 async fn prepare_sidecar_launch_config_in_dir(
@@ -10395,18 +10458,22 @@ where
     F: std::future::Future<Output = Result<(), String>> + Send + 'static,
 {
     tauri::async_runtime::spawn(async move {
-        match reload.await {
+        let result = reload.await;
+        {
+            let mut runtime = gateway_runtime().lock().await;
+            reconcile_gateway_result_last_error(
+                &mut runtime.last_error,
+                result.as_ref().err().map(String::as_str),
+            );
+        }
+        match result {
             Ok(()) => {
-                let mut runtime = gateway_runtime().lock().await;
-                runtime.last_error = None;
                 logger::log_codex_api_info(&format!(
                     "[CodexLocalAccess] 后台网关重载完成: {}",
                     reason
                 ));
             }
             Err(error) => {
-                let mut runtime = gateway_runtime().lock().await;
-                runtime.last_error = Some(error.clone());
                 logger::log_codex_api_warn(&format!(
                     "[CodexLocalAccess] 后台网关重载失败: reason={}, error={}",
                     reason, error
@@ -10512,6 +10579,7 @@ pub async fn reevaluate_bound_oauth_quota_reserve_after_refresh(
             failures.insert(account_id.to_string());
         }
     }
+    let _write_guard = sidecar_quota_reserve_write_lock().lock().await;
     let matching_collection = {
         let mut runtime = gateway_runtime().lock().await;
         let collection = runtime
@@ -10539,13 +10607,28 @@ pub async fn reevaluate_bound_oauth_quota_reserve_after_refresh(
 
     if let Some(collection) = matching_collection {
         if collection_gateway_mode(&collection) == CodexLocalAccessGatewayMode::Sidecar {
-            if let Err(error) = write_sidecar_quota_reserve_state(&collection) {
-                let mut runtime = gateway_runtime().lock().await;
-                runtime.last_error = Some(error.clone());
-                logger::log_codex_api_warn(&format!(
-                    "[CodexLocalAccess] 绑定 OAuth 配额快照热更新失败: {}",
-                    error
-                ));
+            match write_sidecar_quota_reserve_state(&collection) {
+                Ok(_) => {
+                    let mut runtime = gateway_runtime().lock().await;
+                    if runtime
+                        .last_error
+                        .as_deref()
+                        .map(is_sidecar_quota_reserve_write_error)
+                        .unwrap_or(false)
+                    {
+                        runtime.last_error = None;
+                    }
+                }
+                Err(error) => {
+                    let display_error =
+                        format!("{}{}", SIDECAR_QUOTA_RESERVE_WRITE_ERROR_PREFIX, error);
+                    let mut runtime = gateway_runtime().lock().await;
+                    runtime.last_error = Some(display_error);
+                    logger::log_codex_api_warn(&format!(
+                        "[CodexLocalAccess] API 服务配额快照热更新失败: {}",
+                        error
+                    ));
+                }
             }
         }
     }
@@ -10647,8 +10730,6 @@ async fn ensure_gateway_matches_runtime_locked() -> Result<(), String> {
             if running {
                 stop_gateway_locked().await;
             }
-            let mut runtime = gateway_runtime().lock().await;
-            runtime.last_error = Some(error.clone());
             return Err(error);
         }
     };
@@ -10864,7 +10945,7 @@ async fn ensure_gateway_matches_runtime_locked() -> Result<(), String> {
     runtime.actual_port = Some(collection.port);
     runtime.actual_bind_host = Some(bind_host);
     runtime.sidecar_config_fingerprint = Some(launch_config.fingerprint);
-    runtime.last_error = None;
+    reconcile_gateway_result_last_error(&mut runtime.last_error, None);
     runtime.shutdown_sender = None;
     runtime.task = Some(task);
     runtime.sidecar_child = Some(child);
@@ -11468,7 +11549,7 @@ async fn snapshot_state() -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded_without_start().await?;
     if let Err(err) = ensure_gateway_matches_runtime().await {
         let mut runtime = gateway_runtime().lock().await;
-        runtime.last_error = Some(err);
+        reconcile_gateway_result_last_error(&mut runtime.last_error, Some(&err));
         return Ok(build_state_snapshot(&runtime));
     }
     let mut runtime = gateway_runtime().lock().await;
@@ -15077,7 +15158,7 @@ pub async fn restore_local_access_gateway() {
     if let Err(err) = ensure_runtime_loaded().await {
         let mut runtime = gateway_runtime().lock().await;
         runtime.loaded = true;
-        runtime.last_error = Some(err.clone());
+        reconcile_gateway_result_last_error(&mut runtime.last_error, Some(&err));
         logger::log_codex_api_warn(&format!("[CodexLocalAccess] 初始化失败: {}", err));
     }
 }
@@ -19713,27 +19794,28 @@ mod tests {
         is_codex_local_access_auth_text, is_codex_local_access_config_for_api_key,
         is_image_generation_capability_error, is_k12_plan_type, is_local_access_eligible_account,
         is_provider_gateway_eligible_account, is_responses_completion_event,
-        is_stream_incomplete_error_message, is_upstream_response_failed_error_message,
-        legacy_stream_error_category, local_access_chat_completions_url,
-        macos_proxy_url_from_scutil_map, max_credential_attempts_for_strategy,
-        merge_collection_and_account_excluded_models, model_pricing,
-        model_provider_direct_test_client_model, model_provider_test_uses_provider_gateway,
-        move_bound_oauth_account_to_back, normalize_account_model_rules,
-        normalize_bound_oauth_quota_reserve, normalize_custom_routing_rules,
-        normalized_sidecar_error_category, open_local_access_logs_db_once, parse_codex_retry_after,
+        is_sidecar_quota_reserve_write_error, is_stream_incomplete_error_message,
+        is_upstream_response_failed_error_message, legacy_stream_error_category,
+        local_access_chat_completions_url, macos_proxy_url_from_scutil_map,
+        max_credential_attempts_for_strategy, merge_collection_and_account_excluded_models,
+        model_pricing, model_provider_direct_test_client_model,
+        model_provider_test_uses_provider_gateway, move_bound_oauth_account_to_back,
+        normalize_account_model_rules, normalize_bound_oauth_quota_reserve,
+        normalize_custom_routing_rules, normalized_sidecar_error_category,
+        open_local_access_logs_db_once, parse_codex_retry_after,
         parse_responses_payload_from_upstream, parse_websocket_upstream_error,
         prepare_gateway_request, prepare_gateway_request_with_default_service_tier,
         prepare_sidecar_launch_config_in_dir, prepare_websocket_initial_request,
         profile_base_url_matches, provider_gateway_bound_oauth_account_id_for_account,
         provider_gateway_default_model_for_account,
         provider_gateway_image_generation_mode_for_account, provider_gateway_models_for_account,
-        read_http_request, recover_invalid_stats_file, remove_account_refs_from_collection,
-        remove_codex_local_access_config, reprice_request_logs_for_collection,
-        request_image_generation_mode, resolve_plan_rank, resolve_supported_model_alias,
-        resolve_upstream_target, restore_config_toml_from_takeover_backup,
-        sanitize_collection_with_accounts, scutil_proxy_map,
-        should_retry_single_account_upstream_status, should_treat_response_as_stream,
-        should_try_next_account, sidecar_account_manifest_value,
+        read_http_request, reconcile_gateway_result_last_error, recover_invalid_stats_file,
+        remove_account_refs_from_collection, remove_codex_local_access_config,
+        reprice_request_logs_for_collection, request_image_generation_mode, resolve_plan_rank,
+        resolve_supported_model_alias, resolve_upstream_target,
+        restore_config_toml_from_takeover_backup, sanitize_collection_with_accounts,
+        scutil_proxy_map, should_retry_single_account_upstream_status,
+        should_treat_response_as_stream, should_try_next_account, sidecar_account_manifest_value,
         sidecar_api_key_account_scope_values, sidecar_auth_file_name,
         sidecar_auth_json_for_account, sidecar_auths_dir,
         sidecar_cached_account_usable_after_prepare_error, sidecar_codex_api_key_auth_id,
@@ -20645,6 +20727,44 @@ wire_api = "responses"
             .lock()
             .unwrap()
             .remove(&transient.id);
+    }
+
+    #[test]
+    fn recognizes_current_and_legacy_quota_reserve_write_errors() {
+        assert!(is_sidecar_quota_reserve_write_error(
+            "API 服务配额快照热更新失败: 替换文件失败"
+        ));
+        assert!(is_sidecar_quota_reserve_write_error(
+            "OAuth 保留额度快照热更新失败: 替换文件失败"
+        ));
+        assert!(is_sidecar_quota_reserve_write_error(
+            r#"替换文件失败: path=C:\Users\test\quota-reserve.json, error=拒绝访问"#
+        ));
+        assert!(!is_sidecar_quota_reserve_write_error(
+            "API 服务 sidecar 已退出"
+        ));
+    }
+
+    #[test]
+    fn gateway_result_preserves_newer_quota_write_state() {
+        let quota_error = "API 服务配额快照热更新失败: 替换文件失败".to_string();
+
+        let mut last_error = Some(quota_error.clone());
+        reconcile_gateway_result_last_error(&mut last_error, None);
+        assert_eq!(last_error.as_deref(), Some(quota_error.as_str()));
+
+        let mut last_error = None;
+        reconcile_gateway_result_last_error(&mut last_error, Some(&quota_error));
+        assert_eq!(last_error, None);
+
+        let mut last_error = Some("较新的非配额错误".to_string());
+        reconcile_gateway_result_last_error(&mut last_error, Some(&quota_error));
+        assert_eq!(last_error.as_deref(), Some("较新的非配额错误"));
+
+        reconcile_gateway_result_last_error(&mut last_error, Some("sidecar 启动失败"));
+        assert_eq!(last_error.as_deref(), Some("sidecar 启动失败"));
+        reconcile_gateway_result_last_error(&mut last_error, None);
+        assert_eq!(last_error, None);
     }
 
     #[test]

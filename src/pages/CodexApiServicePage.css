@@ -583,6 +583,18 @@
   height: 22px;
 }
 
+.codex-api-service-routing-form .account-filter-surface {
+  width: 100%;
+  min-width: 0;
+}
+
+.codex-api-service-routing-form .tag-filter-btn {
+  width: 100%;
+  min-height: 38px;
+  justify-content: flex-start;
+  border-radius: 12px;
+}
+
 .codex-api-service-routing-form label > input[type="checkbox"] {
   appearance: none;
   width: 18px;

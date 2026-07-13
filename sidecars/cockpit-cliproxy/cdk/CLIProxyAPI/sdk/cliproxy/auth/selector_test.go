@@ -700,6 +700,38 @@ func TestSessionAffinitySelector_FailoverWhenAuthUnavailable(t *testing.T) {
 	}
 }
 
+func TestSessionAffinitySelector_PrefersConfiguredPoolOnlyForNewSessions(t *testing.T) {
+	preferEnabled := false
+	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+		Fallback: &FillFirstSelector{},
+		TTL:      time.Minute,
+		PreferNewSession: func(auth *Auth) bool {
+			return preferEnabled && auth != nil && auth.ID == "auth-preferred"
+		},
+	})
+	defer selector.Stop()
+
+	auths := []*Auth{{ID: "auth-existing"}, {ID: "auth-preferred"}}
+	existingOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"existing-session"}`)}
+	newOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"new-session"}`)}
+
+	existing, err := selector.Pick(context.Background(), "codex", "gpt-5.4", existingOpts, auths)
+	if err != nil || existing == nil || existing.ID != "auth-existing" {
+		t.Fatalf("initial existing-session Pick() = %#v, %v", existing, err)
+	}
+
+	preferEnabled = true
+	sticky, err := selector.Pick(context.Background(), "codex", "gpt-5.4", existingOpts, auths)
+	if err != nil || sticky == nil || sticky.ID != "auth-existing" {
+		t.Fatalf("existing session changed after enabling preference: %#v, %v", sticky, err)
+	}
+
+	preferred, err := selector.Pick(context.Background(), "codex", "gpt-5.4", newOpts, auths)
+	if err != nil || preferred == nil || preferred.ID != "auth-preferred" {
+		t.Fatalf("new session Pick() = %#v, %v; want auth-preferred", preferred, err)
+	}
+}
+
 func TestSessionAffinitySelector_DoesNotStickToSkippedAuth(t *testing.T) {
 	t.Parallel()
 

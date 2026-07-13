@@ -2982,6 +2982,8 @@ pub async fn codex_local_access_reprice_request_logs() -> Result<CodexLocalAcces
 pub async fn codex_local_access_update_routing_options(
     session_affinity: bool,
     session_affinity_ttl_ms: i64,
+    new_session_priority_enabled: bool,
+    new_session_priority_account_ids: Vec<String>,
     max_retry_credentials: u16,
     max_retry_interval_ms: u64,
     disable_cooling: bool,
@@ -2989,6 +2991,8 @@ pub async fn codex_local_access_update_routing_options(
     codex_local_access::update_local_access_routing_options(
         session_affinity,
         session_affinity_ttl_ms,
+        new_session_priority_enabled,
+        new_session_priority_account_ids,
         max_retry_credentials,
         max_retry_interval_ms,
         disable_cooling,

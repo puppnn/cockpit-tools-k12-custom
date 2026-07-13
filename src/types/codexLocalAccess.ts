@@ -123,6 +123,8 @@ export interface CodexLocalAccessCollection {
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
   sessionAffinityDefaultEnabledMigrated?: boolean;
+  newSessionPriorityEnabled: boolean;
+  newSessionPriorityAccountIds: string[];
   maxRetryCredentials: number;
   maxRetryIntervalMs: number;
   timeouts: CodexLocalAccessTimeouts;

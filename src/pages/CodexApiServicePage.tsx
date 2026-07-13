@@ -79,6 +79,7 @@ import {
 } from "../utils/codexQuotaPool";
 import { filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
+import { MultiSelectFilterDropdown } from "../components/MultiSelectFilterDropdown";
 import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
 import { PaginationControls } from "../components/PaginationControls";
 import { useCodexAccountOverviewMemberView } from "../hooks/useCodexAccountOverviewMemberView";
@@ -575,6 +576,10 @@ export function CodexApiServicePage() {
   const [sessionAffinityDraft, setSessionAffinityDraft] = useState(true);
   const [sessionAffinityTtlDraft, setSessionAffinityTtlDraft] =
     useState("3600");
+  const [newSessionPriorityEnabledDraft, setNewSessionPriorityEnabledDraft] =
+    useState(false);
+  const [newSessionPriorityAccountIdsDraft, setNewSessionPriorityAccountIdsDraft] =
+    useState<string[]>([]);
   const [maxRetryCredentialsDraft, setMaxRetryCredentialsDraft] = useState("0");
   const [maxRetryIntervalDraft, setMaxRetryIntervalDraft] = useState("3");
   const [disableCoolingDraft, setDisableCoolingDraft] = useState(false);
@@ -655,6 +660,17 @@ export function CodexApiServicePage() {
         )
         .filter((account): account is CodexAccount => Boolean(account)),
     [memberIds, localAccessAccounts],
+  );
+  const newSessionPriorityAccountOptions = useMemo(
+    () =>
+      memberAccounts.map((account) => {
+        const presentation = buildCodexAccountPresentation(account, t);
+        return {
+          value: account.id,
+          label: `${presentation.displayName} · ${presentation.planLabel}`,
+        };
+      }),
+    [memberAccounts, t],
   );
   const accountModelRuleCount = collection?.accountModelRules.length ?? 0;
   const accountModelRuleAllSelected =
@@ -1053,6 +1069,12 @@ export function CodexApiServicePage() {
     setSessionAffinityTtlDraft(
       formatSeconds(collection?.sessionAffinityTtlMs ?? 3600000),
     );
+    setNewSessionPriorityEnabledDraft(
+      collection?.newSessionPriorityEnabled ?? false,
+    );
+    setNewSessionPriorityAccountIdsDraft(
+      collection?.newSessionPriorityAccountIds ?? [],
+    );
     setMaxRetryCredentialsDraft(String(collection?.maxRetryCredentials ?? 0));
     setMaxRetryIntervalDraft(
       formatSeconds(collection?.maxRetryIntervalMs ?? 3000),
@@ -1068,6 +1090,8 @@ export function CodexApiServicePage() {
     collection?.accountModelRules,
     collection?.sessionAffinity,
     collection?.sessionAffinityTtlMs,
+    collection?.newSessionPriorityEnabled,
+    collection?.newSessionPriorityAccountIds,
     collection?.maxRetryCredentials,
     collection?.maxRetryIntervalMs,
     collection?.disableCooling,
@@ -1889,12 +1913,39 @@ export function CodexApiServicePage() {
       );
       return;
     }
+    const memberAccountIdSet = new Set(memberAccounts.map((account) => account.id));
+    const newSessionPriorityAccountIds = Array.from(
+      new Set(newSessionPriorityAccountIdsDraft),
+    ).filter((accountId) => memberAccountIdSet.has(accountId));
+    if (newSessionPriorityEnabledDraft && !sessionAffinityDraft) {
+      setError(
+        t(
+          "codex.apiService.routing.newSessionPriorityRequiresAffinity",
+          "开启新会话优先前，请先开启会话亲和",
+        ),
+      );
+      return;
+    }
+    if (
+      newSessionPriorityEnabledDraft &&
+      newSessionPriorityAccountIds.length === 0
+    ) {
+      setError(
+        t(
+          "codex.apiService.routing.newSessionPriorityAccountsRequired",
+          "请至少选择一个新会话优先账号",
+        ),
+      );
+      return;
+    }
     await runAction(
       async () => {
         const next =
           await codexLocalAccessService.updateCodexLocalAccessRoutingOptions({
             sessionAffinity: sessionAffinityDraft,
             sessionAffinityTtlMs: ttlSeconds * 1000,
+            newSessionPriorityEnabled: newSessionPriorityEnabledDraft,
+            newSessionPriorityAccountIds,
             maxRetryCredentials,
             maxRetryIntervalMs: maxRetryIntervalSeconds * 1000,
             disableCooling: disableCoolingDraft,
@@ -3381,12 +3432,86 @@ export function CodexApiServicePage() {
                   <input
                     type="checkbox"
                     checked={sessionAffinityDraft}
-                    onChange={(event) =>
-                      setSessionAffinityDraft(event.target.checked)
-                    }
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setSessionAffinityDraft(enabled);
+                      if (!enabled) {
+                        setNewSessionPriorityEnabledDraft(false);
+                      }
+                    }}
                     disabled={busy || !collection}
                   />
                 </label>
+                <label
+                  title={t(
+                    "codex.apiService.routing.newSessionPriorityTitle",
+                    "只影响尚未建立会话亲和的新会话；已有会话继续使用原账号",
+                  )}
+                >
+                  <span>
+                    {t(
+                      "codex.apiService.routing.newSessionPriority",
+                      "新会话优先",
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={newSessionPriorityEnabledDraft}
+                    onChange={(event) =>
+                      setNewSessionPriorityEnabledDraft(event.target.checked)
+                    }
+                    disabled={
+                      busy ||
+                      !collection ||
+                      !sessionAffinityDraft ||
+                      memberAccounts.length === 0
+                    }
+                  />
+                </label>
+                {newSessionPriorityEnabledDraft && (
+                  <label
+                    title={t(
+                      "codex.apiService.routing.newSessionPriorityAccountsTitle",
+                      "优先池不可用时会自动回退现有调度策略",
+                    )}
+                  >
+                    <span>
+                      {t(
+                        "codex.apiService.routing.newSessionPriorityAccounts",
+                        "优先账号",
+                      )}
+                    </span>
+                    <MultiSelectFilterDropdown
+                      options={newSessionPriorityAccountOptions}
+                      selectedValues={newSessionPriorityAccountIdsDraft}
+                      allLabel={t(
+                        "codex.apiService.routing.selectPriorityAccounts",
+                        "选择账号",
+                      )}
+                      filterLabel={t(
+                        "codex.apiService.routing.selectedPriorityAccounts",
+                        "已选",
+                      )}
+                      clearLabel={t("common.clear", "清除")}
+                      emptyLabel={t(
+                        "codex.apiService.routing.noPriorityAccounts",
+                        "暂无可选账号",
+                      )}
+                      ariaLabel={t(
+                        "codex.apiService.routing.newSessionPriorityAccounts",
+                        "优先账号",
+                      )}
+                      onToggleValue={(accountId) =>
+                        setNewSessionPriorityAccountIdsDraft((current) =>
+                          current.includes(accountId)
+                            ? current.filter((item) => item !== accountId)
+                            : [...current, accountId],
+                        )
+                      }
+                      onClear={() => setNewSessionPriorityAccountIdsDraft([])}
+                    />
+                  </label>
+                )}
                 <label>
                   <span>
                     {t(

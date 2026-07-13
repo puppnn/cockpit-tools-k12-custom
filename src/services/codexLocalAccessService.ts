@@ -139,6 +139,8 @@ export async function repriceCodexLocalAccessRequestLogs(): Promise<CodexLocalAc
 export async function updateCodexLocalAccessRoutingOptions(payload: {
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
+  newSessionPriorityEnabled: boolean;
+  newSessionPriorityAccountIds: string[];
   maxRetryCredentials: number;
   maxRetryIntervalMs: number;
   disableCooling: boolean;

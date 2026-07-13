@@ -156,8 +156,16 @@ type quotaReserveSnapshot struct {
 }
 
 type quotaReserveStateFile struct {
-	Version  int                             `json:"version,omitempty"`
-	Accounts map[string]quotaReserveSnapshot `json:"accounts"`
+	Version                      int                             `json:"version,omitempty"`
+	Accounts                     map[string]quotaReserveSnapshot `json:"accounts"`
+	NewSessionPriorityEnabled    bool                            `json:"newSessionPriorityEnabled,omitempty"`
+	NewSessionPriorityAccountIDs []string                        `json:"newSessionPriorityAccountIds,omitempty"`
+}
+
+type quotaReserveRuntimeState struct {
+	accounts                     map[string]quotaReserveSnapshot
+	newSessionPriorityEnabled    bool
+	newSessionPriorityAccountIDs map[string]struct{}
 }
 
 type quotaReserveStateStore struct {
@@ -1485,7 +1493,10 @@ func newQuotaReserveStateStore(path string, m *manifest) *quotaReserveStateStore
 		k12SessionPath = filepath.Join(filepath.Dir(normalizedPath), "k12-sessions.json")
 	}
 	store := &quotaReserveStateStore{path: normalizedPath, k12SessionPath: k12SessionPath}
-	store.snapshot.Store(quotaReserveSnapshotsFromManifest(m))
+	store.snapshot.Store(quotaReserveRuntimeState{
+		accounts:                     quotaReserveSnapshotsFromManifest(m),
+		newSessionPriorityAccountIDs: make(map[string]struct{}),
+	})
 	return store
 }
 
@@ -1520,7 +1531,18 @@ func (s *quotaReserveStateStore) load() error {
 			normalized[accountID] = snapshot
 		}
 	}
-	s.snapshot.Store(normalized)
+	priorityIDs := make(map[string]struct{}, len(state.NewSessionPriorityAccountIDs))
+	for _, accountID := range state.NewSessionPriorityAccountIDs {
+		accountID = strings.TrimSpace(accountID)
+		if accountID != "" {
+			priorityIDs[accountID] = struct{}{}
+		}
+	}
+	s.snapshot.Store(quotaReserveRuntimeState{
+		accounts:                     normalized,
+		newSessionPriorityEnabled:    state.NewSessionPriorityEnabled && len(priorityIDs) > 0,
+		newSessionPriorityAccountIDs: priorityIDs,
+	})
 	s.lastHash = hash
 	s.hasHash = true
 	return nil
@@ -1561,15 +1583,28 @@ func (s *quotaReserveStateStore) forAccount(accountID string) *quotaReserveSnaps
 		return nil
 	}
 	loaded := s.snapshot.Load()
-	snapshots, ok := loaded.(map[string]quotaReserveSnapshot)
+	state, ok := loaded.(quotaReserveRuntimeState)
 	if !ok {
 		return nil
 	}
-	snapshot, ok := snapshots[strings.TrimSpace(accountID)]
+	snapshot, ok := state.accounts[strings.TrimSpace(accountID)]
 	if !ok {
 		return nil
 	}
 	return &snapshot
+}
+
+func (s *quotaReserveStateStore) prefersNewSessionAccount(accountID string) bool {
+	if s == nil {
+		return false
+	}
+	loaded := s.snapshot.Load()
+	state, ok := loaded.(quotaReserveRuntimeState)
+	if !ok || !state.newSessionPriorityEnabled {
+		return false
+	}
+	_, ok = state.newSessionPriorityAccountIDs[strings.TrimSpace(accountID)]
+	return ok
 }
 
 func (s *quotaReserveSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, error) {
@@ -2451,6 +2486,10 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 			Fallback:       selector,
 			TTL:            ttl,
 			DisableGeneric: !cfg.Routing.SessionAffinity,
+			PreferNewSession: func(auth *coreauth.Auth) bool {
+				account := accountForAuthInManifest(m, auth)
+				return account != nil && quota != nil && quota.prefersNewSessionAccount(account.ID)
+			},
 			SkipGenericAffinity: func(auth *coreauth.Auth) bool {
 				if m == nil || strings.TrimSpace(m.BoundOAuthAccountID) == "" {
 					return false

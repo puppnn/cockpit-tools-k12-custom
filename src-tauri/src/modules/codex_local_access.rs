@@ -4748,6 +4748,30 @@ fn pin_account_to_front(
     ordered
 }
 
+fn prioritize_account_pool(
+    account_ids: Vec<String>,
+    preferred_account_ids: &[String],
+) -> Vec<String> {
+    if preferred_account_ids.is_empty() || account_ids.len() <= 1 {
+        return account_ids;
+    }
+    let preferred = preferred_account_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut prioritized = Vec::with_capacity(account_ids.len());
+    let mut fallback = Vec::with_capacity(account_ids.len());
+    for account_id in account_ids {
+        if preferred.contains(account_id.as_str()) {
+            prioritized.push(account_id);
+        } else {
+            fallback.push(account_id);
+        }
+    }
+    prioritized.extend(fallback);
+    prioritized
+}
+
 fn move_bound_oauth_account_to_back(
     collection: &CodexLocalAccessCollection,
     strategy: CodexLocalAccessRoutingStrategy,
@@ -6684,6 +6708,10 @@ fn stable_sidecar_manifest_for_fingerprint(manifest_content: &str) -> String {
     let Ok(mut manifest) = serde_json::from_str::<Value>(manifest_content) else {
         return manifest_content.to_string();
     };
+    if let Some(manifest) = manifest.as_object_mut() {
+        manifest.remove("newSessionPriorityEnabled");
+        manifest.remove("newSessionPriorityAccountIds");
+    }
     if let Some(accounts) = manifest.get_mut("accounts").and_then(Value::as_array_mut) {
         for account in accounts {
             if let Some(account) = account.as_object_mut() {
@@ -7176,6 +7204,22 @@ fn remove_account_refs_from_collection(
         .retain(|rule| !remove_ids.contains(&rule.account_id));
     changed |= collection.custom_routing_rules != before_custom_rules;
 
+    let before_priority_ids = collection.new_session_priority_account_ids.clone();
+    collection
+        .new_session_priority_account_ids
+        .retain(|id| !remove_ids.contains(id));
+    changed |= collection.new_session_priority_account_ids != before_priority_ids;
+    if collection.new_session_priority_account_ids.is_empty()
+        && collection.new_session_priority_enabled
+    {
+        collection.new_session_priority_enabled = false;
+        changed = true;
+    }
+    if !collection.session_affinity && collection.new_session_priority_enabled {
+        collection.new_session_priority_enabled = false;
+        changed = true;
+    }
+
     let before_model_rules = collection.account_model_rules.clone();
     collection
         .account_model_rules
@@ -7429,6 +7473,8 @@ fn sidecar_quota_reserve_state_value(collection: &CodexLocalAccessCollection) ->
     json!({
         "version": CODEX_LOCAL_ACCESS_SIDECAR_QUOTA_STATE_VERSION,
         "accounts": accounts,
+        "newSessionPriorityEnabled": collection.new_session_priority_enabled,
+        "newSessionPriorityAccountIds": collection.new_session_priority_account_ids.clone(),
     })
 }
 
@@ -10243,6 +10289,32 @@ fn sanitize_collection_with_accounts(
         changed = true;
     }
 
+    let member_account_ids = collection
+        .account_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let original_priority_ids = std::mem::take(&mut collection.new_session_priority_account_ids);
+    let normalized_priority_ids = normalize_account_id_list(original_priority_ids.clone())
+        .into_iter()
+        .filter(|account_id| member_account_ids.contains(account_id))
+        .collect::<Vec<_>>();
+    if normalized_priority_ids != original_priority_ids {
+        changed = true;
+    }
+    collection.new_session_priority_account_ids = normalized_priority_ids;
+    if collection.new_session_priority_account_ids.is_empty()
+        && collection.new_session_priority_enabled
+    {
+        collection.new_session_priority_enabled = false;
+        changed = true;
+    }
+
+    if !collection.session_affinity && collection.new_session_priority_enabled {
+        collection.new_session_priority_enabled = false;
+        changed = true;
+    }
+
     for api_key in &mut collection.api_keys {
         let before = api_key.account_ids.clone();
         let valid_scope_account_ids = if api_key.provider_gateway.is_some() {
@@ -10365,6 +10437,8 @@ async fn ensure_runtime_loaded_without_start() -> Result<(), String> {
             session_affinity: true,
             session_affinity_ttl_ms: DEFAULT_SESSION_AFFINITY_TTL_MS,
             session_affinity_default_enabled_migrated: true,
+            new_session_priority_enabled: false,
+            new_session_priority_account_ids: Vec::new(),
             max_retry_credentials: 0,
             max_retry_interval_ms: DEFAULT_MAX_RETRY_INTERVAL_MS,
             timeouts: CodexLocalAccessTimeouts::default(),
@@ -11620,6 +11694,8 @@ fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, Str
         session_affinity: true,
         session_affinity_ttl_ms: DEFAULT_SESSION_AFFINITY_TTL_MS,
         session_affinity_default_enabled_migrated: true,
+        new_session_priority_enabled: false,
+        new_session_priority_account_ids: Vec::new(),
         max_retry_credentials: 0,
         max_retry_interval_ms: DEFAULT_MAX_RETRY_INTERVAL_MS,
         timeouts: CodexLocalAccessTimeouts::default(),
@@ -11963,6 +12039,8 @@ fn apply_provider_gateway_template_settings(
     collection.session_affinity_ttl_ms = template.session_affinity_ttl_ms;
     collection.session_affinity_default_enabled_migrated =
         template.session_affinity_default_enabled_migrated;
+    collection.new_session_priority_enabled = template.new_session_priority_enabled;
+    collection.new_session_priority_account_ids = template.new_session_priority_account_ids.clone();
     collection.max_retry_credentials = template.max_retry_credentials;
     collection.max_retry_interval_ms = template.max_retry_interval_ms;
     collection.timeouts = template.timeouts.clone();
@@ -14154,6 +14232,8 @@ pub async fn save_local_access_accounts(
                 session_affinity: true,
                 session_affinity_ttl_ms: DEFAULT_SESSION_AFFINITY_TTL_MS,
                 session_affinity_default_enabled_migrated: true,
+                new_session_priority_enabled: false,
+                new_session_priority_account_ids: Vec::new(),
                 max_retry_credentials: 0,
                 max_retry_interval_ms: DEFAULT_MAX_RETRY_INTERVAL_MS,
                 timeouts: CodexLocalAccessTimeouts::default(),
@@ -14405,6 +14485,8 @@ pub async fn reprice_local_access_request_logs() -> Result<CodexLocalAccessState
 pub async fn update_local_access_routing_options(
     session_affinity: bool,
     session_affinity_ttl_ms: i64,
+    new_session_priority_enabled: bool,
+    new_session_priority_account_ids: Vec<String>,
     max_retry_credentials: u16,
     max_retry_interval_ms: u64,
     disable_cooling: bool,
@@ -14424,6 +14506,19 @@ pub async fn update_local_access_routing_options(
     collection.session_affinity_default_enabled_migrated = true;
     collection.session_affinity_ttl_ms =
         session_affinity_ttl_ms.clamp(SESSION_AFFINITY_TTL_MIN_MS, SESSION_AFFINITY_TTL_MAX_MS);
+    let member_ids = collection
+        .account_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+    collection.new_session_priority_account_ids =
+        normalize_account_id_list(new_session_priority_account_ids)
+            .into_iter()
+            .filter(|account_id| member_ids.contains(account_id))
+            .collect();
+    collection.new_session_priority_enabled = new_session_priority_enabled
+        && session_affinity
+        && !collection.new_session_priority_account_ids.is_empty();
     collection.max_retry_credentials =
         max_retry_credentials.min(MAX_RETRY_CREDENTIALS_PER_REQUEST as u16);
     collection.max_retry_interval_ms =
@@ -14719,9 +14814,7 @@ pub async fn remove_deleted_accounts_from_local_access_pool(
         return Ok(());
     };
 
-    let before_account_ids = collection.account_ids.clone();
-    collection.account_ids.retain(|id| !remove_ids.contains(id));
-    if collection.account_ids == before_account_ids {
+    if !remove_account_refs_from_collection(&mut collection, &remove_ids) {
         return Ok(());
     }
 
@@ -17481,6 +17574,17 @@ async fn proxy_request_with_account_pool(
                 affinity_account_id.as_deref(),
             ),
         );
+        let strategy_account_ids = if collection.new_session_priority_enabled
+            && session_affinity_key.is_some()
+            && affinity_account_id.is_none()
+        {
+            prioritize_account_pool(
+                strategy_account_ids,
+                &collection.new_session_priority_account_ids,
+            )
+        } else {
+            strategy_account_ids
+        };
         let mut attempted_in_round = false;
         let mut round_cooldown_wait: Option<Duration> = None;
 
@@ -18574,6 +18678,17 @@ async fn proxy_websocket_with_account_pool(
             affinity_account_id.as_deref(),
         ),
     );
+    let strategy_account_ids = if collection.new_session_priority_enabled
+        && session_affinity_key.is_some()
+        && affinity_account_id.is_none()
+    {
+        prioritize_account_pool(
+            strategy_account_ids,
+            &collection.new_session_priority_account_ids,
+        )
+    } else {
+        strategy_account_ids
+    };
 
     let mut attempts = 0usize;
     let mut last_status = StatusCode::BAD_GATEWAY.as_u16();
@@ -19806,7 +19921,8 @@ mod tests {
         parse_responses_payload_from_upstream, parse_websocket_upstream_error,
         prepare_gateway_request, prepare_gateway_request_with_default_service_tier,
         prepare_sidecar_launch_config_in_dir, prepare_websocket_initial_request,
-        profile_base_url_matches, provider_gateway_bound_oauth_account_id_for_account,
+        prioritize_account_pool, profile_base_url_matches,
+        provider_gateway_bound_oauth_account_id_for_account,
         provider_gateway_default_model_for_account,
         provider_gateway_image_generation_mode_for_account, provider_gateway_models_for_account,
         read_http_request, reconcile_gateway_result_last_error, recover_invalid_stats_file,
@@ -19909,6 +20025,8 @@ mod tests {
             session_affinity: true,
             session_affinity_ttl_ms: DEFAULT_SESSION_AFFINITY_TTL_MS,
             session_affinity_default_enabled_migrated: true,
+            new_session_priority_enabled: false,
+            new_session_priority_account_ids: Vec::new(),
             max_retry_credentials: 0,
             max_retry_interval_ms: DEFAULT_MAX_RETRY_INTERVAL_MS,
             timeouts: CodexLocalAccessTimeouts::default(),
@@ -20500,6 +20618,8 @@ wire_api = "responses"
             account_id: "account-b".to_string(),
             excluded_models: vec!["gpt-5.4-mini".to_string()],
         }];
+        collection.new_session_priority_enabled = true;
+        collection.new_session_priority_account_ids = vec!["account-b".to_string()];
         collection.bound_oauth_account_id = Some("account-b".to_string());
         collection.bound_oauth_quota_reserve = Some(CodexLocalAccessQuotaReserve {
             hourly_percent: 20,
@@ -20520,6 +20640,8 @@ wire_api = "responses"
         assert_eq!(collection.custom_routing_rules.len(), 1);
         assert_eq!(collection.custom_routing_rules[0].account_id, "account-c");
         assert!(collection.account_model_rules.is_empty());
+        assert!(!collection.new_session_priority_enabled);
+        assert!(collection.new_session_priority_account_ids.is_empty());
         assert!(collection.bound_oauth_account_id.is_none());
         assert!(collection.bound_oauth_quota_reserve.is_none());
     }
@@ -20553,6 +20675,26 @@ wire_api = "responses"
         assert_ne!(
             sidecar_config_fingerprint(config, manifest_b),
             sidecar_config_fingerprint(config, manifest_c)
+        );
+    }
+
+    #[test]
+    fn sidecar_fingerprint_ignores_hot_new_session_priority_state() {
+        let config = r#"{"host":"127.0.0.1","port":58393}"#;
+        let disabled = r#"{
+          "accounts": [{"id": "account-a"}],
+          "newSessionPriorityEnabled": false,
+          "newSessionPriorityAccountIds": []
+        }"#;
+        let enabled = r#"{
+          "accounts": [{"id": "account-a"}],
+          "newSessionPriorityEnabled": true,
+          "newSessionPriorityAccountIds": ["account-a"]
+        }"#;
+
+        assert_eq!(
+            sidecar_config_fingerprint(config, disabled),
+            sidecar_config_fingerprint(config, enabled)
         );
     }
 
@@ -20889,6 +21031,8 @@ wire_api = "responses"
             json!(CODEX_LOCAL_ACCESS_SIDECAR_QUOTA_STATE_VERSION)
         );
         assert!(state["accounts"].is_object());
+        assert_eq!(state["newSessionPriorityEnabled"], json!(false));
+        assert_eq!(state["newSessionPriorityAccountIds"], json!([]));
     }
 
     #[test]
@@ -22299,6 +22443,24 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         );
 
         assert_eq!(ordered, vec!["acc-high", "acc-low", "acc-bound"]);
+    }
+
+    #[test]
+    fn new_session_priority_pool_preserves_strategy_order_inside_pool() {
+        let ordered = prioritize_account_pool(
+            vec![
+                "account-a".to_string(),
+                "account-b".to_string(),
+                "account-c".to_string(),
+                "account-d".to_string(),
+            ],
+            &["account-c".to_string(), "account-b".to_string()],
+        );
+
+        assert_eq!(
+            ordered,
+            vec!["account-b", "account-c", "account-a", "account-d"]
+        );
     }
 
     #[test]

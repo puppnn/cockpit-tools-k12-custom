@@ -431,6 +431,24 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		k12Candidates = append(k12Candidates, auth)
 	}
 
+	if s.k12.tentativeAuth(digest, now) == "" {
+		preferredK12 := s.preferredNewSessionAuths(k12Candidates)
+		availableNonK12, _ := getAvailableAuths(nonK12, provider, model, now)
+		preferredNonK12 := s.preferredNewSessionAuths(availableNonK12)
+		if len(preferredK12) > 0 {
+			k12Candidates = preferredK12
+			if len(preferredNonK12) > 0 {
+				spilloverCandidates = preferredNonK12
+			}
+		} else if len(preferredNonK12) > 0 {
+			selectorLogEntry(ctx).Infof(
+				"session-affinity: preferred non-K12 pool selected for new session | source=%s session=%s candidates=%d",
+				identity.Source, shortSessionDigest(digest), len(preferredNonK12),
+			)
+			return nil, preferredNonK12, false, nil
+		}
+	}
+
 	if len(k12Candidates) > 0 {
 		reservation, err := s.k12.reserveCandidate(
 			digest,

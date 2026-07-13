@@ -36,6 +36,13 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 - **Affinity across model aliases**: A K12 binding does not include the model ID, so switching model aliases within the same Codex session keeps the original account when possible. Disabled or unsupported models still return their normal model error.
 - **Unchanged non-K12 behavior**: Other account types retain their existing in-memory session affinity and custom load-balancing behavior. Persistent cross-model affinity applies only to K12 accounts.
 
+### Preferred Account Pool for New Sessions
+
+- Enable **Prefer New Sessions** under **API Service > Routing Options** and select one or more accounts that currently belong to the service.
+- The selected pool is consulted only when a stable session identity is available and no affinity binding exists. Confirmed K12 bindings, tentative or spillover K12 bindings, and ordinary in-memory affinity hits always keep their current account.
+- Changing or disabling the pool never migrates an established session. If every selected account is unavailable because of model support, quota, cooldown, disabled state, or concurrency capacity, routing falls back to the existing policy.
+- The setting is hot-loaded through the sidecar state file, so changing only this pool does not restart the API service or erase ordinary in-memory affinity. Removed accounts are pruned automatically.
+
 ### Continuity and Failover
 
 - **Automatic 429 failover**: When a K12 actually returns 429, the unusable binding is released and another account is attempted within the same request, preventing one exhausted account from stopping a long-running task.

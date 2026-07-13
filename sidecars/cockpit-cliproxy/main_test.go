@@ -170,6 +170,77 @@ func TestBuildCoreAuthSelectorUsesOnlyBoundOAuthForK12CapacitySpillover(t *testi
 	}
 }
 
+func TestBuildCoreAuthSelectorReadsPreferredNewSessionPoolFromHotState(t *testing.T) {
+	first := &accountSpec{ID: "first", AuthID: "first.json", PlanType: "Plus"}
+	preferred := &accountSpec{ID: "preferred", AuthID: "preferred.json", PlanType: "Plus"}
+	m := &manifest{
+		Accounts: []accountSpec{*first, *preferred},
+		accountByID: map[string]*accountSpec{
+			first.ID:     first,
+			preferred.ID: preferred,
+		},
+		accountByAuthID: map[string]*accountSpec{
+			first.AuthID:     first,
+			preferred.AuthID: preferred,
+		},
+	}
+	statePath := filepath.Join(t.TempDir(), "quota-reserve-state.json")
+	writeState := func(enabled bool, accountIDs []string) {
+		t.Helper()
+		content, err := json.Marshal(quotaReserveStateFile{
+			Version:                      quotaReserveStateVersion,
+			Accounts:                     map[string]quotaReserveSnapshot{},
+			NewSessionPriorityEnabled:    enabled,
+			NewSessionPriorityAccountIDs: accountIDs,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(statePath, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeState(true, []string{preferred.ID})
+	quota := newQuotaReserveStateStore(statePath, m)
+	if err := quota.load(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Routing.SessionAffinity = true
+	selector := buildCoreAuthSelector(cfg, &coreauth.FillFirstSelector{}, m, quota)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		t.Cleanup(stoppable.Stop)
+	}
+	auths := []*coreauth.Auth{{ID: first.AuthID, Provider: "codex"}, {ID: preferred.AuthID, Provider: "codex"}}
+
+	selected, err := selector.Pick(
+		context.Background(),
+		"codex",
+		"gpt-5.4",
+		cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"preferred-hot-state"}`)},
+		auths,
+	)
+	if err != nil || selected == nil || selected.ID != preferred.AuthID {
+		t.Fatalf("preferred hot-state Pick() = %#v, %v; want %s", selected, err, preferred.AuthID)
+	}
+
+	writeState(false, nil)
+	if err := quota.load(); err != nil {
+		t.Fatal(err)
+	}
+	selected, err = selector.Pick(
+		context.Background(),
+		"codex",
+		"gpt-5.4",
+		cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"normal-hot-state"}`)},
+		auths,
+	)
+	if err != nil || selected == nil || selected.ID != first.AuthID {
+		t.Fatalf("disabled hot-state Pick() = %#v, %v; want %s", selected, err, first.AuthID)
+	}
+}
+
 func TestClientCatalogModelsIncludesAutoReviewWithoutPrefix(t *testing.T) {
 	spec := &apiKeySpec{
 		ModelPrefix:    "team",

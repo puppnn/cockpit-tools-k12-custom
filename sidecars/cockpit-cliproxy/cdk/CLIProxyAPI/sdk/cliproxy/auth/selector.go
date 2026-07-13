@@ -442,6 +442,7 @@ type SessionAffinitySelector struct {
 	k12                 *k12SessionPolicy
 	genericEnabled      bool
 	skipGenericAffinity func(*Auth) bool
+	preferNewSession    func(*Auth) bool
 }
 
 // SessionAffinityConfig configures the session affinity selector.
@@ -450,6 +451,7 @@ type SessionAffinityConfig struct {
 	TTL                 time.Duration
 	DisableGeneric      bool
 	SkipGenericAffinity func(*Auth) bool
+	PreferNewSession    func(*Auth) bool
 	K12                 *K12SessionPolicyConfig
 }
 
@@ -474,6 +476,7 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 		cache:               NewSessionCache(cfg.TTL),
 		genericEnabled:      !cfg.DisableGeneric,
 		skipGenericAffinity: cfg.SkipGenericAffinity,
+		preferNewSession:    cfg.PreferNewSession,
 	}
 	if cfg.K12 != nil {
 		k12Config := *cfg.K12
@@ -487,6 +490,78 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 		selector.k12 = policy
 	}
 	return selector
+}
+
+func (s *SessionAffinitySelector) preferredNewSessionAuths(auths []*Auth) []*Auth {
+	if s == nil || s.preferNewSession == nil {
+		return nil
+	}
+	preferred := make([]*Auth, 0, len(auths))
+	for _, auth := range auths {
+		if auth != nil && s.preferNewSession(auth) {
+			preferred = append(preferred, auth)
+		}
+	}
+	return preferred
+}
+
+func (s *SessionAffinitySelector) pickExistingGenericSession(ctx context.Context, provider, model string, primary, fallback sessionIdentity, auths []*Auth) (*Auth, bool, error) {
+	if s == nil || !s.genericEnabled || s.cache == nil || primary.ID == "" {
+		return nil, false, nil
+	}
+	available, err := getAvailableAuths(auths, provider, model, time.Now())
+	if err != nil {
+		return nil, false, err
+	}
+	entry := selectorLogEntry(ctx)
+	cacheKey := provider + "::" + primary.ID + "::" + model
+	if cachedAuthID, ok := s.cache.GetAndRefresh(cacheKey); ok {
+		for _, auth := range available {
+			if auth.ID != cachedAuthID {
+				continue
+			}
+			if s.skipGenericAffinity != nil && s.skipGenericAffinity(auth) {
+				s.cache.Invalidate(cacheKey)
+				break
+			}
+			entry.Infof("session-affinity: cache hit before new K12 routing | source=%s session=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), auth.ID, provider, model)
+			return auth, true, nil
+		}
+	}
+
+	if fallback.ID == "" || fallback.ID == primary.ID {
+		return nil, false, nil
+	}
+	fallbackKey := provider + "::" + fallback.ID + "::" + model
+	if cachedAuthID, ok := s.cache.Get(fallbackKey); ok {
+		for _, auth := range available {
+			if auth.ID != cachedAuthID {
+				continue
+			}
+			if s.skipGenericAffinity != nil && s.skipGenericAffinity(auth) {
+				s.cache.Invalidate(fallbackKey)
+				break
+			}
+			s.cache.Set(cacheKey, auth.ID)
+			entry.Infof("session-affinity: fallback cache hit before new K12 routing | source=%s session=%s fallback=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), sessionLogSummary(fallback.ID), auth.ID, provider, model)
+			return auth, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func (s *SessionAffinitySelector) pickNewGenericSession(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, available, auths []*Auth) (*Auth, error) {
+	if preferred := s.preferredNewSessionAuths(available); len(preferred) > 0 {
+		selected, err := s.fallback.Pick(ctx, provider, model, opts, preferred)
+		if err == nil && selected != nil {
+			return selected, nil
+		}
+		selectorLogEntry(ctx).WithError(err).Debugf(
+			"session-affinity: preferred new-session pool unavailable, falling back | provider=%s model=%s candidates=%d",
+			provider, model, len(preferred),
+		)
+	}
+	return s.fallback.Pick(ctx, provider, model, opts, auths)
 }
 
 // Pick selects an auth with session affinity when possible.
@@ -521,6 +596,14 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 	}
 
 	if s.k12 != nil {
+		if selected, handled, err := s.PickBeforeAvailability(ctx, provider, model, opts, auths); handled {
+			return selected, err
+		}
+		if selected, handled, err := s.pickExistingGenericSession(ctx, provider, model, primary, fallback, auths); err != nil {
+			return nil, err
+		} else if handled {
+			return selected, nil
+		}
 		selected, remaining, handled, err := s.pickK12(ctx, provider, model, opts, primary, auths)
 		if handled {
 			return selected, err
@@ -582,7 +665,7 @@ func (s *SessionAffinitySelector) pickGenericSession(ctx context.Context, provid
 		}
 	}
 
-	auth, err := s.fallback.Pick(ctx, provider, model, opts, auths)
+	auth, err := s.pickNewGenericSession(ctx, provider, model, opts, available, auths)
 	if err != nil {
 		return nil, err
 	}

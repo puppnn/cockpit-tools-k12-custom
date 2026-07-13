@@ -119,21 +119,145 @@ func TestCockpitSelectorMovesBoundOAuthAccountToFinalFallback(t *testing.T) {
 	}
 }
 
-func TestBuildCoreAuthSelectorUsesOnlyBoundOAuthForK12CapacitySpillover(t *testing.T) {
+func TestK12SpilloverAccountSpecAllowsPaidOAuthOnly(t *testing.T) {
+	paidRank := 300
+	goRank := 200
+	freeRank := 100
+	tests := []struct {
+		name    string
+		account *accountSpec
+		want    bool
+	}{
+		{name: "plus", account: &accountSpec{PlanType: "Plus", AuthID: "plus.json"}, want: true},
+		{name: "team", account: &accountSpec{PlanType: "TEAM", AuthID: "team.json"}, want: true},
+		{name: "paid dynamic plan", account: &accountSpec{PlanType: "future-paid", AuthID: "paid.json", PlanRank: &paidRank}, want: true},
+		{name: "go by name", account: &accountSpec{PlanType: "Go", AuthID: "go.json"}, want: false},
+		{name: "go by rank", account: &accountSpec{PlanType: "future-go", AuthID: "go-rank.json", PlanRank: &goRank}, want: false},
+		{name: "free by name", account: &accountSpec{PlanType: "Free", AuthID: "free.json"}, want: false},
+		{name: "free by rank", account: &accountSpec{PlanType: "future-free", AuthID: "free-rank.json", PlanRank: &freeRank}, want: false},
+		{name: "k12", account: &accountSpec{PlanType: "K12", AuthID: "k12.json"}, want: false},
+		{name: "api key plan", account: &accountSpec{PlanType: "API_KEY", AuthID: "api-key.json"}, want: false},
+		{name: "api key credential", account: &accountSpec{PlanType: "Plus", AuthID: "api-key.json", UpstreamAPIKey: "secret"}, want: false},
+		{name: "missing oauth auth id", account: &accountSpec{PlanType: "Plus"}, want: false},
+		{name: "unknown plan", account: &accountSpec{PlanType: "unknown", AuthID: "unknown.json"}, want: false},
+		{name: "nil account", account: nil, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isK12SpilloverAccountSpec(test.account); got != test.want {
+				t.Fatalf("isK12SpilloverAccountSpec() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestK12QuotaSnapshotForAuthPreservesKnownWeeklyQuotaWhenStale(t *testing.T) {
 	k12 := &accountSpec{ID: "k12", AuthID: "k12.json", PlanType: "K12"}
-	boundPlus := &accountSpec{ID: "bound-plus", AuthID: "bound-plus.json", PlanType: "Plus"}
-	other := &accountSpec{ID: "other", AuthID: "other.json", PlanType: "Team"}
+	m := &manifest{
+		Accounts: []accountSpec{*k12},
+		accountByAuthID: map[string]*accountSpec{
+			k12.AuthID: k12,
+		},
+	}
+	now := time.Now()
+	hourlyRemaining := 99
+	weeklyRemaining := 0
+	windowPresent := true
+	windowAbsent := false
+	staleUpdatedAt := now.Add(-4 * time.Minute).Unix()
+	freshUpdatedAt := now.Unix()
+	auth := &coreauth.Auth{ID: k12.AuthID, Provider: "codex"}
+
+	t.Run("stale weekly zero remains known", func(t *testing.T) {
+		quota := newQuotaReserveStateStore("", m)
+		quota.snapshot.Store(quotaReserveRuntimeState{accounts: map[string]quotaReserveSnapshot{
+			k12.ID: {
+				SnapshotUpdatedAtUnixSeconds: &staleUpdatedAt,
+				HourlyRemainingPercent:       &hourlyRemaining,
+				WeeklyRemainingPercent:       &weeklyRemaining,
+				HourlyWindowPresent:          &windowPresent,
+				WeeklyWindowPresent:          &windowPresent,
+			},
+		}})
+
+		got := k12QuotaSnapshotForAuth(m, quota, auth, now)
+		if got.Fresh {
+			t.Fatal("stale quota snapshot must not be marked fresh")
+		}
+		if got.HourlyRemainingPercent == nil || *got.HourlyRemainingPercent != hourlyRemaining {
+			t.Fatalf("stale hourly remaining = %v, want %d", got.HourlyRemainingPercent, hourlyRemaining)
+		}
+		if got.WeeklyRemainingPercent == nil || *got.WeeklyRemainingPercent != weeklyRemaining {
+			t.Fatalf("stale weekly remaining = %v, want %d", got.WeeklyRemainingPercent, weeklyRemaining)
+		}
+	})
+
+	t.Run("absent weekly window omits weekly remaining", func(t *testing.T) {
+		quota := newQuotaReserveStateStore("", m)
+		quota.snapshot.Store(quotaReserveRuntimeState{accounts: map[string]quotaReserveSnapshot{
+			k12.ID: {
+				SnapshotUpdatedAtUnixSeconds: &freshUpdatedAt,
+				HourlyRemainingPercent:       &hourlyRemaining,
+				WeeklyRemainingPercent:       &weeklyRemaining,
+				HourlyWindowPresent:          &windowPresent,
+				WeeklyWindowPresent:          &windowAbsent,
+			},
+		}})
+
+		got := k12QuotaSnapshotForAuth(m, quota, auth, now)
+		if !got.Fresh {
+			t.Fatal("current quota snapshot should be marked fresh")
+		}
+		if got.WeeklyRemainingPercent != nil {
+			t.Fatalf("absent weekly window returned remaining %v", got.WeeklyRemainingPercent)
+		}
+	})
+
+	t.Run("unknown weekly window omits weekly remaining", func(t *testing.T) {
+		quota := newQuotaReserveStateStore("", m)
+		quota.snapshot.Store(quotaReserveRuntimeState{accounts: map[string]quotaReserveSnapshot{
+			k12.ID: {
+				SnapshotUpdatedAtUnixSeconds: &freshUpdatedAt,
+				HourlyRemainingPercent:       &hourlyRemaining,
+				WeeklyRemainingPercent:       &weeklyRemaining,
+				HourlyWindowPresent:          &windowPresent,
+				WeeklyWindowPresent:          nil,
+			},
+		}})
+
+		got := k12QuotaSnapshotForAuth(m, quota, auth, now)
+		if !got.Fresh {
+			t.Fatal("current quota snapshot should be marked fresh")
+		}
+		if got.WeeklyRemainingPercent != nil {
+			t.Fatalf("unknown weekly window returned remaining %v", got.WeeklyRemainingPercent)
+		}
+	})
+}
+
+func TestBuildCoreAuthSelectorUsesPaidOAuthMembersForK12CapacitySpillover(t *testing.T) {
+	k12 := &accountSpec{ID: "k12", AuthID: "k12.json", PlanType: "K12"}
+	plus := &accountSpec{ID: "plus", AuthID: "plus.json", PlanType: "Plus"}
+	team := &accountSpec{ID: "team", AuthID: "team.json", PlanType: "Team"}
+	apiKey := &accountSpec{ID: "api-key", AuthID: "api-key.json", PlanType: "API_KEY", UpstreamAPIKey: "upstream-key"}
 	m := &manifest{
 		APIKeys:             []apiKeySpec{{ID: "local", Key: "test-local-key", Enabled: true}},
-		Accounts:            []accountSpec{*k12, *boundPlus, *other},
+		Accounts:            []accountSpec{*k12, *plus, *team, *apiKey},
 		RoutingStrategy:     "custom",
-		BoundOAuthAccountID: boundPlus.ID,
-		accountByAuthID: map[string]*accountSpec{
-			k12.AuthID:       k12,
-			boundPlus.AuthID: boundPlus,
-			other.AuthID:     other,
+		BoundOAuthAccountID: "bound-account-outside-member-pool",
+		CustomRoutingRules: []customRoutingRule{
+			{AccountID: apiKey.ID, Priority: 100, Weight: 1},
+			{AccountID: plus.ID, Priority: 20, Weight: 1},
+			{AccountID: team.ID, Priority: 10, Weight: 1},
+			{AccountID: k12.ID, Priority: 1, Weight: 1},
 		},
-		originalIndexByID: map[string]int{k12.ID: 0, boundPlus.ID: 1, other.ID: 2},
+		accountByAuthID: map[string]*accountSpec{
+			k12.AuthID:    k12,
+			plus.AuthID:   plus,
+			team.AuthID:   team,
+			apiKey.AuthID: apiKey,
+		},
+		originalIndexByID: map[string]int{k12.ID: 0, plus.ID: 1, team.ID: 2, apiKey.ID: 3},
 	}
 	selector := buildCoreAuthSelector(&config.Config{}, &cockpitSelector{manifest: m}, m, nil)
 	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
@@ -141,12 +265,13 @@ func TestBuildCoreAuthSelectorUsesOnlyBoundOAuthForK12CapacitySpillover(t *testi
 	}
 	auths := []*coreauth.Auth{
 		{ID: k12.AuthID, Provider: "codex"},
-		{ID: other.AuthID, Provider: "codex"},
-		{ID: boundPlus.AuthID, Provider: "codex"},
+		{ID: apiKey.AuthID, Provider: "codex"},
+		{ID: team.AuthID, Provider: "codex"},
+		{ID: plus.AuthID, Provider: "codex"},
 	}
-	want := []string{k12.AuthID, k12.AuthID, boundPlus.AuthID}
+	want := []string{k12.AuthID, k12.AuthID, plus.AuthID}
 	for index, wantAuthID := range want {
-		opts := cliproxyexecutor.Options{OriginalRequest: []byte(fmt.Sprintf(`{"prompt_cache_key":"bound-spillover-%d","input":[]}`, index))}
+		opts := cliproxyexecutor.Options{OriginalRequest: []byte(fmt.Sprintf(`{"prompt_cache_key":"member-spillover-%d","input":[]}`, index))}
 		selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
 		if err != nil || selected == nil || selected.ID != wantAuthID {
 			t.Fatalf("capacity selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
@@ -157,16 +282,123 @@ func TestBuildCoreAuthSelectorUsesOnlyBoundOAuthForK12CapacitySpillover(t *testi
 	remaining := 10
 	updatedAt := time.Now().Unix()
 	windowPresent := true
-	boundPlus.QuotaReserve = &quotaReserveSpec{
+	plus.QuotaReserve = &quotaReserveSpec{
 		HourlyThresholdPercent:       &threshold,
 		SnapshotUpdatedAtUnixSeconds: &updatedAt,
 		HourlyRemainingPercent:       &remaining,
 		HourlyWindowPresent:          &windowPresent,
 	}
-	blockedOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"bound-plus-reserved","input":[]}`)}
+	blockedOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"member-plus-reserved","input":[]}`)}
 	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", blockedOpts, auths)
-	if err != nil || selected == nil || selected.ID != k12.AuthID {
-		t.Fatalf("capacity selection with reserved Plus = %#v, %v; want %s", selected, err, k12.AuthID)
+	if err != nil || selected == nil || selected.ID != team.AuthID {
+		t.Fatalf("capacity selection with reserved Plus = %#v, %v; want %s", selected, err, team.AuthID)
+	}
+
+	plus.QuotaReserve = nil
+	auths[3].Disabled = true
+	disabledOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"member-plus-disabled","input":[]}`)}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", disabledOpts, auths)
+	if err != nil || selected == nil || selected.ID != team.AuthID {
+		t.Fatalf("capacity selection with disabled Plus = %#v, %v; want %s", selected, err, team.AuthID)
+	}
+
+	auths[3].Disabled = false
+	auths[3].ModelStates = map[string]*coreauth.ModelState{
+		"gpt-5.4": {Status: coreauth.StatusDisabled},
+	}
+	modelBlockedOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"member-plus-model-blocked","input":[]}`)}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", modelBlockedOpts, auths)
+	if err != nil || selected == nil || selected.ID != team.AuthID {
+		t.Fatalf("capacity selection with model-blocked Plus = %#v, %v; want %s", selected, err, team.AuthID)
+	}
+}
+
+func TestQuotaReserveSelectorReroutesEstablishedK12Spillover(t *testing.T) {
+	k12 := &accountSpec{ID: "k12", AuthID: "k12.json", PlanType: "K12"}
+	hourlyThreshold := 10
+	hourlyRemaining := 80
+	updatedAt := time.Now().Unix()
+	windowPresent := true
+	plus := &accountSpec{
+		ID:       "plus",
+		AuthID:   "plus.json",
+		PlanType: "Plus",
+		QuotaReserve: &quotaReserveSpec{
+			HourlyThresholdPercent:       &hourlyThreshold,
+			SnapshotUpdatedAtUnixSeconds: &updatedAt,
+			HourlyRemainingPercent:       &hourlyRemaining,
+			HourlyWindowPresent:          &windowPresent,
+		},
+	}
+	team := &accountSpec{ID: "team", AuthID: "team.json", PlanType: "Team"}
+	m := &manifest{
+		APIKeys:         []apiKeySpec{{ID: "local", Key: "test-local-key", Enabled: true}},
+		Accounts:        []accountSpec{*k12, *plus, *team},
+		RoutingStrategy: "custom",
+		CustomRoutingRules: []customRoutingRule{
+			{AccountID: plus.ID, Priority: 20, Weight: 1},
+			{AccountID: team.ID, Priority: 10, Weight: 1},
+			{AccountID: k12.ID, Priority: 1, Weight: 1},
+		},
+		accountByAuthID: map[string]*accountSpec{
+			k12.AuthID:  k12,
+			plus.AuthID: plus,
+			team.AuthID: team,
+		},
+		originalIndexByID: map[string]int{k12.ID: 0, plus.ID: 1, team.ID: 2},
+	}
+	selector := buildCoreAuthSelector(&config.Config{}, &cockpitSelector{manifest: m}, m, nil)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		t.Cleanup(stoppable.Stop)
+	}
+	auths := []*coreauth.Auth{
+		{ID: k12.AuthID, Provider: "codex"},
+		{ID: team.AuthID, Provider: "codex"},
+		{ID: plus.AuthID, Provider: "codex"},
+	}
+	for index := 0; index < 2; index++ {
+		opts := cliproxyexecutor.Options{OriginalRequest: []byte(fmt.Sprintf(`{"prompt_cache_key":"reserve-reroute-capacity-%d","input":[]}`, index))}
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+		if err != nil || selected == nil || selected.ID != k12.AuthID {
+			t.Fatalf("capacity selection %d = %#v, %v; want %s", index, selected, err, k12.AuthID)
+		}
+	}
+
+	spilloverOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"reserve-reroute-spillover","input":[]}`)}
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", spilloverOpts, auths)
+	if err != nil || selected == nil || selected.ID != plus.AuthID {
+		t.Fatalf("initial spillover = %#v, %v; want %s", selected, err, plus.AuthID)
+	}
+
+	hourlyRemaining = hourlyThreshold
+	preSelector, ok := selector.(coreauth.PreAvailabilitySelector)
+	if !ok {
+		t.Fatal("quota reserve selector should expose pre-availability selection")
+	}
+	preselected, handled, err := preSelector.PickBeforeAvailability(
+		context.Background(),
+		"codex",
+		"gpt-5.4",
+		spilloverOpts,
+		auths,
+	)
+	if err != nil || handled || preselected != nil {
+		t.Fatalf("reserve-blocked spillover preselection = %#v, handled=%t, err=%v; want ordinary reroute", preselected, handled, err)
+	}
+
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", spilloverOpts, auths)
+	if err != nil || selected == nil || selected.ID != team.AuthID {
+		t.Fatalf("reserve-blocked spillover reroute = %#v, %v; want %s", selected, err, team.AuthID)
+	}
+	preselected, handled, err = preSelector.PickBeforeAvailability(
+		context.Background(),
+		"codex",
+		"gpt-5.4",
+		spilloverOpts,
+		auths,
+	)
+	if err != nil || !handled || preselected == nil || preselected.ID != team.AuthID {
+		t.Fatalf("replacement spillover affinity = %#v, handled=%t, err=%v; want %s", preselected, handled, err, team.AuthID)
 	}
 }
 
@@ -2091,6 +2323,9 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "upstream_first_byte_timeout") {
 		t.Fatalf("timeout response should expose first-byte timeout code: %s", w.Body.String())
 	}
+	if !strings.Contains(w.Body.String(), "after 20ms") {
+		t.Fatalf("final timeout response should expose the full second-attempt timeout: %s", w.Body.String())
+	}
 }
 
 func TestRelayServerRefreshesOpenTimeoutAfterAuthFailover(t *testing.T) {
@@ -2140,6 +2375,65 @@ func TestStreamOpenFailoverBudgetCapsExtraWait(t *testing.T) {
 	}
 }
 
+func TestStreamOpenAttemptTimeoutUsesTieredTextTimeouts(t *testing.T) {
+	tests := []struct {
+		name        string
+		openTimeout time.Duration
+		attempt     int
+		attempts    int
+		probeFirst  bool
+		want        time.Duration
+	}{
+		{name: "default first attempt", openTimeout: 120 * time.Second, attempt: 1, attempts: 2, probeFirst: true, want: 30 * time.Second},
+		{name: "default second attempt", openTimeout: 120 * time.Second, attempt: 2, attempts: 2, probeFirst: true, want: 120 * time.Second},
+		{name: "single attempt stays full", openTimeout: 120 * time.Second, attempt: 1, attempts: 1, probeFirst: true, want: 120 * time.Second},
+		{name: "configured timeout scales", openTimeout: 60 * time.Second, attempt: 1, attempts: 2, probeFirst: true, want: 15 * time.Second},
+		{name: "long configured timeout caps probe", openTimeout: 4 * time.Minute, attempt: 1, attempts: 2, probeFirst: true, want: 30 * time.Second},
+		{name: "short configured timeout is deterministic", openTimeout: 20 * time.Millisecond, attempt: 1, attempts: 2, probeFirst: true, want: 5 * time.Millisecond},
+		{name: "image profile stays full", openTimeout: 120 * time.Second, attempt: 1, attempts: 2, probeFirst: false, want: 120 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := streamOpenAttemptTimeout(test.openTimeout, test.attempt, test.attempts, test.probeFirst); got != test.want {
+				t.Fatalf("streamOpenAttemptTimeout() = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStreamTimeoutProfileAppliesConfiguredTextProbeOnly(t *testing.T) {
+	server := &relayServer{cfg: &config.Config{}}
+	server.cfg.Streaming.ImageStreamOpenTimeoutMS = 120
+
+	textRequest := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	server.cfg.Streaming.StreamOpenTimeoutMS = 120_000
+	textProfile := server.streamTimeoutsForRequest(textRequest, []byte(`{"input":"hello"}`), "gpt-5.5")
+	if textProfile.open != 120*time.Second || !textProfile.probeFirstOpen {
+		t.Fatalf("unexpected configured text timeout profile: %#v", textProfile)
+	}
+	if got := streamOpenAttemptTimeout(textProfile.open, 1, 2, textProfile.probeFirstOpen); got != 30*time.Second {
+		t.Fatalf("configured text first-attempt timeout = %s, want 30s", got)
+	}
+	if got := streamOpenAttemptTimeout(textProfile.open, 2, 2, textProfile.probeFirstOpen); got != 120*time.Second {
+		t.Fatalf("configured text second-attempt timeout = %s, want 120s", got)
+	}
+
+	server.cfg.Streaming.StreamOpenTimeoutMS = 80
+	shortProfile := server.streamTimeoutsForRequest(textRequest, []byte(`{"input":"hello"}`), "gpt-5.5")
+	if got := streamOpenAttemptTimeout(shortProfile.open, 1, 2, shortProfile.probeFirstOpen); got != 20*time.Millisecond {
+		t.Fatalf("short configured text probe timeout = %s, want 20ms", got)
+	}
+
+	imageRequest := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	imageProfile := server.streamTimeoutsForRequest(imageRequest, []byte(`{"prompt":"draw"}`), "gpt-image-2")
+	if imageProfile.open != 120*time.Millisecond || imageProfile.probeFirstOpen {
+		t.Fatalf("unexpected configured image timeout profile: %#v", imageProfile)
+	}
+	if got := streamOpenAttemptTimeout(imageProfile.open, 1, 2, imageProfile.probeFirstOpen); got != 120*time.Millisecond {
+		t.Fatalf("configured image first-attempt timeout = %s, want 120ms", got)
+	}
+}
+
 func TestRelayServerUsesLongOpenTimeoutForImageGenerationTool(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldOpenTimeout := streamOpenTimeout
@@ -2147,7 +2441,7 @@ func TestRelayServerUsesLongOpenTimeoutForImageGenerationTool(t *testing.T) {
 	oldAttempts := streamOpenMaxAttempts
 	streamOpenTimeout = 20 * time.Millisecond
 	imageStreamOpenTimeout = 120 * time.Millisecond
-	streamOpenMaxAttempts = 1
+	streamOpenMaxAttempts = 2
 	defer func() {
 		streamOpenTimeout = oldOpenTimeout
 		imageStreamOpenTimeout = oldImageOpenTimeout
@@ -2268,7 +2562,9 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 		t.Fatalf("expected one canceled attempt cause, got %#v", runtime.streamCancelCauses)
 	}
 	statusCause, ok := runtime.streamCancelCauses[0].(interface{ StatusCode() int })
-	if !ok || statusCause.StatusCode() != http.StatusGatewayTimeout || !strings.Contains(runtime.streamCancelCauses[0].Error(), "stream_open attempt=1/2") {
+	if !ok || statusCause.StatusCode() != http.StatusGatewayTimeout ||
+		!strings.Contains(runtime.streamCancelCauses[0].Error(), "stream_open attempt=1/2") ||
+		!strings.Contains(runtime.streamCancelCauses[0].Error(), "after 5ms") {
 		t.Fatalf("first retry cause should be a typed stream-open 504: %#v", runtime.streamCancelCauses[0])
 	}
 	if !strings.Contains(w.Body.String(), "[DONE]") {

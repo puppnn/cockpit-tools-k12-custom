@@ -27,6 +27,28 @@ func testPlusAuth(id string) *Auth {
 
 func newTestK12Selector(t *testing.T, statePath string, remaining map[string]*int) *SessionAffinitySelector {
 	t.Helper()
+	return newTestK12SelectorWithQuota(t, statePath, func(auth *Auth) K12QuotaSnapshot {
+		value, ok := remaining[auth.ID]
+		if !ok {
+			return K12QuotaSnapshot{}
+		}
+		return K12QuotaSnapshot{Fresh: true, HourlyRemainingPercent: value}
+	})
+}
+
+func newTestK12SelectorWithSnapshots(t *testing.T, statePath string, snapshots map[string]K12QuotaSnapshot) *SessionAffinitySelector {
+	t.Helper()
+	return newTestK12SelectorWithQuota(t, statePath, func(auth *Auth) K12QuotaSnapshot {
+		snapshot, ok := snapshots[auth.ID]
+		if !ok {
+			return K12QuotaSnapshot{}
+		}
+		return snapshot
+	})
+}
+
+func newTestK12SelectorWithQuota(t *testing.T, statePath string, quotaSnapshot func(*Auth) K12QuotaSnapshot) *SessionAffinitySelector {
+	t.Helper()
 	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
 		Fallback: &FillFirstSelector{},
 		TTL:      time.Hour,
@@ -39,17 +61,152 @@ func newTestK12Selector(t *testing.T, statePath string, remaining map[string]*in
 			IsSpillover: func(auth *Auth) bool {
 				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "plus")
 			},
-			QuotaSnapshot: func(auth *Auth) K12QuotaSnapshot {
-				value, ok := remaining[auth.ID]
-				if !ok {
-					return K12QuotaSnapshot{}
-				}
-				return K12QuotaSnapshot{Fresh: true, HourlyRemainingPercent: value}
-			},
+			QuotaSnapshot: quotaSnapshot,
 		},
 	})
 	t.Cleanup(selector.Stop)
 	return selector
+}
+
+func TestK12NewSessionRejectsKnownExhaustedWeeklyQuota(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		snapshot K12QuotaSnapshot
+		wantAuth string
+	}{
+		{
+			name: "fresh exhausted weekly window",
+			snapshot: K12QuotaSnapshot{
+				Fresh:                  true,
+				HourlyRemainingPercent: intPtr(75),
+				WeeklyRemainingPercent: intPtr(0),
+			},
+			wantAuth: "plus-a",
+		},
+		{
+			name: "stale exhausted weekly window",
+			snapshot: K12QuotaSnapshot{
+				Fresh:                  false,
+				HourlyRemainingPercent: intPtr(75),
+				WeeklyRemainingPercent: intPtr(0),
+			},
+			wantAuth: "plus-a",
+		},
+		{
+			name: "weekly window unknown",
+			snapshot: K12QuotaSnapshot{
+				Fresh:                  true,
+				HourlyRemainingPercent: intPtr(75),
+			},
+			wantAuth: "k12-a",
+		},
+		{
+			name: "known weekly quota remains",
+			snapshot: K12QuotaSnapshot{
+				Fresh:                  true,
+				HourlyRemainingPercent: intPtr(75),
+				WeeklyRemainingPercent: intPtr(1),
+			},
+			wantAuth: "k12-a",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selector := newTestK12SelectorWithSnapshots(
+				t,
+				filepath.Join(t.TempDir(), "k12-sessions.json"),
+				map[string]K12QuotaSnapshot{"k12-a": tt.snapshot},
+			)
+			selected, err := selector.Pick(
+				context.Background(),
+				"codex",
+				"gpt-5",
+				promptCacheOptions("weekly-quota-"+tt.name),
+				[]*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")},
+			)
+			if err != nil || selected == nil || selected.ID != tt.wantAuth {
+				t.Fatalf("selected=%v err=%v, want %s", selected, err, tt.wantAuth)
+			}
+		})
+	}
+}
+
+func TestK12TentativeSessionStopsUsingNewlyExhaustedWeeklyQuota(t *testing.T) {
+	t.Parallel()
+
+	snapshots := map[string]K12QuotaSnapshot{
+		"k12-a": {
+			Fresh:                  true,
+			HourlyRemainingPercent: intPtr(75),
+			WeeklyRemainingPercent: intPtr(10),
+		},
+	}
+	selector := newTestK12SelectorWithSnapshots(
+		t,
+		filepath.Join(t.TempDir(), "k12-sessions.json"),
+		snapshots,
+	)
+	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")}
+	opts := promptCacheOptions("weekly-quota-tentative")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != "k12-a" {
+		t.Fatalf("initial selection=%v err=%v", selected, err)
+	}
+	snapshots["k12-a"] = K12QuotaSnapshot{
+		Fresh:                  false,
+		HourlyRemainingPercent: intPtr(75),
+		WeeklyRemainingPercent: intPtr(0),
+	}
+
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != "plus-a" {
+		t.Fatalf("selection after weekly exhaustion=%v err=%v, want plus-a", selected, err)
+	}
+}
+
+func TestK12ConfirmedSessionBypassesKnownExhaustedWeeklyQuota(t *testing.T) {
+	t.Parallel()
+
+	snapshots := map[string]K12QuotaSnapshot{
+		"k12-a": {
+			Fresh:                  true,
+			HourlyRemainingPercent: intPtr(75),
+			WeeklyRemainingPercent: intPtr(10),
+		},
+	}
+	selector := newTestK12SelectorWithSnapshots(
+		t,
+		filepath.Join(t.TempDir(), "k12-sessions.json"),
+		snapshots,
+	)
+	auth := testK12Auth("k12-a")
+	opts := promptCacheOptions("weekly-quota-confirmed")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, []*Auth{auth})
+	if err != nil || selected == nil {
+		t.Fatalf("initial selection=%v err=%v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: auth.ID, Success: true}, opts)
+	snapshots["k12-a"] = K12QuotaSnapshot{
+		Fresh:                  false,
+		HourlyRemainingPercent: intPtr(0),
+		WeeklyRemainingPercent: intPtr(0),
+	}
+
+	selected, handled, err := selector.PickBeforeAvailability(
+		context.Background(),
+		"codex",
+		"gpt-5",
+		opts,
+		[]*Auth{auth},
+	)
+	if err != nil || !handled || selected == nil || selected.ID != auth.ID {
+		t.Fatalf("confirmed selection=%v handled=%v err=%v", selected, handled, err)
+	}
 }
 
 func promptCacheOptions(value string) cliproxyexecutor.Options {
@@ -678,14 +835,50 @@ func TestK12SessionScopedFailureDirectives(t *testing.T) {
 	if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || !directive.StopCredentialFallback {
 		t.Fatalf("confirmed 5xx directive = %#v", directive)
 	}
+	bound, handled, err := selector.PickBeforeAvailability(
+		context.Background(),
+		"codex",
+		"gpt-5",
+		opts,
+		append(auths, testPlusAuth("plus-a")),
+	)
+	if err != nil || !handled || bound == nil || bound.ID != retry.ID {
+		t.Fatalf("confirmed 5xx moved the binding: auth=%v handled=%v err=%v", bound, handled, err)
+	}
 
 	directive = selector.OnSelectionResult(context.Background(), Result{AuthID: retry.ID, Success: false, Error: &Error{HTTPStatus: http.StatusForbidden, Message: "revoked"}}, opts)
 	if directive.SuppressAvailabilityUpdate || directive.StopCredentialFallback {
 		t.Fatalf("hard failure directive = %#v", directive)
 	}
-	_, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
+	_, handled, err = selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
 	if handled || err != nil {
 		t.Fatalf("hard failure left confirmed binding: handled=%v err=%v", handled, err)
+	}
+}
+
+func TestK12Tentative429PrefersSpillover(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b"), testPlusAuth("plus-a")}
+	opts := promptCacheOptions("tentative-429-spillover")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != "k12-a" {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	directive := selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  selected.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+	}, opts)
+	if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+		t.Fatalf("tentative 429 directive = %#v", directive)
+	}
+
+	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || retry == nil || retry.ID != "plus-a" {
+		t.Fatalf("tentative 429 retry = %#v, %v; want plus-a", retry, err)
 	}
 }
 
@@ -837,7 +1030,7 @@ func TestK12StreamOpenTimeoutCauseReleasesBindingForNextAttempt(t *testing.T) {
 	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
 	manager := NewManager(nil, selector, nil)
-	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b")}
+	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b"), testPlusAuth("plus-a")}
 	opts := promptCacheOptions("stream-open-timeout-session")
 	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
 	if err != nil || selected == nil {
@@ -873,8 +1066,170 @@ func TestK12StreamOpenTimeoutCauseReleasesBindingForNextAttempt(t *testing.T) {
 		t.Fatalf("stream timeout left confirmed binding: auth=%v handled=%v err=%v", bound, handled, errPick)
 	}
 	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
-	if err != nil || retry == nil || retry.ID == selected.ID {
-		t.Fatalf("stream timeout did not move to another K12: first=%s retry=%v err=%v", selected.ID, retry, err)
+	if err != nil || retry == nil || retry.ID != "plus-a" {
+		t.Fatalf("stream timeout did not prefer Plus: first=%s retry=%v err=%v", selected.ID, retry, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: retry.ID, Success: true}, opts)
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	if binding, ok := selector.k12.store.binding(digest, time.Now()); ok {
+		t.Fatalf("successful spillover kept suspended K12 binding: %#v", binding)
+	}
+	reused, err := selector.Pick(context.Background(), "codex", "gpt-5-mini", opts, auths)
+	if err != nil || reused == nil || reused.ID != retry.ID {
+		t.Fatalf("successful spillover affinity = %#v, %v; want %s", reused, err, retry.ID)
+	}
+}
+
+func TestK12FailedSpilloverRestoresBindingAfterCooldown(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(20)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	k12 := testK12Auth("k12-a")
+	plus := testPlusAuth("plus-a")
+	auths := []*Auth{k12, plus}
+	opts := promptCacheOptions("failed-spillover-restores-binding")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+	selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  selected.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+	}, opts)
+
+	spillover, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || spillover == nil || spillover.ID != plus.ID {
+		t.Fatalf("spillover selection = %#v, %v", spillover, err)
+	}
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	selector.k12.store.mu.Lock()
+	binding := selector.k12.store.bindings[digest]
+	binding.CooldownUntil = time.Now().Add(-time.Second).Unix()
+	selector.k12.store.bindings[digest] = binding
+	selector.k12.store.mu.Unlock()
+
+	stillSpilled, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || !handled || stillSpilled == nil || stillSpilled.ID != plus.ID {
+		t.Fatalf("expired K12 cooldown bypassed in-flight spillover: auth=%v handled=%v err=%v", stillSpilled, handled, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  spillover.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusServiceUnavailable, Message: "plus unavailable"},
+	}, opts)
+
+	restored, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || !handled || restored == nil || restored.ID != k12.ID {
+		t.Fatalf("expired cooldown did not restore original binding: auth=%v handled=%v err=%v", restored, handled, err)
+	}
+}
+
+func TestK12ConcurrentSuccessCommitsSingleAffinity(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		firstAuth string
+		lastAuth  string
+		wantAuth  string
+	}{
+		{name: "K12 success arrives first", firstAuth: "k12-a", lastAuth: "plus-a", wantAuth: "k12-a"},
+		{name: "Plus success arrives first", firstAuth: "plus-a", lastAuth: "k12-a", wantAuth: "plus-a"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			remaining := map[string]*int{"k12-a": intPtr(20)}
+			selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+			k12 := testK12Auth("k12-a")
+			plus := testPlusAuth("plus-a")
+			auths := []*Auth{k12, plus}
+			opts := promptCacheOptions("concurrent-success-" + test.name)
+
+			selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+			if err != nil || selected == nil || selected.ID != k12.ID {
+				t.Fatalf("initial selection = %#v, %v", selected, err)
+			}
+			selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, opts)
+			selector.OnSelectionResult(context.Background(), Result{
+				AuthID:  k12.ID,
+				Success: false,
+				Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+			}, opts)
+			spillover, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+			if err != nil || spillover == nil || spillover.ID != plus.ID {
+				t.Fatalf("spillover selection = %#v, %v", spillover, err)
+			}
+
+			selector.OnSelectionResult(context.Background(), Result{AuthID: test.firstAuth, Success: true}, opts)
+			selector.OnSelectionResult(context.Background(), Result{AuthID: test.lastAuth, Success: true}, opts)
+			winner, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
+			if err != nil || !handled || winner == nil || winner.ID != test.wantAuth {
+				t.Fatalf("committed affinity = %v handled=%v err=%v; want %s", winner, handled, err, test.wantAuth)
+			}
+
+			identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+			digest := selector.k12.store.digest(identity.ID)
+			binding, bound := selector.k12.store.binding(digest, time.Now())
+			spilloverAuthID := selector.k12.spilloverAuth(digest, time.Now())
+			if test.wantAuth == k12.ID {
+				if !bound || binding.AuthID != k12.ID || spilloverAuthID != "" {
+					t.Fatalf("K12 winner left dual state: binding=%#v bound=%v spillover=%q", binding, bound, spilloverAuthID)
+				}
+			} else if bound || spilloverAuthID != plus.ID {
+				t.Fatalf("Plus winner left dual state: binding=%#v bound=%v spillover=%q", binding, bound, spilloverAuthID)
+			}
+		})
+	}
+}
+
+func TestK12SpilloverSuccessRequiresPersistedBindingRemoval(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(20)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	k12 := testK12Auth("k12-a")
+	plus := testPlusAuth("plus-a")
+	auths := []*Auth{k12, plus}
+	opts := promptCacheOptions("spillover-persist-failure")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, opts)
+	selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  k12.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+	}, opts)
+	spillover, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || spillover == nil || spillover.ID != plus.ID {
+		t.Fatalf("spillover selection = %#v, %v", spillover, err)
+	}
+
+	unwritableStatePath := filepath.Join(t.TempDir(), "state-directory")
+	if err := os.Mkdir(unwritableStatePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	selector.k12.store.path = unwritableStatePath
+	selector.OnSelectionResult(context.Background(), Result{AuthID: plus.ID, Success: true}, opts)
+
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	if binding, ok := selector.k12.store.binding(digest, time.Now()); !ok || binding.AuthID != k12.ID {
+		t.Fatalf("failed binding removal did not roll back original K12 binding: binding=%#v ok=%v", binding, ok)
+	}
+	if remaining := selector.k12.store.cooldownRemaining(digest, k12.ID, time.Now()); remaining <= 0 {
+		t.Fatalf("failed binding removal did not restore original cooldown: %s", remaining)
+	}
+	if spilloverAuthID := selector.k12.spilloverAuth(digest, time.Now()); spilloverAuthID != "" {
+		t.Fatalf("spillover affinity survived failed binding persistence: %s", spilloverAuthID)
+	}
+	if rebound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths); err != nil || handled || rebound != nil {
+		t.Fatalf("failed spillover commit remained authoritative: auth=%v handled=%v err=%v", rebound, handled, err)
 	}
 }
 
@@ -964,6 +1319,151 @@ func TestK12Confirmed429FailsOverWithinSameStreamRequest(t *testing.T) {
 	bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
 	if err != nil || !handled || bound == nil || bound.ID != executor.streamCalls[1] {
 		t.Fatalf("stream failover binding = %v handled=%v err=%v", bound, handled, err)
+	}
+}
+
+func TestK12ConcurrentSpilloverAttemptsKeepFirstSuccess(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		failureFirst bool
+	}{
+		{name: "success then older failure"},
+		{name: "failure then success", failureFirst: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			remaining := map[string]*int{"k12-a": intPtr(20)}
+			selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+			k12 := testK12Auth("k12-a")
+			plus := testPlusAuth("plus-a")
+			auths := []*Auth{k12, plus}
+			baseOpts := promptCacheOptions("parallel-plus-" + test.name)
+
+			selected, err := selector.Pick(context.Background(), "codex", "gpt-5", baseOpts, auths)
+			if err != nil || selected == nil || selected.ID != k12.ID {
+				t.Fatalf("initial K12 selection = %#v, %v", selected, err)
+			}
+			selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, baseOpts)
+			selector.OnSelectionResult(context.Background(), Result{
+				AuthID:  k12.ID,
+				Success: false,
+				Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+			}, baseOpts)
+
+			failureOpts := withSelectionAttempt(baseOpts)
+			failureAttempt, err := selector.Pick(context.Background(), "codex", "gpt-5", failureOpts, auths)
+			if err != nil || failureAttempt == nil || failureAttempt.ID != plus.ID {
+				t.Fatalf("failure attempt selection = %#v, %v", failureAttempt, err)
+			}
+			successOpts := withSelectionAttempt(baseOpts)
+			successAttempt, err := selector.Pick(context.Background(), "codex", "gpt-5", successOpts, auths)
+			if err != nil || successAttempt == nil || successAttempt.ID != plus.ID {
+				t.Fatalf("success attempt selection = %#v, %v", successAttempt, err)
+			}
+
+			failureResult := Result{
+				AuthID:  plus.ID,
+				Success: false,
+				Error:   &Error{HTTPStatus: http.StatusServiceUnavailable, Message: "parallel request failed"},
+			}
+			if test.failureFirst {
+				directive := selector.OnSelectionResult(context.Background(), failureResult, failureOpts)
+				if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+					t.Fatalf("parallel failure directive = %#v", directive)
+				}
+				selector.OnSelectionResult(context.Background(), Result{AuthID: plus.ID, Success: true}, successOpts)
+			} else {
+				selector.OnSelectionResult(context.Background(), Result{AuthID: plus.ID, Success: true}, successOpts)
+				directive := selector.OnSelectionResult(context.Background(), failureResult, failureOpts)
+				if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+					t.Fatalf("retired failure directive = %#v", directive)
+				}
+			}
+
+			bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", baseOpts, auths)
+			if err != nil || !handled || bound == nil || bound.ID != plus.ID {
+				t.Fatalf("Plus affinity after concurrent results = %v handled=%v err=%v", bound, handled, err)
+			}
+		})
+	}
+}
+
+func TestK12OldFailureAfterSpilloverWinDoesNotCoolK12(t *testing.T) {
+	t.Parallel()
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), map[string]*int{"k12-a": intPtr(20)})
+	k12 := testK12Auth("k12-a")
+	plus := testPlusAuth("plus-a")
+	auths := []*Auth{k12, plus}
+	baseOpts := promptCacheOptions("plus-wins-before-old-k12-failure")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", baseOpts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("initial K12 selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, baseOpts)
+
+	k12Opts := withSelectionAttempt(baseOpts)
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5", k12Opts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("active K12 selection = %#v, %v", selected, err)
+	}
+	identity, _ := extractSessionIdentities(baseOpts.Headers, baseOpts.OriginalRequest, baseOpts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	until := time.Now().Add(selector.k12.cooldown)
+	if err := selector.k12.store.setCooldown(digest, k12.ID, until); err != nil {
+		t.Fatal(err)
+	}
+	selector.k12.markSpilloverPreferred(digest, until)
+
+	plusOpts := withSelectionAttempt(baseOpts)
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5", plusOpts, auths)
+	if err != nil || selected == nil || selected.ID != plus.ID {
+		t.Fatalf("Plus spillover selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: plus.ID, Success: true}, plusOpts)
+
+	directive := selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  k12.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "late K12 quota failure"},
+	}, k12Opts)
+	if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+		t.Fatalf("old K12 loser directive = %#v", directive)
+	}
+	bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", baseOpts, auths)
+	if err != nil || !handled || bound == nil || bound.ID != plus.ID {
+		t.Fatalf("Plus winner affinity = %v handled=%v err=%v", bound, handled, err)
+	}
+}
+
+func TestK12OnlyConfirmedCooldownReturnsRetryAfter(t *testing.T) {
+	t.Parallel()
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), map[string]*int{"k12-only": intPtr(20)})
+	auth := testK12Auth("k12-only")
+	opts := promptCacheOptions("only-confirmed-cooldown")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, []*Auth{auth})
+	if err != nil || selected == nil {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: auth.ID, Success: true}, opts)
+	selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  auth.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+	}, opts)
+
+	_, err = selector.Pick(context.Background(), "codex", "gpt-5", opts, []*Auth{auth})
+	var cooldownErr *k12SessionCooldownError
+	if !errors.As(err, &cooldownErr) {
+		t.Fatalf("cooldown selection error = %T %v; want k12SessionCooldownError", err, err)
+	}
+	if cooldownErr.StatusCode() != http.StatusTooManyRequests {
+		t.Fatalf("cooldown status = %d", cooldownErr.StatusCode())
+	}
+	if cooldownErr.Headers().Get("Retry-After") == "" {
+		t.Fatal("cooldown response is missing Retry-After")
 	}
 }
 

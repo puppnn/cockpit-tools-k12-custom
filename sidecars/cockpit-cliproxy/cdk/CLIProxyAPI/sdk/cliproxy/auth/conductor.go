@@ -60,7 +60,8 @@ type ExecutionSessionCloser interface {
 }
 
 const (
-	homeAuthCountMetadataKey = "__cliproxy_home_auth_count"
+	homeAuthCountMetadataKey      = "__cliproxy_home_auth_count"
+	selectionAttemptIDMetadataKey = "__cliproxy_selection_attempt_id"
 	// CloseAllExecutionSessionsID asks an executor to release all active execution sessions.
 	// Executors that do not support this marker may ignore it.
 	CloseAllExecutionSessionsID = "__all_execution_sessions__"
@@ -85,7 +86,10 @@ const (
 	quotaBackoffMax           = 30 * time.Minute
 )
 
-var quotaCooldownDisabled atomic.Bool
+var (
+	quotaCooldownDisabled    atomic.Bool
+	selectionAttemptSequence atomic.Uint64
+)
 
 // SetQuotaCooldownDisabled toggles quota cooldown scheduling globally.
 func SetQuotaCooldownDisabled(disable bool) {
@@ -1535,9 +1539,9 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			}
 			return cliproxyexecutor.Response{}, &Error{Code: "auth_not_found", Message: "no auth available"}
 		}
-		pickOpts := opts
+		pickOpts := withSelectionAttempt(opts)
 		if homeMode {
-			pickOpts = withHomeAuthCount(opts, homeAuthCount)
+			pickOpts = withHomeAuthCount(pickOpts, homeAuthCount)
 		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, pickOpts, tried)
 		if errPick != nil {
@@ -1557,7 +1561,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			execCtx = context.WithValue(execCtx, roundTripperContextKey{}, rt)
 			execCtx = context.WithValue(execCtx, "cliproxy.roundtripper", rt)
 		}
-		execCtx = contextWithRequestedModelAlias(execCtx, opts, routeModel)
+		execCtx = contextWithRequestedModelAlias(execCtx, pickOpts, routeModel)
 
 		models, pooled := m.preparedExecutionModels(auth, routeModel)
 		if len(models) == 0 {
@@ -1571,7 +1575,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
-			directive := m.markSelectionResult(execCtx, result, opts)
+			directive := m.markSelectionResult(execCtx, result, pickOpts)
 			if directive.StopCredentialFallback {
 				return cliproxyexecutor.Response{}, newSelectionFailureError(errPrepare)
 			}
@@ -1583,7 +1587,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
 			execReq := req
 			execReq.Model = upstreamModel
-			resp, errExec := executor.Execute(execCtx, auth, execReq, opts)
+			resp, errExec := executor.Execute(execCtx, auth, execReq, pickOpts)
 			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: errExec == nil}
 			if errExec != nil {
 				if errCtx := execCtx.Err(); errCtx != nil {
@@ -1596,7 +1600,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				if ra := retryAfterFromError(errExec); ra != nil {
 					result.RetryAfter = ra
 				}
-				directive := m.markSelectionResult(execCtx, result, opts)
+				directive := m.markSelectionResult(execCtx, result, pickOpts)
 				if directive.StopCredentialFallback {
 					return cliproxyexecutor.Response{}, newSelectionFailureError(errExec)
 				}
@@ -1609,7 +1613,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				}
 				continue
 			}
-			m.markSelectionResult(execCtx, result, opts)
+			m.markSelectionResult(execCtx, result, pickOpts)
 			return resp, nil
 		}
 		if authErr != nil {
@@ -1645,7 +1649,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 		}
 		pickOpts := opts
 		if homeMode {
-			pickOpts = withHomeAuthCount(opts, homeAuthCount)
+			pickOpts = withHomeAuthCount(pickOpts, homeAuthCount)
 		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, pickOpts, tried)
 		if errPick != nil {
@@ -1742,9 +1746,9 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 			return nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 		}
-		pickOpts := opts
+		pickOpts := withSelectionAttempt(opts)
 		if homeMode {
-			pickOpts = withHomeAuthCount(opts, homeAuthCount)
+			pickOpts = withHomeAuthCount(pickOpts, homeAuthCount)
 		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, pickOpts, tried)
 		if errPick != nil {
@@ -1776,7 +1780,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](errPrepare); ok && se != nil {
 				result.Error.HTTPStatus = se.StatusCode()
 			}
-			directive := m.markSelectionResult(execCtx, result, opts)
+			directive := m.markSelectionResult(execCtx, result, pickOpts)
 			if directive.StopCredentialFallback {
 				return nil, newSelectionFailureError(errPrepare)
 			}
@@ -1784,7 +1788,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			continue
 		}
 		execReq := sanitizeDownstreamWebsocketFallbackRequest(execCtx, auth, req)
-		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, execReq, opts, routeModel, models, pooled)
+		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, execReq, pickOpts, routeModel, models, pooled)
 		if errStream != nil {
 			if errCtx := executionContextError(execCtx); errCtx != nil {
 				return nil, errCtx
@@ -1836,6 +1840,48 @@ func ensureRequestedModelMetadata(opts cliproxyexecutor.Options, requestedModel 
 	meta[cliproxyexecutor.RequestedModelMetadataKey] = requestedModel
 	opts.Metadata = meta
 	return opts
+}
+
+func withSelectionAttempt(opts cliproxyexecutor.Options) cliproxyexecutor.Options {
+	attemptID := selectionAttemptSequence.Add(1)
+	if attemptID == 0 {
+		attemptID = selectionAttemptSequence.Add(1)
+	}
+	meta := make(map[string]any, len(opts.Metadata)+1)
+	for k, v := range opts.Metadata {
+		meta[k] = v
+	}
+	meta[selectionAttemptIDMetadataKey] = attemptID
+	opts.Metadata = meta
+	return opts
+}
+
+func selectionAttemptIDFromOptions(opts cliproxyexecutor.Options) uint64 {
+	if len(opts.Metadata) == 0 {
+		return 0
+	}
+	switch value := opts.Metadata[selectionAttemptIDMetadataKey].(type) {
+	case uint64:
+		return value
+	case uint:
+		return uint64(value)
+	case int:
+		if value > 0 {
+			return uint64(value)
+		}
+	case int64:
+		if value > 0 {
+			return uint64(value)
+		}
+	case float64:
+		if value > 0 {
+			return uint64(value)
+		}
+	case string:
+		attemptID, _ := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+		return attemptID
+	}
+	return 0
 }
 
 func withHomeAuthCount(opts cliproxyexecutor.Options, count int) cliproxyexecutor.Options {

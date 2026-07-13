@@ -243,6 +243,8 @@ type requestDiagnosticPayload struct {
 const executorWaitLogInterval = 30 * time.Second
 const streamOpenCancelWait = 2 * time.Second
 const streamOpenFailoverGraceMax = 60 * time.Second
+const streamOpenProbeTimeoutMax = 30 * time.Second
+const streamOpenProbeTimeoutDivisor = 4
 
 type relayTimeoutError struct {
 	phase   string
@@ -1439,7 +1441,9 @@ func (s *quotaReserveSelector) PickBeforeAvailability(ctx context.Context, provi
 		return selected, handled, err
 	}
 	if reason := quotaReserveBlockReasonWithState(accountForAuthInManifest(s.manifest, selected), s.quota, time.Now()); reason != "" {
-		return nil, true, noAuthAvailableError([]string{reason})
+		// Let the ordinary Pick path filter the protected auth and invalidate
+		// any cached affinity or K12 spillover that still points at it.
+		return nil, false, nil
 	}
 	return selected, true, nil
 }
@@ -2393,6 +2397,29 @@ func isK12AccountSpec(account *accountSpec) bool {
 	return account != nil && strings.EqualFold(strings.TrimSpace(account.PlanType), "k12")
 }
 
+func isK12SpilloverAccountSpec(account *accountSpec) bool {
+	if account == nil || isK12AccountSpec(account) {
+		return false
+	}
+	// K12 spillover is for paid OAuth capacity. Provider API keys have a
+	// separate routing path and must not be treated as Plus-style accounts.
+	if strings.TrimSpace(account.AuthID) == "" || strings.TrimSpace(account.UpstreamAPIKey) != "" {
+		return false
+	}
+	if account.PlanRank != nil {
+		return *account.PlanRank >= 300
+	}
+	planType := strings.ToLower(strings.TrimSpace(account.PlanType))
+	planType = strings.NewReplacer("_", "-", " ", "-").Replace(planType)
+	switch planType {
+	case "plus", "team", "business", "pro", "prolite", "pro-lite", "promax", "pro-max",
+		"enterprise", "edu", "health", "gov", "teachers":
+		return true
+	default:
+		return false
+	}
+}
+
 func hasK12Accounts(m *manifest) bool {
 	if m == nil {
 		return false
@@ -2434,16 +2461,23 @@ func k12QuotaSnapshotForAuth(m *manifest, quota *quotaReserveStateStore, auth *c
 		return coreauth.K12QuotaSnapshot{}
 	}
 	snapshot := quota.forAccount(account.ID)
-	if snapshot == nil || quotaReserveSnapshotBlockReason(snapshot.SnapshotUpdatedAtUnixSeconds, now) != "" {
+	if snapshot == nil {
 		return coreauth.K12QuotaSnapshot{}
 	}
-	result := coreauth.K12QuotaSnapshot{Fresh: true}
-	if snapshot.HourlyWindowPresent != nil && !*snapshot.HourlyWindowPresent {
-		return result
+	result := coreauth.K12QuotaSnapshot{
+		Fresh: quotaReserveSnapshotBlockReason(snapshot.SnapshotUpdatedAtUnixSeconds, now) == "",
 	}
-	if snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent >= 0 && *snapshot.HourlyRemainingPercent <= 100 {
-		remaining := *snapshot.HourlyRemainingPercent
-		result.HourlyRemainingPercent = &remaining
+	if snapshot.HourlyWindowPresent == nil || *snapshot.HourlyWindowPresent {
+		if snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent >= 0 && *snapshot.HourlyRemainingPercent <= 100 {
+			remaining := *snapshot.HourlyRemainingPercent
+			result.HourlyRemainingPercent = &remaining
+		}
+	}
+	if snapshot.WeeklyWindowPresent != nil && *snapshot.WeeklyWindowPresent {
+		if snapshot.WeeklyRemainingPercent != nil && *snapshot.WeeklyRemainingPercent >= 0 && *snapshot.WeeklyRemainingPercent <= 100 {
+			remaining := *snapshot.WeeklyRemainingPercent
+			result.WeeklyRemainingPercent = &remaining
+		}
 	}
 	return result
 }
@@ -2471,11 +2505,7 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 					return isK12AccountSpec(accountForAuthInManifest(m, auth))
 				},
 				IsSpillover: func(auth *coreauth.Auth) bool {
-					if m == nil || strings.TrimSpace(m.BoundOAuthAccountID) == "" {
-						return false
-					}
-					account := accountForAuthInManifest(m, auth)
-					return account != nil && account.ID == strings.TrimSpace(m.BoundOAuthAccountID)
+					return isK12SpilloverAccountSpec(accountForAuthInManifest(m, auth))
 				},
 				QuotaSnapshot: func(auth *coreauth.Auth) coreauth.K12QuotaSnapshot {
 					return k12QuotaSnapshotForAuth(m, quota, auth, time.Now())
@@ -3217,7 +3247,7 @@ func (s *relayServer) handleImagesRelayRequest(c *gin.Context, imageReq imageRel
 	timeouts := s.streamTimeoutsForRequest(c.Request, imageReq.body, defaultImagesToolModel)
 	streamCtx, cancelStream := context.WithCancel(relayContext(c))
 	defer cancelStream()
-	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open)
+	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.probeFirstOpen)
 	if err != nil {
 		s.writeExecutorError(c, err)
 		return
@@ -4230,7 +4260,7 @@ func (s *relayServer) handleStream(c *gin.Context, body []byte, model string, so
 	stopWaitLogger := s.startExecutorWaitLogger(c, model, "execute_stream", startedAt)
 	streamCtx, cancelStream := context.WithCancel(relayContext(c))
 	defer cancelStream()
-	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open)
+	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.probeFirstOpen)
 	stopWaitLogger()
 	if err != nil {
 		s.emitExecutorDiagnostic(c, "executor_failed", model, "execute_stream", startedAt, err.Error())
@@ -4374,6 +4404,20 @@ func streamOpenFailoverBudget(openTimeout time.Duration) time.Duration {
 	return openTimeout + grace
 }
 
+func streamOpenAttemptTimeout(openTimeout time.Duration, attempt, attempts int, probeFirst bool) time.Duration {
+	if openTimeout <= 0 || !probeFirst || attempts <= 1 || attempt != 1 {
+		return openTimeout
+	}
+	probeTimeout := openTimeout / streamOpenProbeTimeoutDivisor
+	if probeTimeout <= 0 {
+		return openTimeout
+	}
+	if probeTimeout > streamOpenProbeTimeoutMax {
+		return streamOpenProbeTimeoutMax
+	}
+	return probeTimeout
+}
+
 func resetTimer(timer *time.Timer, duration time.Duration) {
 	if timer == nil || duration <= 0 {
 		return
@@ -4396,6 +4440,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 	model string,
 	startedAt time.Time,
 	openTimeout time.Duration,
+	probeFirstOpen bool,
 ) (*cliproxyexecutor.StreamResult, error) {
 	attempts := s.streamOpenMaxAttempts()
 	if attempts <= 0 {
@@ -4404,7 +4449,10 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 	if openTimeout <= 0 {
 		openTimeout = streamOpenTimeout
 	}
+	lastAttemptTimeout := openTimeout
 	for attempt := 1; attempt <= attempts; attempt++ {
+		attemptTimeout := streamOpenAttemptTimeout(openTimeout, attempt, attempts, probeFirstOpen)
+		lastAttemptTimeout = attemptTimeout
 		authSelections := make(chan string, 16)
 		attemptOpts := withSelectedAuthObserver(opts, func(authID string) {
 			select {
@@ -4414,21 +4462,21 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 		})
 		attemptCtx, cancelAttempt := context.WithCancelCause(ctx)
 		done := make(chan executeStreamResult, 1)
-		attemptDeadline := time.Now().Add(streamOpenFailoverBudget(openTimeout))
+		attemptDeadline := time.Now().Add(streamOpenFailoverBudget(attemptTimeout))
 		s.emitExecutorDiagnostic(
 			c,
 			"stream_open_attempt",
 			model,
 			"execute_stream",
 			startedAt,
-			fmt.Sprintf("attempt=%d/%d open_timeout=%s", attempt, attempts, openTimeout),
+			fmt.Sprintf("attempt=%d/%d open_timeout=%s", attempt, attempts, attemptTimeout),
 		)
 		go func() {
 			result, err := s.runtime.ExecuteStream(attemptCtx, providers, req, attemptOpts)
 			done <- executeStreamResult{result: result, err: err}
 		}()
 
-		timer := time.NewTimer(openTimeout)
+		timer := time.NewTimer(attemptTimeout)
 		selectedAuthID := ""
 		authSwitches := 0
 	waitForOpen:
@@ -4446,7 +4494,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 				if remaining <= 0 {
 					continue
 				}
-				resetAfter := openTimeout
+				resetAfter := attemptTimeout
 				if remaining < resetAfter {
 					resetAfter = remaining
 				}
@@ -4480,7 +4528,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 				)
 				return nil, ctx.Err()
 			case <-timer.C:
-				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: openTimeout}
+				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: attemptTimeout}
 				cancelAttempt(err)
 				detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel %s", err.Error())
 				cancelWait := time.NewTimer(streamOpenCancelWait)
@@ -4501,7 +4549,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 			}
 		}
 	}
-	return nil, relayTimeoutError{phase: "stream_open", timeout: openTimeout}
+	return nil, relayTimeoutError{phase: "stream_open", timeout: lastAttemptTimeout}
 }
 
 func (s *relayServer) startExecutorWaitLogger(c *gin.Context, model, phase string, startedAt time.Time) func() {
@@ -5072,7 +5120,7 @@ func (s *relayServer) handleOllamaRuntimeStream(c *gin.Context, body []byte, mod
 	timeouts := s.streamTimeoutsForRequest(c.Request, body, model)
 	streamCtx, cancelStream := context.WithCancel(relayContext(c))
 	defer cancelStream()
-	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open)
+	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.probeFirstOpen)
 	if err != nil {
 		s.writeExecutorError(c, err)
 		return
@@ -5572,8 +5620,9 @@ func stringFieldFromAny(value any) string {
 }
 
 type streamTimeoutProfile struct {
-	open time.Duration
-	idle time.Duration
+	open           time.Duration
+	idle           time.Duration
+	probeFirstOpen bool
 }
 
 func durationFromConfigMillis(value int, fallback time.Duration) time.Duration {
@@ -5599,8 +5648,9 @@ func (s *relayServer) streamOpenMaxAttempts() int {
 
 func (s *relayServer) streamTimeoutsForRequest(r *http.Request, body []byte, model string) streamTimeoutProfile {
 	profile := streamTimeoutProfile{
-		open: durationFromConfigMillis(0, streamOpenTimeout),
-		idle: durationFromConfigMillis(0, streamIdleTimeout),
+		open:           durationFromConfigMillis(0, streamOpenTimeout),
+		idle:           durationFromConfigMillis(0, streamIdleTimeout),
+		probeFirstOpen: true,
 	}
 	if s != nil && s.cfg != nil {
 		profile.open = durationFromConfigMillis(s.cfg.Streaming.StreamOpenTimeoutMS, profile.open)
@@ -5611,6 +5661,7 @@ func (s *relayServer) streamTimeoutsForRequest(r *http.Request, body []byte, mod
 	}
 	profile.open = imageStreamOpenTimeout
 	profile.idle = imageStreamIdleTimeout
+	profile.probeFirstOpen = false
 	if s != nil && s.cfg != nil {
 		profile.open = durationFromConfigMillis(s.cfg.Streaming.ImageStreamOpenTimeoutMS, profile.open)
 		profile.idle = durationFromConfigMillis(s.cfg.Streaming.ImageStreamIdleTimeoutMS, profile.idle)

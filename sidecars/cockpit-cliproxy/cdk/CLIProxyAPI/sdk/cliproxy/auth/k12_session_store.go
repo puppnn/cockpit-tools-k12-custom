@@ -234,12 +234,15 @@ func (s *k12SessionStore) removeSession(sessionDigest string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
-	if _, ok := s.bindings[sessionDigest]; ok {
+	removedBinding, hadBinding := s.bindings[sessionDigest]
+	if hadBinding {
 		delete(s.bindings, sessionDigest)
 		changed = true
 	}
+	removedCooldowns := make(map[string]k12SessionCooldown)
 	for key, cooldown := range s.cooldowns {
 		if cooldown.SessionDigest == sessionDigest {
+			removedCooldowns[key] = cooldown
 			delete(s.cooldowns, key)
 			changed = true
 		}
@@ -247,7 +250,16 @@ func (s *k12SessionStore) removeSession(sessionDigest string) error {
 	if !changed {
 		return nil
 	}
-	return s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		if hadBinding {
+			s.bindings[sessionDigest] = removedBinding
+		}
+		for key, cooldown := range removedCooldowns {
+			s.cooldowns[key] = cooldown
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *k12SessionStore) removeAuth(authID string) error {

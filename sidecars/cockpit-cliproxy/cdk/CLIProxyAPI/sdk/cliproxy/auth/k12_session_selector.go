@@ -25,6 +25,7 @@ const (
 type K12QuotaSnapshot struct {
 	Fresh                  bool
 	HourlyRemainingPercent *int
+	WeeklyRemainingPercent *int
 }
 
 // K12SessionPolicyConfig enables confirmed, persistent K12 session affinity.
@@ -51,6 +52,18 @@ type k12SpilloverSelection struct {
 	expiresAt time.Time
 }
 
+type k12CredentialAttemptKey struct {
+	sessionDigest string
+	authID        string
+}
+
+type k12CredentialAttemptState struct {
+	active         map[uint64]struct{}
+	cohortMax      uint64
+	retiredThrough uint64
+	expiresAt      time.Time
+}
+
 type k12CandidateReservation struct {
 	auth           *Auth
 	confirmedCount int
@@ -71,6 +84,11 @@ type k12SessionPolicy struct {
 	mu         sync.Mutex
 	tentative  map[string]k12TentativeSelection
 	spillovers map[string]k12SpilloverSelection
+	attempts   map[k12CredentialAttemptKey]k12CredentialAttemptState
+	// preferSpilloverUntil is a one-shot recovery hint after a K12 429 or
+	// stream-open timeout. It is intentionally in-memory: the persisted binding
+	// cooldown remains the source of truth across restarts.
+	preferSpilloverUntil map[string]time.Time
 }
 
 func newK12SessionPolicy(cfg *K12SessionPolicyConfig) (*k12SessionPolicy, error) {
@@ -94,14 +112,16 @@ func newK12SessionPolicy(cfg *K12SessionPolicyConfig) (*k12SessionPolicy, error)
 		return nil, err
 	}
 	return &k12SessionPolicy{
-		store:         store,
-		isK12:         cfg.IsK12,
-		isSpillover:   cfg.IsSpillover,
-		quotaSnapshot: cfg.QuotaSnapshot,
-		cooldown:      cooldown,
-		spilloverTTL:  spilloverTTL,
-		tentative:     make(map[string]k12TentativeSelection),
-		spillovers:    make(map[string]k12SpilloverSelection),
+		store:                store,
+		isK12:                cfg.IsK12,
+		isSpillover:          cfg.IsSpillover,
+		quotaSnapshot:        cfg.QuotaSnapshot,
+		cooldown:             cooldown,
+		spilloverTTL:         spilloverTTL,
+		tentative:            make(map[string]k12TentativeSelection),
+		spillovers:           make(map[string]k12SpilloverSelection),
+		attempts:             make(map[k12CredentialAttemptKey]k12CredentialAttemptState),
+		preferSpilloverUntil: make(map[string]time.Time),
 	}, err
 }
 
@@ -117,6 +137,12 @@ func (p *k12SessionPolicy) canStart(auth *Auth) bool {
 		return false
 	}
 	snapshot := p.quota(auth)
+	// A known exhausted weekly window cannot start or continue a tentative
+	// session, even when the snapshot is stale. Confirmed bindings bypass
+	// canStart and remain eligible for upstream-controlled continuation.
+	if snapshot.WeeklyRemainingPercent != nil && *snapshot.WeeklyRemainingPercent <= 0 {
+		return false
+	}
 	return !snapshot.Fresh || snapshot.HourlyRemainingPercent == nil || *snapshot.HourlyRemainingPercent > 0
 }
 
@@ -201,6 +227,181 @@ func (p *k12SessionPolicy) clearSpilloverAuth(authID string) {
 	p.mu.Unlock()
 }
 
+func (p *k12SessionPolicy) markSpilloverPreferred(sessionDigest string, until time.Time) {
+	if p == nil || sessionDigest == "" || until.IsZero() {
+		return
+	}
+	p.mu.Lock()
+	if current := p.preferSpilloverUntil[sessionDigest]; until.After(current) {
+		p.preferSpilloverUntil[sessionDigest] = until
+	}
+	p.mu.Unlock()
+}
+
+func (p *k12SessionPolicy) clearSpilloverPreference(sessionDigest string) {
+	if p == nil || sessionDigest == "" {
+		return
+	}
+	p.mu.Lock()
+	delete(p.preferSpilloverUntil, sessionDigest)
+	p.mu.Unlock()
+}
+
+func (p *k12SessionPolicy) selectionAttemptTTL() time.Duration {
+	if p != nil && p.store != nil && p.store.ttl > 0 {
+		return p.store.ttl
+	}
+	return defaultK12SessionTTL
+}
+
+func (p *k12SessionPolicy) registerSelectionAttempt(sessionDigest, authID string, opts cliproxyexecutor.Options, now time.Time) {
+	attemptID := selectionAttemptIDFromOptions(opts)
+	if p == nil || sessionDigest == "" || authID == "" || attemptID == 0 {
+		return
+	}
+	key := k12CredentialAttemptKey{sessionDigest: sessionDigest, authID: authID}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cleanupSelectionAttemptsLocked(now)
+	state := p.attempts[key]
+	if attemptID <= state.retiredThrough {
+		return
+	}
+	if state.active == nil {
+		state.active = make(map[uint64]struct{})
+	}
+	state.active[attemptID] = struct{}{}
+	if attemptID > state.cohortMax {
+		state.cohortMax = attemptID
+	}
+	state.expiresAt = now.Add(p.selectionAttemptTTL())
+	p.attempts[key] = state
+}
+
+// resolveSelectionAttempt distinguishes policy-managed selections from ordinary
+// auths and accepts only results that may still change affinity. The first
+// active success retires the entire cohort.
+func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string, opts cliproxyexecutor.Options, success bool, now time.Time) (known, accepted bool) {
+	attemptID := selectionAttemptIDFromOptions(opts)
+	if p == nil || sessionDigest == "" || authID == "" || attemptID == 0 {
+		return false, true
+	}
+	key := k12CredentialAttemptKey{sessionDigest: sessionDigest, authID: authID}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cleanupSelectionAttemptsLocked(now)
+	state, ok := p.attempts[key]
+	if !ok {
+		return false, true
+	}
+	if attemptID <= state.retiredThrough {
+		return true, false
+	}
+	if _, active := state.active[attemptID]; !active {
+		// A newer ID that was never registered for this credential may belong to
+		// an ordinary non-K12 selection after an older spillover expired.
+		return false, true
+	}
+	if success {
+		if state.cohortMax > state.retiredThrough {
+			state.retiredThrough = state.cohortMax
+		}
+		state.active = nil
+		state.cohortMax = 0
+		state.expiresAt = now.Add(p.selectionAttemptTTL())
+		p.attempts[key] = state
+		return true, true
+	}
+	delete(state.active, attemptID)
+	if len(state.active) > 0 {
+		state.expiresAt = now.Add(p.selectionAttemptTTL())
+		p.attempts[key] = state
+		return true, false
+	}
+	if state.cohortMax > state.retiredThrough {
+		state.retiredThrough = state.cohortMax
+	}
+	state.active = nil
+	state.cohortMax = 0
+	state.expiresAt = now.Add(p.selectionAttemptTTL())
+	p.attempts[key] = state
+	return true, true
+}
+
+func (p *k12SessionPolicy) commitK12Success(sessionDigest, source, authID string, now time.Time) (bool, error) {
+	if p == nil || p.store == nil || sessionDigest == "" || authID == "" {
+		return false, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cleanupTentativeLocked(now)
+	binding, confirmed := p.store.binding(sessionDigest, now)
+	tentative, tentativeOK := p.tentative[sessionDigest]
+	if (!confirmed || binding.AuthID != authID) && (!tentativeOK || tentative.authID != authID) {
+		return false, nil
+	}
+	err := p.store.confirm(sessionDigest, source, authID, now)
+	// Keep the runtime state single-valued even if persistence failed after the
+	// store updated its in-memory binding.
+	delete(p.tentative, sessionDigest)
+	delete(p.spillovers, sessionDigest)
+	delete(p.preferSpilloverUntil, sessionDigest)
+	return true, err
+}
+
+func (p *k12SessionPolicy) commitSpilloverSuccess(sessionDigest, authID string, now time.Time) (bool, error) {
+	if p == nil || p.store == nil || sessionDigest == "" || authID == "" {
+		return false, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cleanupSpilloversLocked(now)
+	spillover, ok := p.spillovers[sessionDigest]
+	if !ok || spillover.authID != authID {
+		return false, nil
+	}
+	if err := p.store.removeSession(sessionDigest); err != nil {
+		delete(p.spillovers, sessionDigest)
+		return false, err
+	}
+	delete(p.tentative, sessionDigest)
+	delete(p.preferSpilloverUntil, sessionDigest)
+	return true, nil
+}
+
+func (p *k12SessionPolicy) reservePreferredSpillover(
+	sessionDigest string,
+	source string,
+	candidates []*Auth,
+	now time.Time,
+	pick func([]*Auth) (*Auth, error),
+) (*Auth, bool, error) {
+	if p == nil || sessionDigest == "" || len(candidates) == 0 || pick == nil {
+		return nil, false, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cleanupSpilloversLocked(now)
+	p.cleanupSpilloverPreferencesLocked(now)
+	if _, ok := p.preferSpilloverUntil[sessionDigest]; !ok {
+		return nil, false, nil
+	}
+	selected, err := pick(candidates)
+	if err != nil {
+		return nil, true, err
+	}
+	if selected == nil || selected.ID == "" {
+		return nil, true, fmt.Errorf("preferred spillover selector returned an empty auth")
+	}
+	p.spillovers[sessionDigest] = k12SpilloverSelection{
+		authID:    selected.ID,
+		source:    source,
+		expiresAt: now.Add(p.spilloverTTL),
+	}
+	delete(p.preferSpilloverUntil, sessionDigest)
+	return selected, true, nil
+}
+
 func (p *k12SessionPolicy) cleanupTentativeLocked(now time.Time) {
 	for digest, selection := range p.tentative {
 		if !selection.expiresAt.After(now) {
@@ -213,6 +414,22 @@ func (p *k12SessionPolicy) cleanupSpilloversLocked(now time.Time) {
 	for digest, selection := range p.spillovers {
 		if !selection.expiresAt.After(now) {
 			delete(p.spillovers, digest)
+		}
+	}
+}
+
+func (p *k12SessionPolicy) cleanupSpilloverPreferencesLocked(now time.Time) {
+	for digest, until := range p.preferSpilloverUntil {
+		if !until.After(now) {
+			delete(p.preferSpilloverUntil, digest)
+		}
+	}
+}
+
+func (p *k12SessionPolicy) cleanupSelectionAttemptsLocked(now time.Time) {
+	for key, state := range p.attempts {
+		if !state.expiresAt.After(now) {
+			delete(p.attempts, key)
 		}
 	}
 }
@@ -349,7 +566,24 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 		return nil, false, nil
 	}
 	digest := s.k12.store.digest(identity.ID)
-	binding, ok := s.k12.store.binding(digest, time.Now())
+	now := time.Now()
+	if spilloverAuthID := s.k12.spilloverAuth(digest, now); spilloverAuthID != "" {
+		available, err := getAvailableAuths(auths, provider, model, now)
+		if err == nil {
+			for _, auth := range available {
+				if auth != nil && auth.ID == spilloverAuthID && s.k12.canSpillover(auth) {
+					selectorLogEntry(ctx).Infof(
+						"k12-session-affinity: spillover binding hit before K12 recovery | source=%s session=%s auth=%s provider=%s model=%s",
+						identity.Source, shortSessionDigest(digest), auth.ID, provider, model,
+					)
+					s.k12.registerSelectionAttempt(digest, auth.ID, opts, now)
+					return auth, true, nil
+				}
+			}
+		}
+		s.k12.clearSpillover(digest, spilloverAuthID)
+	}
+	binding, ok := s.k12.store.binding(digest, now)
 	if !ok {
 		return nil, false, nil
 	}
@@ -362,14 +596,22 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 			s.k12.clearTentativeAuth(auth.ID)
 			return nil, false, nil
 		}
-		if remaining := s.k12.store.cooldownRemaining(digest, auth.ID, time.Now()); remaining > 0 {
-			return nil, true, newK12SessionCooldownError(remaining)
+		if remaining := s.k12.store.cooldownRemaining(digest, auth.ID, now); remaining > 0 {
+			selectorLogEntry(ctx).Infof(
+				"k12-session-affinity: confirmed binding suspended for failover | source=%s session=%s auth=%s retry_after=%s",
+				identity.Source, shortSessionDigest(digest), auth.ID, remaining.Round(time.Second),
+			)
+			return nil, false, nil
 		}
 		selectorLogEntry(ctx).Infof(
 			"k12-session-affinity: confirmed binding hit | source=%s session=%s auth=%s provider=%s model=%s",
 			identity.Source, shortSessionDigest(digest), auth.ID, provider, model,
 		)
+		s.k12.registerSelectionAttempt(digest, auth.ID, opts, now)
 		return auth, true, nil
+	}
+	if remaining := s.k12.store.cooldownRemaining(digest, binding.AuthID, now); remaining > 0 {
+		return nil, false, nil
 	}
 	// Request-scoped filtering can hide an otherwise valid binding. Preserve it
 	// and do not silently move the upstream conversation to another account.
@@ -382,16 +624,20 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 	}
 	now := time.Now()
 	digest := s.k12.store.digest(identity.ID)
+	suspendedAuthID := ""
+	var earliestCooldown time.Duration
 	if binding, ok := s.k12.store.binding(digest, now); ok {
-		for _, auth := range auths {
-			if auth != nil && auth.ID == binding.AuthID && s.k12.isK12(auth) {
-				if remaining := s.k12.store.cooldownRemaining(digest, auth.ID, now); remaining > 0 {
-					return nil, nil, true, newK12SessionCooldownError(remaining)
+		if remaining := s.k12.store.cooldownRemaining(digest, binding.AuthID, now); remaining > 0 {
+			suspendedAuthID = binding.AuthID
+			earliestCooldown = remaining
+		} else {
+			for _, auth := range auths {
+				if auth != nil && auth.ID == binding.AuthID && s.k12.isK12(auth) {
+					return auth, nil, true, nil
 				}
-				return auth, nil, true, nil
 			}
+			return nil, nil, true, &Error{Code: "k12_session_auth_unavailable", Message: "confirmed K12 session account is unavailable"}
 		}
-		return nil, nil, true, &Error{Code: "k12_session_auth_unavailable", Message: "confirmed K12 session account is unavailable"}
 	}
 	if spilloverAuthID := s.k12.spilloverAuth(digest, now); spilloverAuthID != "" {
 		available, _ := getAvailableAuths(auths, provider, model, now)
@@ -410,13 +656,15 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 	nonK12 := make([]*Auth, 0, len(auths))
 	spilloverCandidates := make([]*Auth, 0, 1)
 	k12Candidates := make([]*Auth, 0, len(auths))
-	var earliestCooldown time.Duration
 	for _, auth := range auths {
 		if auth == nil || !s.k12.isK12(auth) {
 			nonK12 = append(nonK12, auth)
 			if s.k12.canSpillover(auth) {
 				spilloverCandidates = append(spilloverCandidates, auth)
 			}
+			continue
+		}
+		if auth.ID == suspendedAuthID {
 			continue
 		}
 		if !s.k12.canStart(auth) {
@@ -429,6 +677,28 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 			continue
 		}
 		k12Candidates = append(k12Candidates, auth)
+	}
+
+	if selected, preferred, err := s.k12.reservePreferredSpillover(
+		digest,
+		identity.Source,
+		spilloverCandidates,
+		now,
+		func(spillover []*Auth) (*Auth, error) {
+			return s.fallback.Pick(ctx, provider, model, opts, spillover)
+		},
+	); preferred {
+		if err == nil && selected != nil {
+			selectorLogEntry(ctx).Infof(
+				"k12-session-affinity: failure recovery spillover | source=%s session=%s auth=%s provider=%s model=%s",
+				identity.Source, shortSessionDigest(digest), selected.ID, provider, model,
+			)
+			return selected, nil, true, nil
+		}
+		selectorLogEntry(ctx).WithError(err).Debugf(
+			"k12-session-affinity: preferred spillover unavailable, continuing with K12 | source=%s session=%s",
+			identity.Source, shortSessionDigest(digest),
+		)
 	}
 
 	if s.k12.tentativeAuth(digest, now) == "" {
@@ -519,42 +789,56 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 	}
 	now := time.Now()
 	digest := s.k12.store.digest(identity.ID)
-	binding, confirmed := s.k12.store.binding(digest, now)
-	if confirmed && binding.AuthID != result.AuthID {
-		return SelectionResultDirective{}
+	attemptKnown, attemptAccepted := s.k12.resolveSelectionAttempt(digest, result.AuthID, opts, result.Success, now)
+	if !attemptAccepted {
+		return SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: !result.Success}
 	}
-	if !confirmed {
-		spilloverAuthID := s.k12.spilloverAuth(digest, now)
-		if spilloverAuthID != "" {
-			if spilloverAuthID != result.AuthID {
+	binding, confirmed := s.k12.store.binding(digest, now)
+	spilloverAuthID := s.k12.spilloverAuth(digest, now)
+	if spilloverAuthID == result.AuthID {
+		entry := selectorLogEntry(ctx)
+		if result.Success {
+			committed, err := s.k12.commitSpilloverSuccess(digest, result.AuthID, now)
+			if err != nil {
+				entry.Errorf("k12-session-affinity: spillover success not committed because suspended K12 binding removal failed | source=%s session=%s auth=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, err)
 				return SelectionResultDirective{}
 			}
-			entry := selectorLogEntry(ctx)
-			if result.Success {
-				entry.Infof("k12-session-affinity: spillover binding confirmed | source=%s session=%s auth=%s", identity.Source, shortSessionDigest(digest), result.AuthID)
+			if !committed {
+				entry.Debugf("k12-session-affinity: stale spillover success ignored | source=%s session=%s auth=%s", identity.Source, shortSessionDigest(digest), result.AuthID)
 				return SelectionResultDirective{}
 			}
-			status := statusCodeFromResult(result.Error)
-			if status == http.StatusUnauthorized || status == http.StatusPaymentRequired || status == http.StatusForbidden {
-				s.k12.clearSpilloverAuth(result.AuthID)
-			} else {
-				s.k12.clearSpillover(digest, result.AuthID)
-			}
-			entry.Warnf("k12-session-affinity: spillover binding released after failure | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
+			entry.Infof("k12-session-affinity: spillover binding confirmed | source=%s session=%s auth=%s", identity.Source, shortSessionDigest(digest), result.AuthID)
 			return SelectionResultDirective{}
 		}
+		status := statusCodeFromResult(result.Error)
+		if status == http.StatusUnauthorized || status == http.StatusPaymentRequired || status == http.StatusForbidden {
+			s.k12.clearSpilloverAuth(result.AuthID)
+		} else {
+			s.k12.clearSpillover(digest, result.AuthID)
+		}
+		entry.Warnf("k12-session-affinity: spillover binding released after failure | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
+		return SelectionResultDirective{}
 	}
 	tentativeAuthID := s.k12.tentativeAuth(digest, now)
-	if !confirmed && tentativeAuthID != result.AuthID {
+	resultIsBinding := confirmed && binding.AuthID == result.AuthID
+	resultIsTentative := tentativeAuthID == result.AuthID
+	if !resultIsBinding && !resultIsTentative {
+		if attemptKnown {
+			return SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: !result.Success}
+		}
 		return SelectionResultDirective{}
 	}
 
 	entry := selectorLogEntry(ctx)
 	if result.Success {
-		if err := s.k12.store.confirm(digest, identity.Source, result.AuthID, now); err != nil {
+		committed, err := s.k12.commitK12Success(digest, identity.Source, result.AuthID, now)
+		if err != nil {
 			entry.Warnf("k12-session-affinity: persist success failed | source=%s session=%s auth=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, err)
 		}
-		s.k12.clearTentative(digest, result.AuthID)
+		if !committed {
+			entry.Debugf("k12-session-affinity: stale K12 success ignored | source=%s session=%s auth=%s", identity.Source, shortSessionDigest(digest), result.AuthID)
+			return SelectionResultDirective{}
+		}
 		entry.Infof("k12-session-affinity: binding confirmed | source=%s session=%s auth=%s", identity.Source, shortSessionDigest(digest), result.AuthID)
 		return SelectionResultDirective{}
 	}
@@ -563,48 +847,43 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 	if status == http.StatusUnauthorized || status == http.StatusPaymentRequired || status == http.StatusForbidden {
 		_ = s.k12.store.removeAuth(result.AuthID)
 		s.k12.clearTentativeAuth(result.AuthID)
+		s.k12.clearSpilloverPreference(digest)
 		entry.Warnf("k12-session-affinity: hard auth failure cleared bindings | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
 		return SelectionResultDirective{StopAuthAttempt: true}
 	}
 
 	if isModelSupportResultError(result.Error) {
 		s.k12.clearTentative(digest, result.AuthID)
-		return SelectionResultDirective{StopAuthAttempt: true, StopCredentialFallback: confirmed}
+		return SelectionResultDirective{StopAuthAttempt: true, StopCredentialFallback: resultIsBinding}
 	}
 
 	transient := status == 0 || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
 	if !transient {
 		s.k12.clearTentative(digest, result.AuthID)
-		return SelectionResultDirective{StopCredentialFallback: confirmed && isRequestInvalidResultError(result.Error)}
+		return SelectionResultDirective{StopCredentialFallback: resultIsBinding && isRequestInvalidResultError(result.Error)}
 	}
 
 	streamOpenTimeout := isStreamOpenTimeoutResultError(result.Error)
-	if status == http.StatusTooManyRequests || streamOpenTimeout {
+	preferSpillover := status == http.StatusTooManyRequests || streamOpenTimeout
+	if preferSpillover {
 		reason := "429"
 		if streamOpenTimeout {
 			reason = "stream_open_timeout"
 		}
 		until := now.Add(s.k12.cooldown)
-		if confirmed {
-			if err := s.k12.store.releaseSessionToCooldown(digest, result.AuthID, until); err != nil {
-				entry.Warnf("k12-session-affinity: release binding for failover failed | source=%s session=%s auth=%s reason=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, reason, err)
-			}
-			s.k12.clearTentative(digest, result.AuthID)
-			entry.Warnf("k12-session-affinity: confirmed binding released for failover | source=%s session=%s auth=%s reason=%s", identity.Source, shortSessionDigest(digest), result.AuthID, reason)
-			return SelectionResultDirective{
-				SuppressAvailabilityUpdate: true,
-				StopAuthAttempt:            true,
-			}
-		}
 		if err := s.k12.store.setCooldown(digest, result.AuthID, until); err != nil {
 			entry.Warnf("k12-session-affinity: persist cooldown failed | source=%s session=%s auth=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, err)
+		}
+		s.k12.markSpilloverPreferred(digest, until)
+		if resultIsBinding {
+			entry.Warnf("k12-session-affinity: confirmed binding suspended for failover | source=%s session=%s auth=%s reason=%s", identity.Source, shortSessionDigest(digest), result.AuthID, reason)
 		}
 	}
 	s.k12.clearTentative(digest, result.AuthID)
 	return SelectionResultDirective{
 		SuppressAvailabilityUpdate: true,
 		StopAuthAttempt:            true,
-		StopCredentialFallback:     confirmed,
+		StopCredentialFallback:     resultIsBinding && !preferSpillover,
 	}
 }
 
@@ -642,6 +921,11 @@ func (s *SessionAffinitySelector) SyncAuths(auths []*Auth) {
 	for digest, selection := range s.k12.spillovers {
 		if _, ok := validAll[selection.authID]; !ok {
 			delete(s.k12.spillovers, digest)
+		}
+	}
+	for key := range s.k12.attempts {
+		if _, ok := validAll[key.authID]; !ok {
+			delete(s.k12.attempts, key)
 		}
 	}
 	s.k12.mu.Unlock()

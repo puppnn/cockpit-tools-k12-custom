@@ -606,6 +606,10 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 		}
 		selected, remaining, handled, err := s.pickK12(ctx, provider, model, opts, primary, auths)
 		if handled {
+			if err == nil && selected != nil && selected.ID != "" {
+				digest := s.k12.store.digest(primary.ID)
+				s.k12.registerSelectionAttempt(digest, selected.ID, opts, time.Now())
+			}
 			return selected, err
 		}
 		auths = remaining

@@ -1437,6 +1437,123 @@ func TestK12OldFailureAfterSpilloverWinDoesNotCoolK12(t *testing.T) {
 	}
 }
 
+func TestSelectedAuthCallbackIncludesSelectionAttemptAndKeepsLegacyCallback(t *testing.T) {
+	t.Parallel()
+
+	var selected cliproxyexecutor.AuthSelection
+	meta := map[string]any{
+		cliproxyexecutor.SelectedAuthCallbackMetadataKey: func(selection cliproxyexecutor.AuthSelection) {
+			selected = selection
+		},
+	}
+	publishSelectedAuthMetadata(meta, "auth-a", 42)
+	if selected.AuthID != "auth-a" || selected.AttemptID != 42 {
+		t.Fatalf("selection callback = %#v", selected)
+	}
+	if got := meta[cliproxyexecutor.SelectedAuthMetadataKey]; got != "auth-a" {
+		t.Fatalf("selected auth metadata = %#v", got)
+	}
+
+	legacyAuthID := ""
+	legacyMeta := map[string]any{
+		cliproxyexecutor.SelectedAuthCallbackMetadataKey: func(authID string) {
+			legacyAuthID = authID
+		},
+	}
+	publishSelectedAuthMetadata(legacyMeta, "auth-b", 84)
+	if legacyAuthID != "auth-b" {
+		t.Fatalf("legacy selection callback auth = %q", legacyAuthID)
+	}
+}
+
+func TestReportSelectionFailureRetiresAttemptBeforeLateResult(t *testing.T) {
+	t.Parallel()
+
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), map[string]*int{"k12-a": intPtr(20)})
+	manager := NewManager(nil, selector, nil)
+	k12 := testK12Auth("k12-a")
+	plus := testPlusAuth("plus-a")
+	auths := []*Auth{k12, plus}
+
+	var observed cliproxyexecutor.AuthSelection
+	baseOpts := promptCacheOptions("synchronous-timeout-report")
+	baseOpts.Metadata = map[string]any{
+		cliproxyexecutor.SelectedAuthCallbackMetadataKey: func(selection cliproxyexecutor.AuthSelection) {
+			observed = selection
+		},
+	}
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", baseOpts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, baseOpts)
+
+	attemptOpts := withSelectionAttempt(baseOpts)
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5", attemptOpts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("active selection = %#v, %v", selected, err)
+	}
+	publishSelectedAuthMetadata(baseOpts.Metadata, selected.ID, selectionAttemptIDFromOptions(attemptOpts))
+	if observed.AuthID != k12.ID || observed.AttemptID == 0 {
+		t.Fatalf("observed selection = %#v", observed)
+	}
+
+	timeoutErr := &retryAfterStatusError{
+		status:  http.StatusGatewayTimeout,
+		message: "upstream timed out in stream_open attempt=1/2 after 30s",
+	}
+	directive := manager.ReportSelectionFailure(context.Background(), observed, "gpt-5", timeoutErr, baseOpts)
+	if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+		t.Fatalf("synchronous timeout directive = %#v", directive)
+	}
+
+	lateDirective := selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, attemptOpts)
+	if !lateDirective.SuppressAvailabilityUpdate || lateDirective.StopAuthAttempt {
+		t.Fatalf("late success directive = %#v", lateDirective)
+	}
+	identity, _ := extractSessionIdentities(baseOpts.Headers, baseOpts.OriginalRequest, baseOpts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	if remaining := selector.k12.store.cooldownRemaining(digest, k12.ID, time.Now()); remaining <= 0 {
+		t.Fatal("late success cleared the synchronous timeout cooldown")
+	}
+
+	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", baseOpts, auths)
+	if err != nil || retry == nil || retry.ID != plus.ID {
+		t.Fatalf("timeout spillover selection = %#v, %v", retry, err)
+	}
+}
+
+func TestReportSelectionFailureDoesNotCoolOrdinaryAuth(t *testing.T) {
+	t.Parallel()
+
+	manager := NewManager(nil, nil, nil)
+	auth := testPlusAuth("plus-a")
+	if _, err := manager.Register(context.Background(), auth); err != nil {
+		t.Fatal(err)
+	}
+	timeoutErr := &retryAfterStatusError{
+		status:  http.StatusGatewayTimeout,
+		message: "upstream timed out in stream_open attempt=1/2 after 30s",
+	}
+	directive := manager.ReportSelectionFailure(
+		context.Background(),
+		cliproxyexecutor.AuthSelection{AuthID: auth.ID, AttemptID: 42},
+		"gpt-5",
+		timeoutErr,
+		promptCacheOptions("ordinary-auth-local-timeout"),
+	)
+	if !directive.SuppressAvailabilityUpdate {
+		t.Fatalf("local timeout directive = %#v", directive)
+	}
+	got, ok := manager.GetByID(auth.ID)
+	if !ok || got == nil {
+		t.Fatal("ordinary auth missing after local timeout report")
+	}
+	if got.Unavailable || got.Quota.Exceeded || len(got.ModelStates) != 0 {
+		t.Fatalf("local timeout changed ordinary auth availability: %#v", got)
+	}
+}
+
 func TestK12OnlyConfirmedCooldownReturnsRetryAfter(t *testing.T) {
 	t.Parallel()
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), map[string]*int{"k12-only": intPtr(20)})

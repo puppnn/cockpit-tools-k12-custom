@@ -28,11 +28,22 @@ const (
 	PinnedAuthMetadataKey = "pinned_auth_id"
 	// SelectedAuthMetadataKey stores the auth ID selected by the scheduler.
 	SelectedAuthMetadataKey = "selected_auth_id"
-	// SelectedAuthCallbackMetadataKey carries an optional callback invoked with the selected auth ID.
+	// SelectedAuthCallbackMetadataKey carries an optional callback invoked with
+	// AuthSelection. A func(string) callback remains supported for compatibility.
 	SelectedAuthCallbackMetadataKey = "selected_auth_callback"
+	// ExcludedAuthIDsMetadataKey carries auth IDs that must not be reused by a
+	// higher-level retry which already timed out those credentials.
+	ExcludedAuthIDsMetadataKey = "excluded_auth_ids"
 	// ExecutionSessionMetadataKey identifies a long-lived downstream execution session.
 	ExecutionSessionMetadataKey = "execution_session_id"
 )
+
+// AuthSelection identifies one scheduler selection and the internal attempt
+// that must be used when synchronously reporting its result.
+type AuthSelection struct {
+	AuthID    string
+	AttemptID uint64
+}
 
 // Request encapsulates the translated payload that will be sent to a provider executor.
 type Request struct {

@@ -444,6 +444,41 @@ func (m *Manager) markSelectionResult(ctx context.Context, result Result, opts c
 	return directive
 }
 
+// ReportSelectionFailure synchronously records a failure for a selection
+// published through SelectedAuthCallbackMetadataKey. Hosts should call this
+// before canceling an execution that may unwind asynchronously.
+func (m *Manager) ReportSelectionFailure(ctx context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) SelectionResultDirective {
+	if m == nil || strings.TrimSpace(selection.AuthID) == "" || executionErr == nil {
+		return SelectionResultDirective{}
+	}
+
+	result := Result{
+		AuthID:  strings.TrimSpace(selection.AuthID),
+		Model:   strings.TrimSpace(model),
+		Success: false,
+		Error:   &Error{Message: executionErr.Error()},
+	}
+	if se, ok := errors.AsType[cliproxyexecutor.StatusError](executionErr); ok && se != nil {
+		result.Error.HTTPStatus = se.StatusCode()
+	}
+	result.RetryAfter = retryAfterFromError(executionErr)
+
+	m.mu.RLock()
+	if auth := m.auths[result.AuthID]; auth != nil {
+		result.Provider = auth.Provider
+	}
+	m.mu.RUnlock()
+
+	directive := m.notifySelectionResult(ctx, result, withSelectionAttemptID(opts, selection.AttemptID))
+	// This failure was synthesized by the host's first-payload deadline, not by
+	// the upstream credential. Let session policy react without applying the
+	// ordinary account/model cooldown to unrelated requests.
+	directive.SuppressAvailabilityUpdate = true
+	result.SuppressAvailabilityUpdate = true
+	m.MarkResult(ctx, result)
+	return directive
+}
+
 // SetStore swaps the underlying persistence store.
 func (m *Manager) SetStore(store Store) {
 	m.mu.Lock()
@@ -1529,7 +1564,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
 	homeAuthCount := 1
-	tried := make(map[string]struct{})
+	tried := excludedAuthIDsFromOptions(opts)
 	attempted := make(map[string]struct{})
 	var lastErr error
 	for {
@@ -1553,7 +1588,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth.ID, selectionAttemptIDFromOptions(pickOpts))
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1661,7 +1696,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth.ID, selectionAttemptIDFromOptions(pickOpts))
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1736,7 +1771,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
 	homeAuthCount := 1
-	tried := make(map[string]struct{})
+	tried := excludedAuthIDsFromOptions(opts)
 	attempted := make(map[string]struct{})
 	var lastErr error
 	for {
@@ -1760,7 +1795,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
-		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
+		publishSelectedAuthMetadata(opts.Metadata, auth.ID, selectionAttemptIDFromOptions(pickOpts))
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
@@ -1847,6 +1882,13 @@ func withSelectionAttempt(opts cliproxyexecutor.Options) cliproxyexecutor.Option
 	if attemptID == 0 {
 		attemptID = selectionAttemptSequence.Add(1)
 	}
+	return withSelectionAttemptID(opts, attemptID)
+}
+
+func withSelectionAttemptID(opts cliproxyexecutor.Options, attemptID uint64) cliproxyexecutor.Options {
+	if attemptID == 0 {
+		return opts
+	}
 	meta := make(map[string]any, len(opts.Metadata)+1)
 	for k, v := range opts.Metadata {
 		meta[k] = v
@@ -1882,6 +1924,35 @@ func selectionAttemptIDFromOptions(opts cliproxyexecutor.Options) uint64 {
 		return attemptID
 	}
 	return 0
+}
+
+func excludedAuthIDsFromOptions(opts cliproxyexecutor.Options) map[string]struct{} {
+	excluded := make(map[string]struct{})
+	if len(opts.Metadata) == 0 {
+		return excluded
+	}
+	add := func(authID string) {
+		if authID = strings.TrimSpace(authID); authID != "" {
+			excluded[authID] = struct{}{}
+		}
+	}
+	switch value := opts.Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey].(type) {
+	case string:
+		for _, authID := range strings.Split(value, ",") {
+			add(authID)
+		}
+	case []string:
+		for _, authID := range value {
+			add(authID)
+		}
+	case []any:
+		for _, raw := range value {
+			if authID, ok := raw.(string); ok {
+				add(authID)
+			}
+		}
+	}
+	return excluded
 }
 
 func withHomeAuthCount(opts cliproxyexecutor.Options, count int) cliproxyexecutor.Options {
@@ -2117,7 +2188,7 @@ func isFreeCodexAuth(auth *Auth) bool {
 	return strings.EqualFold(strings.TrimSpace(auth.Attributes["plan_type"]), "free")
 }
 
-func publishSelectedAuthMetadata(meta map[string]any, authID string) {
+func publishSelectedAuthMetadata(meta map[string]any, authID string, attemptID uint64) {
 	if len(meta) == 0 {
 		return
 	}
@@ -2126,8 +2197,16 @@ func publishSelectedAuthMetadata(meta map[string]any, authID string) {
 		return
 	}
 	meta[cliproxyexecutor.SelectedAuthMetadataKey] = authID
-	if callback, ok := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string)); ok && callback != nil {
-		callback(authID)
+	selection := cliproxyexecutor.AuthSelection{AuthID: authID, AttemptID: attemptID}
+	switch callback := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(type) {
+	case func(cliproxyexecutor.AuthSelection):
+		if callback != nil {
+			callback(selection)
+		}
+	case func(string):
+		if callback != nil {
+			callback(authID)
+		}
 	}
 }
 
@@ -4203,7 +4282,7 @@ func (m *Manager) tryAntigravityCreditsExecute(ctx context.Context, req cliproxy
 			continue
 		}
 		c.auth = preparedAuth
-		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth.ID)
+		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth.ID, selectionAttemptIDFromOptions(creditsOpts))
 		models := m.executionModelCandidates(c.auth, routeModel)
 		if len(models) == 0 {
 			continue
@@ -4250,7 +4329,7 @@ func (m *Manager) tryAntigravityCreditsExecuteStream(ctx context.Context, req cl
 			continue
 		}
 		c.auth = preparedAuth
-		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth.ID)
+		publishSelectedAuthMetadata(creditsOpts.Metadata, c.auth.ID, selectionAttemptIDFromOptions(creditsOpts))
 		models := m.executionModelCandidates(c.auth, routeModel)
 		if len(models) == 0 {
 			continue

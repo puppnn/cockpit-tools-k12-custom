@@ -73,11 +73,12 @@ const ollamaBridgeVersion = "0.18.3"
 const maxImageUploadBytes int64 = 64 * 1024 * 1024
 
 var (
-	streamOpenTimeout      = 120 * time.Second
-	streamOpenMaxAttempts  = 2
-	streamIdleTimeout      = 60 * time.Second
-	imageStreamOpenTimeout = 10 * time.Second
-	imageStreamIdleTimeout = 60 * time.Second
+	streamOpenTimeout             = 120 * time.Second
+	streamOpenMaxAttempts         = 2
+	streamOpenFinalAttemptMinimum = 5 * time.Minute
+	streamIdleTimeout             = 60 * time.Second
+	imageStreamOpenTimeout        = 10 * time.Second
+	imageStreamIdleTimeout        = 60 * time.Second
 )
 
 type manifest struct {
@@ -243,8 +244,8 @@ type requestDiagnosticPayload struct {
 const executorWaitLogInterval = 30 * time.Second
 const streamOpenCancelWait = 2 * time.Second
 const streamOpenFailoverGraceMax = 60 * time.Second
-const streamOpenProbeTimeoutMax = 30 * time.Second
-const streamOpenProbeTimeoutDivisor = 4
+const streamOpenDepletedK12TimeoutMax = 30 * time.Second
+const streamOpenDepletedK12TimeoutDivisor = 4
 
 type relayTimeoutError struct {
 	phase   string
@@ -2673,6 +2674,13 @@ func (r *sidecarRuntime) ExecuteStream(ctx context.Context, providers []string, 
 	return r.service.ExecuteStream(ctx, providers, req, opts)
 }
 
+func (r *sidecarRuntime) ReportSelectionFailure(ctx context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {
+	if r == nil || r.manager == nil {
+		return coreauth.SelectionResultDirective{}
+	}
+	return r.manager.ReportSelectionFailure(ctx, selection, model, executionErr, opts)
+}
+
 func (r *sidecarRuntime) Stop() {
 	if r == nil || r.cancel == nil {
 		return
@@ -2847,12 +2855,17 @@ type executorRuntime interface {
 	ExecuteStream(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error)
 }
 
+type selectionFailureReporter interface {
+	ReportSelectionFailure(ctx context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective
+}
+
 type relayServer struct {
 	runtime  executorRuntime
 	cfg      *config.Config
 	manifest *manifest
 	emitter  *eventEmitter
 	policy   *requestPolicy
+	quota    *quotaReserveStateStore
 }
 
 func (s *relayServer) router() *gin.Engine {
@@ -3247,7 +3260,7 @@ func (s *relayServer) handleImagesRelayRequest(c *gin.Context, imageReq imageRel
 	timeouts := s.streamTimeoutsForRequest(c.Request, imageReq.body, defaultImagesToolModel)
 	streamCtx, cancelStream := context.WithCancel(relayContext(c))
 	defer cancelStream()
-	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.probeFirstOpen)
+	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.quotaAdaptiveOpen)
 	if err != nil {
 		s.writeExecutorError(c, err)
 		return
@@ -4260,7 +4273,7 @@ func (s *relayServer) handleStream(c *gin.Context, body []byte, model string, so
 	stopWaitLogger := s.startExecutorWaitLogger(c, model, "execute_stream", startedAt)
 	streamCtx, cancelStream := context.WithCancel(relayContext(c))
 	defer cancelStream()
-	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.probeFirstOpen)
+	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.quotaAdaptiveOpen)
 	stopWaitLogger()
 	if err != nil {
 		s.emitExecutorDiagnostic(c, "executor_failed", model, "execute_stream", startedAt, err.Error())
@@ -4374,7 +4387,7 @@ type executeStreamResult struct {
 	err    error
 }
 
-func withSelectedAuthObserver(opts cliproxyexecutor.Options, observer func(string)) cliproxyexecutor.Options {
+func withSelectedAuthObserver(opts cliproxyexecutor.Options, observer func(cliproxyexecutor.AuthSelection)) cliproxyexecutor.Options {
 	if observer == nil {
 		return opts
 	}
@@ -4382,13 +4395,43 @@ func withSelectedAuthObserver(opts cliproxyexecutor.Options, observer func(strin
 	for key, value := range opts.Metadata {
 		meta[key] = value
 	}
-	existing, _ := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string))
-	meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey] = func(authID string) {
-		observer(authID)
-		if existing != nil {
-			existing(authID)
+	existing := meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey]
+	meta[cliproxyexecutor.SelectedAuthCallbackMetadataKey] = func(selection cliproxyexecutor.AuthSelection) {
+		observer(selection)
+		switch callback := existing.(type) {
+		case func(cliproxyexecutor.AuthSelection):
+			if callback != nil {
+				callback(selection)
+			}
+		case func(string):
+			if callback != nil {
+				callback(selection.AuthID)
+			}
 		}
 	}
+	opts.Metadata = meta
+	return opts
+}
+
+func withExcludedAuthIDs(opts cliproxyexecutor.Options, excluded map[string]struct{}) cliproxyexecutor.Options {
+	if len(excluded) == 0 {
+		return opts
+	}
+	authIDs := make([]string, 0, len(excluded))
+	for authID := range excluded {
+		if authID = strings.TrimSpace(authID); authID != "" {
+			authIDs = append(authIDs, authID)
+		}
+	}
+	if len(authIDs) == 0 {
+		return opts
+	}
+	sort.Strings(authIDs)
+	meta := make(map[string]any, len(opts.Metadata)+1)
+	for key, value := range opts.Metadata {
+		meta[key] = value
+	}
+	meta[cliproxyexecutor.ExcludedAuthIDsMetadataKey] = authIDs
 	opts.Metadata = meta
 	return opts
 }
@@ -4404,18 +4447,52 @@ func streamOpenFailoverBudget(openTimeout time.Duration) time.Duration {
 	return openTimeout + grace
 }
 
-func streamOpenAttemptTimeout(openTimeout time.Duration, attempt, attempts int, probeFirst bool) time.Duration {
-	if openTimeout <= 0 || !probeFirst || attempts <= 1 || attempt != 1 {
+func streamOpenAttemptTimeoutWithMinimum(openTimeout time.Duration, attempt, attempts int, extendFinal bool, finalMinimum time.Duration) time.Duration {
+	if openTimeout <= 0 || !extendFinal || attempts <= 1 || attempt != attempts {
 		return openTimeout
 	}
-	probeTimeout := openTimeout / streamOpenProbeTimeoutDivisor
-	if probeTimeout <= 0 {
+	extended := openTimeout * 2
+	if extended < openTimeout {
+		extended = time.Duration(1<<63 - 1)
+	}
+	if extended < finalMinimum {
+		return finalMinimum
+	}
+	return extended
+}
+
+func streamOpenAttemptTimeout(openTimeout time.Duration, attempt, attempts int, extendFinal bool) time.Duration {
+	return streamOpenAttemptTimeoutWithMinimum(openTimeout, attempt, attempts, extendFinal, streamOpenFinalAttemptMinimum)
+}
+
+func streamOpenDepletedK12Timeout(openTimeout time.Duration) time.Duration {
+	if openTimeout <= 0 {
 		return openTimeout
 	}
-	if probeTimeout > streamOpenProbeTimeoutMax {
-		return streamOpenProbeTimeoutMax
+	timeout := openTimeout / streamOpenDepletedK12TimeoutDivisor
+	if timeout <= 0 {
+		return openTimeout
 	}
-	return probeTimeout
+	if timeout > streamOpenDepletedK12TimeoutMax {
+		return streamOpenDepletedK12TimeoutMax
+	}
+	return timeout
+}
+
+func (s *relayServer) streamOpenTimeoutForSelectedAuth(openTimeout time.Duration, authID string, quotaAdaptive bool, now time.Time) time.Duration {
+	if s == nil || !quotaAdaptive || openTimeout <= 0 || strings.TrimSpace(authID) == "" {
+		return openTimeout
+	}
+	snapshot := k12QuotaSnapshotForAuth(s.manifest, s.quota, &coreauth.Auth{ID: authID}, now)
+	if !snapshot.Fresh {
+		return openTimeout
+	}
+	hourlyDepleted := snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent <= 0
+	weeklyDepleted := snapshot.WeeklyRemainingPercent != nil && *snapshot.WeeklyRemainingPercent <= 0
+	if !hourlyDepleted && !weeklyDepleted {
+		return openTimeout
+	}
+	return streamOpenDepletedK12Timeout(openTimeout)
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
@@ -4440,7 +4517,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 	model string,
 	startedAt time.Time,
 	openTimeout time.Duration,
-	probeFirstOpen bool,
+	quotaAdaptiveOpen bool,
 ) (*cliproxyexecutor.StreamResult, error) {
 	attempts := s.streamOpenMaxAttempts()
 	if attempts <= 0 {
@@ -4450,19 +4527,26 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 		openTimeout = streamOpenTimeout
 	}
 	lastAttemptTimeout := openTimeout
+	excludedAuthIDs := make(map[string]struct{})
 	for attempt := 1; attempt <= attempts; attempt++ {
-		attemptTimeout := streamOpenAttemptTimeout(openTimeout, attempt, attempts, probeFirstOpen)
+		attemptTimeout := streamOpenAttemptTimeout(openTimeout, attempt, attempts, quotaAdaptiveOpen)
 		lastAttemptTimeout = attemptTimeout
-		authSelections := make(chan string, 16)
-		attemptOpts := withSelectedAuthObserver(opts, func(authID string) {
+		authSelectionChanged := make(chan struct{}, 1)
+		var latestAuthSelection atomic.Value
+		attemptOpts := withExcludedAuthIDs(opts, excludedAuthIDs)
+		attemptOpts = withSelectedAuthObserver(attemptOpts, func(selection cliproxyexecutor.AuthSelection) {
+			latestAuthSelection.Store(selection)
 			select {
-			case authSelections <- strings.TrimSpace(authID):
+			case authSelectionChanged <- struct{}{}:
 			default:
 			}
 		})
 		attemptCtx, cancelAttempt := context.WithCancelCause(ctx)
 		done := make(chan executeStreamResult, 1)
-		attemptDeadline := time.Now().Add(streamOpenFailoverBudget(attemptTimeout))
+		attemptStartedAt := time.Now()
+		failoverDeadline := attemptStartedAt.Add(streamOpenFailoverBudget(attemptTimeout))
+		selectedTimeout := attemptTimeout
+		selectedDeadline := attemptStartedAt.Add(selectedTimeout)
 		s.emitExecutorDiagnostic(
 			c,
 			"stream_open_attempt",
@@ -4477,38 +4561,51 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 		}()
 
 		timer := time.NewTimer(attemptTimeout)
-		selectedAuthID := ""
+		selectedAuth := cliproxyexecutor.AuthSelection{}
 		authSwitches := 0
+		applySelectedAuth := func(selection cliproxyexecutor.AuthSelection) bool {
+			selection.AuthID = strings.TrimSpace(selection.AuthID)
+			if selection.AuthID == "" {
+				return false
+			}
+			if selection.AuthID == selectedAuth.AuthID && selection.AttemptID == selectedAuth.AttemptID {
+				return false
+			}
+			if selectedAuth.AuthID != "" && selection.AuthID != selectedAuth.AuthID {
+				authSwitches++
+			}
+			selectedAuth = selection
+			now := time.Now()
+			selectedTimeout = s.streamOpenTimeoutForSelectedAuth(attemptTimeout, selection.AuthID, quotaAdaptiveOpen, now)
+			selectedDeadline = now.Add(selectedTimeout)
+			if selectedDeadline.After(failoverDeadline) {
+				selectedDeadline = failoverDeadline
+			}
+			remaining := time.Until(selectedDeadline)
+			if remaining <= 0 {
+				return false
+			}
+			resetTimer(timer, remaining)
+			diagnosticType := "stream_open_auth_selected"
+			if authSwitches > 0 {
+				diagnosticType = "stream_open_auth_failover"
+			}
+			s.emitExecutorDiagnostic(
+				c,
+				diagnosticType,
+				model,
+				"execute_stream",
+				startedAt,
+				fmt.Sprintf("attempt=%d/%d auth_switch=%d selected_timeout=%s deadline_remaining=%s", attempt, attempts, authSwitches, selectedTimeout, remaining.Round(time.Millisecond)),
+			)
+			return true
+		}
 	waitForOpen:
 		for {
 			select {
-			case authID := <-authSelections:
-				if authID == "" || authID == selectedAuthID {
-					continue
-				}
-				if selectedAuthID != "" {
-					authSwitches++
-				}
-				selectedAuthID = authID
-				remaining := time.Until(attemptDeadline)
-				if remaining <= 0 {
-					continue
-				}
-				resetAfter := attemptTimeout
-				if remaining < resetAfter {
-					resetAfter = remaining
-				}
-				resetTimer(timer, resetAfter)
-				if authSwitches > 0 {
-					s.emitExecutorDiagnostic(
-						c,
-						"stream_open_auth_failover",
-						model,
-						"execute_stream",
-						startedAt,
-						fmt.Sprintf("attempt=%d/%d auth_switch=%d timeout_reset=%s total_remaining=%s", attempt, attempts, authSwitches, resetAfter.Round(time.Millisecond), remaining.Round(time.Millisecond)),
-					)
-				}
+			case <-authSelectionChanged:
+				selection, _ := latestAuthSelection.Load().(cliproxyexecutor.AuthSelection)
+				applySelectedAuth(selection)
 			case out := <-done:
 				timer.Stop()
 				if out.err != nil || out.result == nil {
@@ -4528,9 +4625,20 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 				)
 				return nil, ctx.Err()
 			case <-timer.C:
-				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: attemptTimeout}
+				if latest, ok := latestAuthSelection.Load().(cliproxyexecutor.AuthSelection); ok && strings.TrimSpace(latest.AuthID) != "" {
+					if applySelectedAuth(latest) {
+						continue
+					}
+				}
+				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: selectedTimeout}
+				if selectedAuth.AuthID != "" {
+					if reporter, ok := s.runtime.(selectionFailureReporter); ok && reporter != nil {
+						reporter.ReportSelectionFailure(context.WithoutCancel(ctx), selectedAuth, model, err, attemptOpts)
+					}
+					excludedAuthIDs[selectedAuth.AuthID] = struct{}{}
+				}
 				cancelAttempt(err)
-				detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel %s", err.Error())
+				detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel auth=%s excluded=%d %s", selectedAuth.AuthID, len(excludedAuthIDs), err.Error())
 				cancelWait := time.NewTimer(streamOpenCancelWait)
 				select {
 				case <-done:
@@ -5120,7 +5228,7 @@ func (s *relayServer) handleOllamaRuntimeStream(c *gin.Context, body []byte, mod
 	timeouts := s.streamTimeoutsForRequest(c.Request, body, model)
 	streamCtx, cancelStream := context.WithCancel(relayContext(c))
 	defer cancelStream()
-	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.probeFirstOpen)
+	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.quotaAdaptiveOpen)
 	if err != nil {
 		s.writeExecutorError(c, err)
 		return
@@ -5620,9 +5728,9 @@ func stringFieldFromAny(value any) string {
 }
 
 type streamTimeoutProfile struct {
-	open           time.Duration
-	idle           time.Duration
-	probeFirstOpen bool
+	open              time.Duration
+	idle              time.Duration
+	quotaAdaptiveOpen bool
 }
 
 func durationFromConfigMillis(value int, fallback time.Duration) time.Duration {
@@ -5648,9 +5756,9 @@ func (s *relayServer) streamOpenMaxAttempts() int {
 
 func (s *relayServer) streamTimeoutsForRequest(r *http.Request, body []byte, model string) streamTimeoutProfile {
 	profile := streamTimeoutProfile{
-		open:           durationFromConfigMillis(0, streamOpenTimeout),
-		idle:           durationFromConfigMillis(0, streamIdleTimeout),
-		probeFirstOpen: true,
+		open:              durationFromConfigMillis(0, streamOpenTimeout),
+		idle:              durationFromConfigMillis(0, streamIdleTimeout),
+		quotaAdaptiveOpen: true,
 	}
 	if s != nil && s.cfg != nil {
 		profile.open = durationFromConfigMillis(s.cfg.Streaming.StreamOpenTimeoutMS, profile.open)
@@ -5661,7 +5769,7 @@ func (s *relayServer) streamTimeoutsForRequest(r *http.Request, body []byte, mod
 	}
 	profile.open = imageStreamOpenTimeout
 	profile.idle = imageStreamIdleTimeout
-	profile.probeFirstOpen = false
+	profile.quotaAdaptiveOpen = false
 	if s != nil && s.cfg != nil {
 		profile.open = durationFromConfigMillis(s.cfg.Streaming.ImageStreamOpenTimeoutMS, profile.open)
 		profile.idle = durationFromConfigMillis(s.cfg.Streaming.ImageStreamIdleTimeoutMS, profile.idle)
@@ -6363,6 +6471,7 @@ func main() {
 		manifest: m,
 		emitter:  emitter,
 		policy:   policy,
+		quota:    quotaState,
 	}
 	if err := runRelayHTTPServer(ctx, cfg, relay.router(), emitter); err != nil && !errors.Is(err, context.Canceled) {
 		emitter.emit(map[string]any{"type": "error", "message": err.Error()})

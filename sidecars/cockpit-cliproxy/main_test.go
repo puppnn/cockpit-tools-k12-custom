@@ -2300,11 +2300,14 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldTimeout := streamOpenTimeout
 	oldAttempts := streamOpenMaxAttempts
+	oldFinalMinimum := streamOpenFinalAttemptMinimum
 	streamOpenTimeout = 20 * time.Millisecond
 	streamOpenMaxAttempts = 2
+	streamOpenFinalAttemptMinimum = 40 * time.Millisecond
 	defer func() {
 		streamOpenTimeout = oldTimeout
 		streamOpenMaxAttempts = oldAttempts
+		streamOpenFinalAttemptMinimum = oldFinalMinimum
 	}()
 	router := testRelayRouter(&fakeRuntime{streamWaitForContext: true})
 
@@ -2323,8 +2326,8 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "upstream_first_byte_timeout") {
 		t.Fatalf("timeout response should expose first-byte timeout code: %s", w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "after 20ms") {
-		t.Fatalf("final timeout response should expose the full second-attempt timeout: %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "after 40ms") {
+		t.Fatalf("final timeout response should expose the extended second-attempt timeout: %s", w.Body.String())
 	}
 }
 
@@ -2375,62 +2378,179 @@ func TestStreamOpenFailoverBudgetCapsExtraWait(t *testing.T) {
 	}
 }
 
-func TestStreamOpenAttemptTimeoutUsesTieredTextTimeouts(t *testing.T) {
+func TestStreamOpenAttemptTimeoutUsesFullFirstAndLongFinalTimeouts(t *testing.T) {
 	tests := []struct {
 		name        string
 		openTimeout time.Duration
 		attempt     int
 		attempts    int
-		probeFirst  bool
+		extendFinal bool
+		minimum     time.Duration
 		want        time.Duration
 	}{
-		{name: "default first attempt", openTimeout: 120 * time.Second, attempt: 1, attempts: 2, probeFirst: true, want: 30 * time.Second},
-		{name: "default second attempt", openTimeout: 120 * time.Second, attempt: 2, attempts: 2, probeFirst: true, want: 120 * time.Second},
-		{name: "single attempt stays full", openTimeout: 120 * time.Second, attempt: 1, attempts: 1, probeFirst: true, want: 120 * time.Second},
-		{name: "configured timeout scales", openTimeout: 60 * time.Second, attempt: 1, attempts: 2, probeFirst: true, want: 15 * time.Second},
-		{name: "long configured timeout caps probe", openTimeout: 4 * time.Minute, attempt: 1, attempts: 2, probeFirst: true, want: 30 * time.Second},
-		{name: "short configured timeout is deterministic", openTimeout: 20 * time.Millisecond, attempt: 1, attempts: 2, probeFirst: true, want: 5 * time.Millisecond},
-		{name: "image profile stays full", openTimeout: 120 * time.Second, attempt: 1, attempts: 2, probeFirst: false, want: 120 * time.Second},
+		{name: "healthy text first attempt", openTimeout: 120 * time.Second, attempt: 1, attempts: 2, extendFinal: true, minimum: 5 * time.Minute, want: 120 * time.Second},
+		{name: "text final attempt has five minute floor", openTimeout: 120 * time.Second, attempt: 2, attempts: 2, extendFinal: true, minimum: 5 * time.Minute, want: 5 * time.Minute},
+		{name: "long text final attempt doubles", openTimeout: 4 * time.Minute, attempt: 2, attempts: 2, extendFinal: true, minimum: 5 * time.Minute, want: 8 * time.Minute},
+		{name: "single text attempt stays configured", openTimeout: 120 * time.Second, attempt: 1, attempts: 1, extendFinal: true, minimum: 5 * time.Minute, want: 120 * time.Second},
+		{name: "short test final floor is controllable", openTimeout: 20 * time.Millisecond, attempt: 2, attempts: 2, extendFinal: true, minimum: 50 * time.Millisecond, want: 50 * time.Millisecond},
+		{name: "image final attempt stays configured", openTimeout: 120 * time.Second, attempt: 2, attempts: 2, extendFinal: false, minimum: 5 * time.Minute, want: 120 * time.Second},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := streamOpenAttemptTimeout(test.openTimeout, test.attempt, test.attempts, test.probeFirst); got != test.want {
-				t.Fatalf("streamOpenAttemptTimeout() = %s, want %s", got, test.want)
+			if got := streamOpenAttemptTimeoutWithMinimum(test.openTimeout, test.attempt, test.attempts, test.extendFinal, test.minimum); got != test.want {
+				t.Fatalf("streamOpenAttemptTimeoutWithMinimum() = %s, want %s", got, test.want)
 			}
 		})
 	}
 }
 
-func TestStreamTimeoutProfileAppliesConfiguredTextProbeOnly(t *testing.T) {
+func TestStreamOpenTimeoutForSelectedAuthOnlyShortensFreshDepletedK12(t *testing.T) {
+	now := time.Now()
+	hourlyWindowPresent := true
+	weeklyWindowPresent := true
+	server := &relayServer{
+		manifest: &manifest{
+			accountByAuthID: map[string]*accountSpec{
+				"healthy-k12.json": {ID: "healthy-k12", AuthID: "healthy-k12.json", PlanType: "K12"},
+				"hourly-zero.json": {ID: "hourly-zero", AuthID: "hourly-zero.json", PlanType: "k12"},
+				"weekly-zero.json": {ID: "weekly-zero", AuthID: "weekly-zero.json", PlanType: "K12"},
+				"plus.json":        {ID: "plus", AuthID: "plus.json", PlanType: "Plus"},
+			},
+		},
+		quota: &quotaReserveStateStore{},
+	}
+	server.quota.snapshot.Store(quotaReserveRuntimeState{accounts: map[string]quotaReserveSnapshot{
+		"healthy-k12": {
+			SnapshotUpdatedAtUnixSeconds: int64PointerForTest(now.Unix()),
+			HourlyRemainingPercent:       intPointerForTest(100),
+			WeeklyRemainingPercent:       intPointerForTest(50),
+			HourlyWindowPresent:          &hourlyWindowPresent,
+			WeeklyWindowPresent:          &weeklyWindowPresent,
+		},
+		"hourly-zero": {
+			SnapshotUpdatedAtUnixSeconds: int64PointerForTest(now.Unix()),
+			HourlyRemainingPercent:       intPointerForTest(0),
+			WeeklyRemainingPercent:       intPointerForTest(50),
+			HourlyWindowPresent:          &hourlyWindowPresent,
+			WeeklyWindowPresent:          &weeklyWindowPresent,
+		},
+		"weekly-zero": {
+			SnapshotUpdatedAtUnixSeconds: int64PointerForTest(now.Unix()),
+			HourlyRemainingPercent:       intPointerForTest(100),
+			WeeklyRemainingPercent:       intPointerForTest(0),
+			HourlyWindowPresent:          &hourlyWindowPresent,
+			WeeklyWindowPresent:          &weeklyWindowPresent,
+		},
+	}})
+
+	tests := []struct {
+		name          string
+		authID        string
+		quotaAdaptive bool
+		want          time.Duration
+	}{
+		{name: "healthy K12 keeps full timeout", authID: "healthy-k12.json", quotaAdaptive: true, want: 120 * time.Second},
+		{name: "Plus keeps full timeout", authID: "plus.json", quotaAdaptive: true, want: 120 * time.Second},
+		{name: "hourly depleted K12 uses short timeout", authID: "hourly-zero.json", quotaAdaptive: true, want: 30 * time.Second},
+		{name: "weekly depleted K12 uses short timeout", authID: "weekly-zero.json", quotaAdaptive: true, want: 30 * time.Second},
+		{name: "image request ignores depleted K12", authID: "hourly-zero.json", quotaAdaptive: false, want: 120 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := server.streamOpenTimeoutForSelectedAuth(120*time.Second, test.authID, test.quotaAdaptive, now); got != test.want {
+				t.Fatalf("streamOpenTimeoutForSelectedAuth() = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStreamTimeoutProfileKeepsImagesUnchangedAndExtendsFinalTextAttempt(t *testing.T) {
 	server := &relayServer{cfg: &config.Config{}}
 	server.cfg.Streaming.ImageStreamOpenTimeoutMS = 120
 
 	textRequest := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	server.cfg.Streaming.StreamOpenTimeoutMS = 120_000
 	textProfile := server.streamTimeoutsForRequest(textRequest, []byte(`{"input":"hello"}`), "gpt-5.5")
-	if textProfile.open != 120*time.Second || !textProfile.probeFirstOpen {
+	if textProfile.open != 120*time.Second || !textProfile.quotaAdaptiveOpen {
 		t.Fatalf("unexpected configured text timeout profile: %#v", textProfile)
 	}
-	if got := streamOpenAttemptTimeout(textProfile.open, 1, 2, textProfile.probeFirstOpen); got != 30*time.Second {
-		t.Fatalf("configured text first-attempt timeout = %s, want 30s", got)
+	if got := streamOpenAttemptTimeout(textProfile.open, 1, 2, textProfile.quotaAdaptiveOpen); got != 120*time.Second {
+		t.Fatalf("configured text first-attempt timeout = %s, want 120s", got)
 	}
-	if got := streamOpenAttemptTimeout(textProfile.open, 2, 2, textProfile.probeFirstOpen); got != 120*time.Second {
-		t.Fatalf("configured text second-attempt timeout = %s, want 120s", got)
+	if got := streamOpenAttemptTimeout(textProfile.open, 2, 2, textProfile.quotaAdaptiveOpen); got != 5*time.Minute {
+		t.Fatalf("configured text final-attempt timeout = %s, want 5m", got)
 	}
 
 	server.cfg.Streaming.StreamOpenTimeoutMS = 80
 	shortProfile := server.streamTimeoutsForRequest(textRequest, []byte(`{"input":"hello"}`), "gpt-5.5")
-	if got := streamOpenAttemptTimeout(shortProfile.open, 1, 2, shortProfile.probeFirstOpen); got != 20*time.Millisecond {
-		t.Fatalf("short configured text probe timeout = %s, want 20ms", got)
+	if got := streamOpenAttemptTimeout(shortProfile.open, 1, 2, shortProfile.quotaAdaptiveOpen); got != 80*time.Millisecond {
+		t.Fatalf("short configured text first-attempt timeout = %s, want 80ms", got)
 	}
 
 	imageRequest := httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
 	imageProfile := server.streamTimeoutsForRequest(imageRequest, []byte(`{"prompt":"draw"}`), "gpt-image-2")
-	if imageProfile.open != 120*time.Millisecond || imageProfile.probeFirstOpen {
+	if imageProfile.open != 120*time.Millisecond || imageProfile.quotaAdaptiveOpen {
 		t.Fatalf("unexpected configured image timeout profile: %#v", imageProfile)
 	}
-	if got := streamOpenAttemptTimeout(imageProfile.open, 1, 2, imageProfile.probeFirstOpen); got != 120*time.Millisecond {
+	if got := streamOpenAttemptTimeout(imageProfile.open, 1, 2, imageProfile.quotaAdaptiveOpen); got != 120*time.Millisecond {
 		t.Fatalf("configured image first-attempt timeout = %s, want 120ms", got)
+	}
+	if got := streamOpenAttemptTimeout(imageProfile.open, 2, 2, imageProfile.quotaAdaptiveOpen); got != 120*time.Millisecond {
+		t.Fatalf("configured image final-attempt timeout = %s, want 120ms", got)
+	}
+}
+
+func TestRelayServerHealthyK12LongFirstByteUsesFullConfiguredTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := streamOpenTimeout
+	oldAttempts := streamOpenMaxAttempts
+	streamOpenTimeout = 80 * time.Millisecond
+	streamOpenMaxAttempts = 2
+	defer func() {
+		streamOpenTimeout = oldTimeout
+		streamOpenMaxAttempts = oldAttempts
+	}()
+
+	stream := make(chan cliproxyexecutor.StreamChunk, 1)
+	stream <- cliproxyexecutor.StreamChunk{Payload: []byte(`[DONE]`)}
+	close(stream)
+	runtime := &fakeRuntime{
+		streamAuthSelections: []string{"healthy-k12.json"},
+		streamOpenDelay:      50 * time.Millisecond,
+		streamResult: &cliproxyexecutor.StreamResult{
+			Headers: http.Header{"Content-Type": []string{"application/json"}},
+			Chunks:  stream,
+		},
+	}
+	server := testRelayServer(runtime)
+	account := &accountSpec{ID: "healthy-k12", AuthID: "healthy-k12.json", PlanType: "K12"}
+	server.manifest.Accounts = []accountSpec{*account}
+	server.manifest.accountByAuthID = map[string]*accountSpec{"healthy-k12.json": account}
+	server.manifest.accountByID = map[string]*accountSpec{"healthy-k12": account}
+	hourlyWindowPresent := true
+	weeklyWindowPresent := true
+	server.quota = &quotaReserveStateStore{}
+	server.quota.snapshot.Store(quotaReserveRuntimeState{accounts: map[string]quotaReserveSnapshot{
+		"healthy-k12": {
+			SnapshotUpdatedAtUnixSeconds: int64PointerForTest(time.Now().Unix()),
+			HourlyRemainingPercent:       intPointerForTest(100),
+			WeeklyRemainingPercent:       intPointerForTest(50),
+			HourlyWindowPresent:          &hourlyWindowPresent,
+			WeeklyWindowPresent:          &weeklyWindowPresent,
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	server.router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("healthy K12 long first byte should stay within the full timeout, got status=%d body=%s", w.Code, w.Body.String())
+	}
+	if runtime.streamCalls != 1 {
+		t.Fatalf("healthy K12 should not be killed by a short first probe, got %d attempts", runtime.streamCalls)
 	}
 }
 
@@ -2538,7 +2658,8 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 	stream <- cliproxyexecutor.StreamChunk{Payload: []byte(`[DONE]`)}
 	close(stream)
 	runtime := &fakeRuntime{
-		streamWaitAttempts: 1,
+		streamWaitAttempts:   1,
+		streamAuthsByAttempt: [][]string{{"auth-a"}, {"auth-b"}},
 		streamResult: &cliproxyexecutor.StreamResult{
 			Headers: http.Header{"Content-Type": []string{"application/json"}},
 			Chunks:  stream,
@@ -2561,10 +2682,20 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 	if len(runtime.streamCancelCauses) != 1 {
 		t.Fatalf("expected one canceled attempt cause, got %#v", runtime.streamCancelCauses)
 	}
+	if len(runtime.reportedFailures) != 1 || runtime.reportedFailures[0].selection.AuthID != "auth-a" || runtime.reportedFailures[0].selection.AttemptID == 0 {
+		t.Fatalf("first timeout should be synchronously reported with its selection attempt: %#v", runtime.reportedFailures)
+	}
+	if len(runtime.streamOpts) != 2 {
+		t.Fatalf("expected options for two outer attempts, got %d", len(runtime.streamOpts))
+	}
+	excluded, ok := runtime.streamOpts[1].Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey].([]string)
+	if !ok || len(excluded) != 1 || excluded[0] != "auth-a" {
+		t.Fatalf("second outer attempt excluded auths = %#v, want [auth-a]", runtime.streamOpts[1].Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey])
+	}
 	statusCause, ok := runtime.streamCancelCauses[0].(interface{ StatusCode() int })
 	if !ok || statusCause.StatusCode() != http.StatusGatewayTimeout ||
 		!strings.Contains(runtime.streamCancelCauses[0].Error(), "stream_open attempt=1/2") ||
-		!strings.Contains(runtime.streamCancelCauses[0].Error(), "after 5ms") {
+		!strings.Contains(runtime.streamCancelCauses[0].Error(), "after 20ms") {
 		t.Fatalf("first retry cause should be a typed stream-open 504: %#v", runtime.streamCancelCauses[0])
 	}
 	if !strings.Contains(w.Body.String(), "[DONE]") {
@@ -2804,7 +2935,7 @@ func TestRelayServerHandlesCORSPreflight(t *testing.T) {
 	}
 }
 
-func testRelayRouter(runtime executorRuntime) *gin.Engine {
+func testRelayServer(runtime executorRuntime) *relayServer {
 	m := &manifest{
 		APIKeys:  []apiKeySpec{{ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true}},
 		ModelIDs: []string{"gpt-5.5", "gpt-image-2"},
@@ -2813,12 +2944,16 @@ func testRelayRouter(runtime executorRuntime) *gin.Engine {
 		},
 	}
 	policy := &requestPolicy{manifest: m}
-	return (&relayServer{
+	return &relayServer{
 		runtime:  runtime,
 		cfg:      &config.Config{},
 		manifest: m,
 		policy:   policy,
-	}).router()
+	}
+}
+
+func testRelayRouter(runtime executorRuntime) *gin.Engine {
+	return testRelayServer(runtime).router()
 }
 
 type fakeRuntime struct {
@@ -2833,8 +2968,11 @@ type fakeRuntime struct {
 	streamResultPayload     []byte
 	streamCancelCauses      []error
 	streamAuthSelections    []string
+	streamAuthsByAttempt    [][]string
 	streamAuthSelectionGap  time.Duration
 	observedAuthSelections  []string
+	streamOpts              []cliproxyexecutor.Options
+	reportedFailures        []reportedSelectionFailure
 
 	executeCalls int
 	streamCalls  int
@@ -2851,30 +2989,46 @@ func (r *fakeRuntime) Execute(_ context.Context, _ []string, req cliproxyexecuto
 
 func (r *fakeRuntime) ExecuteStream(ctx context.Context, _ []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
 	r.streamCalls++
+	call := r.streamCalls
 	r.lastReq = req
 	r.lastOpts = opts
-	if r.streamWaitForContext || r.streamCalls <= r.streamWaitAttempts {
+	r.streamOpts = append(r.streamOpts, opts)
+	selections := r.streamAuthSelections
+	if call <= len(r.streamAuthsByAttempt) {
+		selections = r.streamAuthsByAttempt[call-1]
+	}
+	for index, authID := range selections {
+		selection := cliproxyexecutor.AuthSelection{AuthID: authID, AttemptID: uint64(call*100 + index + 1)}
+		switch callback := opts.Metadata[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(type) {
+		case func(cliproxyexecutor.AuthSelection):
+			if callback != nil {
+				callback(selection)
+			}
+		case func(string):
+			if callback != nil {
+				callback(authID)
+			}
+		}
+		if strings.TrimSpace(authID) != "" {
+			r.observedAuthSelections = append(r.observedAuthSelections, authID)
+		}
+		if r.streamAuthSelectionGap <= 0 {
+			continue
+		}
+		timer := time.NewTimer(r.streamAuthSelectionGap)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if r.streamWaitForContext || call <= r.streamWaitAttempts {
 		<-ctx.Done()
 		r.streamCancelCauses = append(r.streamCancelCauses, context.Cause(ctx))
 		return nil, ctx.Err()
-	}
-	if callback, ok := opts.Metadata[cliproxyexecutor.SelectedAuthCallbackMetadataKey].(func(string)); ok && callback != nil {
-		for _, authID := range r.streamAuthSelections {
-			callback(authID)
-			r.observedAuthSelections = append(r.observedAuthSelections, authID)
-			if r.streamAuthSelectionGap <= 0 {
-				continue
-			}
-			timer := time.NewTimer(r.streamAuthSelectionGap)
-			select {
-			case <-ctx.Done():
-				if !timer.Stop() {
-					<-timer.C
-				}
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-		}
 	}
 	if r.streamOpenDelay > 0 {
 		timer := time.NewTimer(r.streamOpenDelay)
@@ -2912,6 +3066,23 @@ func (r *fakeRuntime) ExecuteStream(ctx context.Context, _ []string, req cliprox
 		}, nil
 	}
 	return r.streamResult, r.err
+}
+
+type reportedSelectionFailure struct {
+	selection cliproxyexecutor.AuthSelection
+	model     string
+	err       error
+	opts      cliproxyexecutor.Options
+}
+
+func (r *fakeRuntime) ReportSelectionFailure(_ context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {
+	r.reportedFailures = append(r.reportedFailures, reportedSelectionFailure{
+		selection: selection,
+		model:     model,
+		err:       executionErr,
+		opts:      opts,
+	})
+	return coreauth.SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: true}
 }
 
 func captureStdout(t *testing.T, fn func()) string {

@@ -816,8 +816,15 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 	}
 	now := time.Now()
 	digest := s.k12.store.digest(identity.ID)
+	streamOpenTimeout := isStreamOpenTimeoutResultError(result.Error)
 	attemptKnown, attemptAccepted := s.k12.resolveSelectionAttempt(digest, result.AuthID, opts, result.Success, now)
 	if !attemptAccepted {
+		if streamOpenTimeout {
+			// A sibling request may still own another active attempt for this
+			// credential. The failed attempt cannot retire that cohort, but its
+			// outer retry must still prefer a paid spillover over another K12.
+			s.k12.markSpilloverPreferred(digest, now.Add(s.k12.cooldown))
+		}
 		return SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: !result.Success}
 	}
 	binding, confirmed := s.k12.store.binding(digest, now)
@@ -890,7 +897,6 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		return SelectionResultDirective{StopCredentialFallback: resultIsBinding && isRequestInvalidResultError(result.Error)}
 	}
 
-	streamOpenTimeout := isStreamOpenTimeoutResultError(result.Error)
 	preferSpillover := status == http.StatusTooManyRequests || streamOpenTimeout
 	if preferSpillover {
 		reason := "429"

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2703,6 +2704,59 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 	}
 }
 
+func TestRelayServerBoundsBlockedSelectionFailureReporting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := streamOpenTimeout
+	oldAttempts := streamOpenMaxAttempts
+	oldReportWait := streamOpenSelectionReportWait
+	streamOpenTimeout = 20 * time.Millisecond
+	streamOpenMaxAttempts = 2
+	streamOpenSelectionReportWait = 10 * time.Millisecond
+	defer func() {
+		streamOpenTimeout = oldTimeout
+		streamOpenMaxAttempts = oldAttempts
+		streamOpenSelectionReportWait = oldReportWait
+	}()
+
+	stream := make(chan cliproxyexecutor.StreamChunk, 1)
+	stream <- cliproxyexecutor.StreamChunk{Payload: []byte(`[DONE]`)}
+	close(stream)
+	reportBlock := make(chan struct{})
+	reportReturned := make(chan struct{}, 1)
+	runtime := &fakeRuntime{
+		streamWaitAttempts:    1,
+		streamAuthsByAttempt:  [][]string{{"auth-a"}, {"auth-b"}},
+		reportFailureBlock:    reportBlock,
+		reportFailureReturned: reportReturned,
+		streamResult: &cliproxyexecutor.StreamResult{
+			Headers: http.Header{"Content-Type": []string{"application/json"}},
+			Chunks:  stream,
+		},
+	}
+	router := testRelayRouter(runtime)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	startedAt := time.Now()
+	router.ServeHTTP(w, req)
+	elapsed := time.Since(startedAt)
+
+	if w.Code != http.StatusOK || runtime.streamCalls != 2 {
+		t.Fatalf("blocked reporter should not prevent failover: status=%d calls=%d body=%s", w.Code, runtime.streamCalls, w.Body.String())
+	}
+	if elapsed > 300*time.Millisecond {
+		t.Fatalf("blocked reporter delayed failover for %s", elapsed)
+	}
+	close(reportBlock)
+	select {
+	case <-reportReturned:
+	case <-time.After(time.Second):
+		t.Fatal("blocked reporter did not return after release")
+	}
+}
+
 func TestRelayServerKeepsStreamContextOpenAfterOpen(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldOpenTimeout := streamOpenTimeout
@@ -2972,6 +3026,9 @@ type fakeRuntime struct {
 	streamAuthSelectionGap  time.Duration
 	observedAuthSelections  []string
 	streamOpts              []cliproxyexecutor.Options
+	reportMu                sync.Mutex
+	reportFailureBlock      <-chan struct{}
+	reportFailureReturned   chan<- struct{}
 	reportedFailures        []reportedSelectionFailure
 
 	executeCalls int
@@ -3076,12 +3133,20 @@ type reportedSelectionFailure struct {
 }
 
 func (r *fakeRuntime) ReportSelectionFailure(_ context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {
+	r.reportMu.Lock()
 	r.reportedFailures = append(r.reportedFailures, reportedSelectionFailure{
 		selection: selection,
 		model:     model,
 		err:       executionErr,
 		opts:      opts,
 	})
+	r.reportMu.Unlock()
+	if r.reportFailureBlock != nil {
+		<-r.reportFailureBlock
+	}
+	if r.reportFailureReturned != nil {
+		r.reportFailureReturned <- struct{}{}
+	}
 	return coreauth.SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: true}
 }
 

@@ -73,12 +73,14 @@ const ollamaBridgeVersion = "0.18.3"
 const maxImageUploadBytes int64 = 64 * 1024 * 1024
 
 var (
-	streamOpenTimeout             = 120 * time.Second
-	streamOpenMaxAttempts         = 2
-	streamOpenFinalAttemptMinimum = 5 * time.Minute
-	streamIdleTimeout             = 60 * time.Second
-	imageStreamOpenTimeout        = 10 * time.Second
-	imageStreamIdleTimeout        = 60 * time.Second
+	streamOpenTimeout              = 120 * time.Second
+	streamOpenMaxAttempts          = 2
+	streamOpenFinalAttemptMinimum  = 5 * time.Minute
+	streamOpenSelectionReportWait  = 250 * time.Millisecond
+	streamOpenSelectionReportSlots = make(chan struct{}, 16)
+	streamIdleTimeout              = 60 * time.Second
+	imageStreamOpenTimeout         = 10 * time.Second
+	imageStreamIdleTimeout         = 60 * time.Second
 )
 
 type manifest struct {
@@ -2859,6 +2861,37 @@ type selectionFailureReporter interface {
 	ReportSelectionFailure(ctx context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective
 }
 
+func reportSelectionFailureBeforeCancel(ctx context.Context, reporter selectionFailureReporter, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options, maxWait time.Duration) bool {
+	if reporter == nil || strings.TrimSpace(selection.AuthID) == "" || executionErr == nil {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if maxWait <= 0 {
+		maxWait = streamOpenSelectionReportWait
+	}
+	select {
+	case streamOpenSelectionReportSlots <- struct{}{}:
+	default:
+		return false
+	}
+	reportCtx, cancelReport := context.WithTimeout(context.WithoutCancel(ctx), maxWait)
+	defer cancelReport()
+	done := make(chan struct{})
+	go func() {
+		defer func() { <-streamOpenSelectionReportSlots }()
+		reporter.ReportSelectionFailure(reportCtx, selection, model, executionErr, opts)
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-reportCtx.Done():
+		return false
+	}
+}
+
 type relayServer struct {
 	runtime  executorRuntime
 	cfg      *config.Config
@@ -4633,7 +4666,9 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: selectedTimeout}
 				if selectedAuth.AuthID != "" {
 					if reporter, ok := s.runtime.(selectionFailureReporter); ok && reporter != nil {
-						reporter.ReportSelectionFailure(context.WithoutCancel(ctx), selectedAuth, model, err, attemptOpts)
+						if !reportSelectionFailureBeforeCancel(ctx, reporter, selectedAuth, model, err, attemptOpts, streamOpenSelectionReportWait) {
+							s.emitExecutorDiagnostic(c, "stream_open_selection_report_timeout", model, "execute_stream", startedAt, fmt.Sprintf("auth=%s max_wait=%s", selectedAuth.AuthID, streamOpenSelectionReportWait))
+						}
 					}
 					excludedAuthIDs[selectedAuth.AuthID] = struct{}{}
 				}

@@ -59,6 +59,7 @@ type k12CredentialAttemptKey struct {
 
 type k12CredentialAttemptState struct {
 	active         map[uint64]struct{}
+	resolved       map[uint64]struct{}
 	cohortMax      uint64
 	retiredThrough uint64
 	expiresAt      time.Time
@@ -267,6 +268,9 @@ func (p *k12SessionPolicy) registerSelectionAttempt(sessionDigest, authID string
 	if attemptID <= state.retiredThrough {
 		return
 	}
+	if _, resolved := state.resolved[attemptID]; resolved {
+		return
+	}
 	if state.active == nil {
 		state.active = make(map[uint64]struct{})
 	}
@@ -297,6 +301,9 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 	if attemptID <= state.retiredThrough {
 		return true, false
 	}
+	if _, resolved := state.resolved[attemptID]; resolved {
+		return true, false
+	}
 	if _, active := state.active[attemptID]; !active {
 		// A newer ID that was never registered for this credential may belong to
 		// an ordinary non-K12 selection after an older spillover expired.
@@ -307,12 +314,17 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 			state.retiredThrough = state.cohortMax
 		}
 		state.active = nil
+		state.resolved = nil
 		state.cohortMax = 0
 		state.expiresAt = now.Add(p.selectionAttemptTTL())
 		p.attempts[key] = state
 		return true, true
 	}
 	delete(state.active, attemptID)
+	if state.resolved == nil {
+		state.resolved = make(map[uint64]struct{})
+	}
+	state.resolved[attemptID] = struct{}{}
 	if len(state.active) > 0 {
 		state.expiresAt = now.Add(p.selectionAttemptTTL())
 		p.attempts[key] = state
@@ -322,6 +334,7 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 		state.retiredThrough = state.cohortMax
 	}
 	state.active = nil
+	state.resolved = nil
 	state.cohortMax = 0
 	state.expiresAt = now.Add(p.selectionAttemptTTL())
 	p.attempts[key] = state
@@ -587,6 +600,15 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 	if !ok {
 		return nil, false, nil
 	}
+	if _, excluded := excludedAuthIDsFromOptions(opts)[binding.AuthID]; excluded {
+		until := now.Add(s.k12.cooldown)
+		s.k12.markSpilloverPreferred(digest, until)
+		selectorLogEntry(ctx).Infof(
+			"k12-session-affinity: confirmed binding excluded for request failover | source=%s session=%s auth=%s",
+			identity.Source, shortSessionDigest(digest), binding.AuthID,
+		)
+		return nil, false, nil
+	}
 	for _, auth := range auths {
 		if auth == nil || auth.ID != binding.AuthID || !s.k12.isK12(auth) {
 			continue
@@ -624,10 +646,15 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 	}
 	now := time.Now()
 	digest := s.k12.store.digest(identity.ID)
+	excludedAuthIDs := excludedAuthIDsFromOptions(opts)
 	suspendedAuthID := ""
 	var earliestCooldown time.Duration
 	if binding, ok := s.k12.store.binding(digest, now); ok {
-		if remaining := s.k12.store.cooldownRemaining(digest, binding.AuthID, now); remaining > 0 {
+		if _, excluded := excludedAuthIDs[binding.AuthID]; excluded {
+			suspendedAuthID = binding.AuthID
+			earliestCooldown = s.k12.cooldown
+			s.k12.markSpilloverPreferred(digest, now.Add(s.k12.cooldown))
+		} else if remaining := s.k12.store.cooldownRemaining(digest, binding.AuthID, now); remaining > 0 {
 			suspendedAuthID = binding.AuthID
 			earliestCooldown = remaining
 		} else {
@@ -871,7 +898,17 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 			reason = "stream_open_timeout"
 		}
 		until := now.Add(s.k12.cooldown)
-		if err := s.k12.store.setCooldown(digest, result.AuthID, until); err != nil {
+		if streamOpenTimeout {
+			s.k12.store.setCooldownRuntime(digest, result.AuthID, until)
+			store := s.k12.store
+			source := identity.Source
+			authID := result.AuthID
+			go func() {
+				if err := store.persist(); err != nil {
+					selectorLogEntry(context.Background()).Warnf("k12-session-affinity: persist cooldown failed | source=%s session=%s auth=%s error=%v", source, shortSessionDigest(digest), authID, err)
+				}
+			}()
+		} else if err := s.k12.store.setCooldown(digest, result.AuthID, until); err != nil {
 			entry.Warnf("k12-session-affinity: persist cooldown failed | source=%s session=%s auth=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, err)
 		}
 		s.k12.markSpilloverPreferred(digest, until)

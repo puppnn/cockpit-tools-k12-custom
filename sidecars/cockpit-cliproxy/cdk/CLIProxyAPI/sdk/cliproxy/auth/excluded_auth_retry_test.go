@@ -128,3 +128,80 @@ func TestK12SynchronousStreamOpenTimeoutAllowsExcludedRetryAndIgnoresLateResult(
 		t.Fatalf("late timeout displaced successful spillover: auth=%v handled=%v err=%v", winner, handled, err)
 	}
 }
+
+func TestK12ExcludedBindingSpillsOverWithAnotherAttemptStillActive(t *testing.T) {
+	t.Parallel()
+
+	selector := newTestK12Selector(
+		t,
+		filepath.Join(t.TempDir(), "state.json"),
+		map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)},
+	)
+	k12A := testK12Auth("k12-a")
+	k12B := testK12Auth("k12-b")
+	plus := testPlusAuth("plus-a")
+	auths := []*Auth{k12A, k12B, plus}
+	baseOpts := promptCacheOptions("excluded-binding-with-active-attempt")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", baseOpts, auths)
+	if err != nil || selected == nil || selected.ID != k12A.ID {
+		t.Fatalf("initial K12 selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, baseOpts)
+
+	otherOpts := withSelectionAttempt(baseOpts)
+	other, err := selector.Pick(context.Background(), "codex", "gpt-5", otherOpts, auths)
+	if err != nil || other == nil || other.ID != k12A.ID {
+		t.Fatalf("other active selection = %#v, %v", other, err)
+	}
+	timedOpts := withSelectionAttempt(baseOpts)
+	timed, err := selector.Pick(context.Background(), "codex", "gpt-5", timedOpts, auths)
+	if err != nil || timed == nil || timed.ID != k12A.ID {
+		t.Fatalf("timed selection = %#v, %v", timed, err)
+	}
+	timeoutResult := Result{
+		AuthID:  timed.ID,
+		Success: false,
+		Error: &Error{
+			HTTPStatus: http.StatusGatewayTimeout,
+			Message:    "upstream timed out in stream_open attempt=1/2",
+		},
+	}
+	directive := selector.OnSelectionResult(context.Background(), timeoutResult, timedOpts)
+	if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+		t.Fatalf("parallel timeout directive = %#v", directive)
+	}
+
+	identity, _ := extractSessionIdentities(baseOpts.Headers, baseOpts.OriginalRequest, baseOpts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	if remaining := selector.k12.store.cooldownRemaining(digest, k12A.ID, time.Now()); remaining > 0 {
+		t.Fatalf("parallel timeout unexpectedly established persisted cooldown: %s", remaining)
+	}
+
+	retryOpts := withSelectionAttempt(baseOpts)
+	retryOpts.Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey] = []string{k12A.ID}
+	retryCandidates := []*Auth{k12B, plus}
+	if bound, handled, errPick := selector.PickBeforeAvailability(
+		context.Background(), "codex", "gpt-5", retryOpts, retryCandidates,
+	); errPick != nil || handled || bound != nil {
+		t.Fatalf("request-excluded pre-selection = %v handled=%v err=%v", bound, handled, errPick)
+	}
+	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", retryOpts, retryCandidates)
+	if err != nil || retry == nil || retry.ID != plus.ID {
+		t.Fatalf("request-excluded spillover = %#v, %v", retry, err)
+	}
+
+	lateTimed := selector.OnSelectionResult(context.Background(), Result{AuthID: k12A.ID, Success: true}, timedOpts)
+	if !lateTimed.SuppressAvailabilityUpdate || lateTimed.StopAuthAttempt {
+		t.Fatalf("late timed success directive = %#v", lateTimed)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: plus.ID, Success: true}, retryOpts)
+	lateOther := selector.OnSelectionResult(context.Background(), Result{AuthID: k12A.ID, Success: true}, otherOpts)
+	if !lateOther.SuppressAvailabilityUpdate || lateOther.StopAuthAttempt {
+		t.Fatalf("late other success directive = %#v", lateOther)
+	}
+	winner, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", baseOpts, auths)
+	if err != nil || !handled || winner == nil || winner.ID != plus.ID {
+		t.Fatalf("parallel attempt displaced Plus spillover: auth=%v handled=%v err=%v", winner, handled, err)
+	}
+}

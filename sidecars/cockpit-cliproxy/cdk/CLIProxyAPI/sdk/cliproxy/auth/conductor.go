@@ -469,13 +469,12 @@ func (m *Manager) ReportSelectionFailure(ctx context.Context, selection cliproxy
 	}
 	m.mu.RUnlock()
 
-	directive := m.notifySelectionResult(ctx, result, withSelectionAttemptID(opts, selection.AttemptID))
 	// This failure was synthesized by the host's first-payload deadline, not by
-	// the upstream credential. Let session policy react without applying the
-	// ordinary account/model cooldown to unrelated requests.
+	// the upstream credential. Notify request/session policy only: MarkResult
+	// would persist account counters, invoke hooks, and risk cooling unrelated
+	// requests while the timed-out execution is still unwinding.
+	directive := m.notifySelectionResult(ctx, result, withSelectionAttemptID(opts, selection.AttemptID))
 	directive.SuppressAvailabilityUpdate = true
-	result.SuppressAvailabilityUpdate = true
-	m.MarkResult(ctx, result)
 	return directive
 }
 

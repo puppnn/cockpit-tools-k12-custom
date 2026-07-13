@@ -165,6 +165,29 @@ func (s *k12SessionStore) setCooldown(sessionDigest, authID string, until time.T
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.setCooldownLocked(sessionDigest, authID, until)
+	return s.persistLocked()
+}
+
+func (s *k12SessionStore) setCooldownRuntime(sessionDigest, authID string, until time.Time) {
+	if s == nil || sessionDigest == "" || authID == "" || until.IsZero() {
+		return
+	}
+	s.mu.Lock()
+	s.setCooldownLocked(sessionDigest, authID, until)
+	s.mu.Unlock()
+}
+
+func (s *k12SessionStore) persist() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.persistLocked()
+}
+
+func (s *k12SessionStore) setCooldownLocked(sessionDigest, authID string, until time.Time) {
 	now := time.Now()
 	s.cleanupLocked(now)
 	if binding, ok := s.bindings[sessionDigest]; ok && binding.AuthID == authID {
@@ -178,7 +201,6 @@ func (s *k12SessionStore) setCooldown(sessionDigest, authID string, until time.T
 		}
 		s.cooldowns[k12CooldownKey(sessionDigest, authID)] = cooldown
 	}
-	return s.persistLocked()
 }
 
 func (s *k12SessionStore) releaseSessionToCooldown(sessionDigest, authID string, until time.Time) error {

@@ -2968,9 +2968,9 @@
       "accountSearchPlaceholder": "Search email...",
       "accountFilterEmpty": "No matching accounts",
       "accountFilteredCount": "{{count}} account(s) in the current filter",
-      "fullQuotaAction": "Start 5h timers",
-      "fullQuotaActionTitle": "Send a tiny request to accounts with a full 5h quota and more than 10% weekly quota remaining.",
-      "fullQuotaNoAccounts": "No OAuth account currently has a full 5h quota and more than 10% weekly quota remaining.",
+      "fullQuotaAction": "Start quota timers",
+      "fullQuotaActionTitle": "Send a tiny request to OAuth accounts with a full main quota window whose timer has not started. Every other main quota window must have more than 10% remaining.",
+      "fullQuotaNoAccounts": "No OAuth account in the current list has a quota timer ready to start.",
       "fullQuotaAccountsLabel": "Accounts to start",
       "accountSort": {
         "default": "Default order",

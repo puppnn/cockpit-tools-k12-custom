@@ -2968,9 +2968,9 @@
       "accountSearchPlaceholder": "搜索邮箱...",
       "accountFilterEmpty": "没有匹配的账号",
       "accountFilteredCount": "当前筛选 {{count}} 个账号",
-      "fullQuotaAction": "启动 5h 倒计时",
-      "fullQuotaActionTitle": "对 5h 已满且周额度大于 10% 的账号发送微小请求，启动 5h 倒计时。",
-      "fullQuotaNoAccounts": "当前没有 5h 已满且周额度大于 10% 的 OAuth 账号。",
+      "fullQuotaAction": "启动额度倒计时",
+      "fullQuotaActionTitle": "向主额度已满且尚未开始计时的 OAuth 账号发送微小请求；若还有其他主额度窗口，其剩余额度必须大于 10%。",
+      "fullQuotaNoAccounts": "当前列表没有可启动额度倒计时的 OAuth 账号。",
       "fullQuotaAccountsLabel": "选择要启动倒计时的账号",
       "accountSort": {
         "default": "默认顺序",

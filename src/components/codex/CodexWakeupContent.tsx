@@ -144,6 +144,7 @@ type WakeupAccountSortDirection = 'asc' | 'desc';
 export interface CodexWakeupTestOpenRequest {
   signal: number;
   accountIds?: string[];
+  allowedAccountIds?: string[];
   variant?: 'standard' | 'fullQuota';
   defaultSortBy?: WakeupAccountSortBy;
   defaultSortDirection?: WakeupAccountSortDirection;
@@ -276,7 +277,7 @@ function createEmptyAccountPickerFilters(): AccountPickerFilters {
 
 function getWakeupQuotaSortValue(account: CodexAccount, sortBy: 'hourly' | 'weekly'): number | null {
   const quota = getCodexEffectiveQuotaPercentages(account.quota);
-  const value = sortBy === 'hourly' ? quota.hourly : quota.weekly;
+  const value = sortBy === 'hourly' ? (quota.hourly ?? quota.weekly) : (quota.weekly ?? quota.hourly);
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
@@ -354,24 +355,21 @@ function resolveWakeupPlanBucket(planClass?: string) {
 function resolveWakeupQuotaBadges(
   presentation: ReturnType<typeof buildCodexAccountPresentation>,
 ): WakeupQuotaBadge[] {
-  const standardQuotaItems = presentation.quotaItems.filter((item) => item.key !== 'code_review');
-  const primary = standardQuotaItems.find((item) => item.key === 'primary') ?? standardQuotaItems[0];
-  const secondary =
-    standardQuotaItems.find((item) => item.key === 'secondary') ??
-    standardQuotaItems.find((item) => item.key !== primary?.key);
-
-  return [
-    {
-      key: 'primary',
-      valueText: primary?.valueText ?? '--',
-      quotaClass: primary?.quotaClass ?? 'unknown',
-    },
-    {
-      key: 'secondary',
-      valueText: secondary?.valueText ?? '--',
-      quotaClass: secondary?.quotaClass ?? 'unknown',
-    },
-  ];
+  const standardQuotaItems = presentation.quotaItems.filter(
+    (item): item is typeof item & { key: 'primary' | 'secondary' } =>
+      item.key === 'primary' || item.key === 'secondary',
+  );
+  if (standardQuotaItems.length === 0) {
+    return [
+      { key: 'primary', valueText: '--', quotaClass: 'unknown' },
+      { key: 'secondary', valueText: '--', quotaClass: 'unknown' },
+    ];
+  }
+  return standardQuotaItems.map((item) => ({
+    key: item.key,
+    valueText: item.valueText,
+    quotaClass: item.quotaClass,
+  }));
 }
 
 function createEmptyTaskDraft(defaultPreset?: CodexWakeupModelPreset | null): TaskDraft {
@@ -1098,6 +1096,7 @@ export function CodexWakeupContent({
   const [testModalVariant, setTestModalVariant] = useState<'standard' | 'fullQuota'>('standard');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [testAccountIds, setTestAccountIds] = useState<string[]>([]);
+  const [fullQuotaAllowedAccountIds, setFullQuotaAllowedAccountIds] = useState<string[] | null>(null);
   const [testPrompt, setTestPrompt] = useState('');
   const [testModelPresetId, setTestModelPresetId] = useState(defaultModelPreset?.id ?? '');
   const [testModel, setTestModel] = useState(defaultModelPreset?.model ?? '');
@@ -1666,12 +1665,23 @@ export function CodexWakeupContent({
     () => filterWakeupAccounts(taskAccountFilters),
     [filterWakeupAccounts, taskAccountFilters],
   );
+  const fullQuotaAllowedAccountIdSet = useMemo(
+    () =>
+      fullQuotaAllowedAccountIds === null
+        ? null
+        : new Set(fullQuotaAllowedAccountIds),
+    [fullQuotaAllowedAccountIds],
+  );
   const filteredTestAccounts = useMemo(
     () => {
       const candidates = filterWakeupAccounts(testAccountFilters);
       const eligible =
         testModalVariant === 'fullQuota'
-          ? candidates.filter(isCodexFullQuotaPingEligible)
+          ? candidates.filter(
+              (account) =>
+                (fullQuotaAllowedAccountIdSet?.has(account.id) ?? false) &&
+                isCodexFullQuotaPingEligible(account),
+            )
           : candidates;
       return [...eligible].sort((left, right) =>
         compareWakeupAccountsBySort(
@@ -1685,6 +1695,7 @@ export function CodexWakeupContent({
     },
     [
       filterWakeupAccounts,
+      fullQuotaAllowedAccountIdSet,
       testModalVariant,
       testAccountFilters,
       testAccountSortBy,
@@ -2170,6 +2181,7 @@ export function CodexWakeupContent({
   const openTestModal = useCallback(async () => {
     setTestModalError(null);
     setTestModalVariant('standard');
+    setFullQuotaAllowedAccountIds(null);
     setTestAccountFilters(createEmptyAccountPickerFilters());
     setTestAccountSortBy('default');
     setTestAccountSortDirection('asc');
@@ -2188,12 +2200,25 @@ export function CodexWakeupContent({
     handledOpenTestRequestSignalRef.current = openTestRequest.signal;
     const nextVariant = openTestRequest.variant ?? 'standard';
     const oauthAccountIdSet = new Set(oauthAccounts.map((account) => account.id));
-    const nextAccountIds = Array.from(new Set(openTestRequest.accountIds ?? [])).filter(
+    const requestedAccountIds = Array.from(new Set(openTestRequest.accountIds ?? [])).filter(
       (accountId) => oauthAccountIdSet.has(accountId),
     );
+    const nextAllowedAccountIds =
+      nextVariant === 'fullQuota'
+        ? Array.from(
+            new Set(openTestRequest.allowedAccountIds ?? requestedAccountIds),
+          ).filter((accountId) => oauthAccountIdSet.has(accountId))
+        : null;
+    const nextAllowedAccountIdSet =
+      nextAllowedAccountIds === null ? null : new Set(nextAllowedAccountIds);
+    const nextAccountIds =
+      nextAllowedAccountIdSet === null
+        ? requestedAccountIds
+        : requestedAccountIds.filter((accountId) => nextAllowedAccountIdSet.has(accountId));
 
     setTestModalError(null);
     setTestModalVariant(nextVariant);
+    setFullQuotaAllowedAccountIds(nextAllowedAccountIds);
     setTestAccountFilters(createEmptyAccountPickerFilters());
     setTestAccountSortBy(
       openTestRequest.defaultSortBy ?? (nextVariant === 'fullQuota' ? 'hourly' : 'default'),
@@ -2259,6 +2284,7 @@ export function CodexWakeupContent({
     });
     setShowTestModal(false);
     setTestModalError(null);
+    setFullQuotaAllowedAccountIds(null);
     setNotice({ tone: 'error', text: cancelledMessage });
     void cancelTestScope(scopeId).catch((error) => {
       console.error('取消 Codex 唤醒测试失败:', error);
@@ -2273,6 +2299,7 @@ export function CodexWakeupContent({
     setShowTestModal(false);
     setTestModalError(null);
     setTestAccountIds([]);
+    setFullQuotaAllowedAccountIds(null);
     setTestPrompt('');
     setTestModelPresetId(resolvedModelSelection.modelPresetId);
     setTestModel(resolvedModelSelection.model);
@@ -2530,6 +2557,7 @@ export function CodexWakeupContent({
     const runnableAccountIds =
       testModalVariant === 'fullQuota'
         ? testAccountIds.filter((accountId) => {
+            if (!(fullQuotaAllowedAccountIdSet?.has(accountId) ?? false)) return false;
             const account = accountMap.get(accountId);
             return account ? isCodexFullQuotaPingEligible(account) : false;
           })
@@ -2539,7 +2567,7 @@ export function CodexWakeupContent({
         testModalVariant === 'fullQuota'
           ? t(
               'codex.wakeup.fullQuotaNoAccounts',
-              '当前没有 5h 已满且周额度大于 10% 的 OAuth 账号。',
+              '当前没有可启动额度倒计时的 OAuth 账号。',
             )
           : t('codex.wakeup.testAccountsRequired'),
       );
@@ -2578,6 +2606,7 @@ export function CodexWakeupContent({
       ),
     );
     setShowTestModal(false);
+    setFullQuotaAllowedAccountIds(null);
     try {
       const result = await runTest(
         runnableAccountIds,
@@ -2656,6 +2685,7 @@ export function CodexWakeupContent({
         return;
       }
       setTestAccountIds([]);
+      setFullQuotaAllowedAccountIds(null);
       setTestPrompt('');
       setTestModelPresetId(resolvedModelSelection.modelPresetId);
       setTestModel(resolvedModelSelection.model);
@@ -2691,6 +2721,7 @@ export function CodexWakeupContent({
   }, [
     buildExecutionSession,
     accountMap,
+    fullQuotaAllowedAccountIdSet,
     onRefreshAccounts,
     onRefreshAccountQuotas,
     releaseTestScope,

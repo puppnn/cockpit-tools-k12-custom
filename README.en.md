@@ -53,7 +53,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 ### Full-Quota Ping and Persistence
 
 - **Generic full-quota ping**: Main quota slots are no longer assumed to mean 5h and 7d. An account can receive one manual minimal `ping` when any real main quota window is at 99% or 100% remaining and its countdown has not started. Every other main quota window on that account must have more than 10% remaining, so 7d-only and monthly-only accounts are supported. Model-specific additional limits are not triggered with a mismatched fixed model.
-- **Predictable filtered scope**: The quota-timer button remains visible in the account toolbar. Search, tag, type, and group filters limit the candidate scope; when that scope has no eligible account, the button is disabled instead of disappearing.
+- **Predictable filtered scope**: The quota-timer button stays in the account-list action bar. Search, tag, type, and group filters limit the candidate scope; when the filtered results have no eligible account, the button is disabled instead of disappearing with the batch-selection actions.
 - **Restart-safe affinity**: Successful K12 bindings use a rolling seven-day lifetime and can be restored after a sidecar restart while still valid.
 - **Privacy-preserving state**: Persistent session keys are derived from the local API service key and stored as HMAC-SHA256 digests. The K12 state file contains no raw session IDs, prompts, message content, account tokens, or request logs.
 

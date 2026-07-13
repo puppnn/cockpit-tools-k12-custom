@@ -12567,26 +12567,6 @@ export function CodexAccountsPage() {
             </div>
             <div className="toolbar-right">
               <button
-                type="button"
-                className="btn btn-secondary codex-overview-full-quota-wakeup-btn"
-                onClick={openFullQuotaWakeupTestModal}
-                disabled={!hasDetectableFullQuotaWakeupAccounts}
-                title={
-                  hasDetectableFullQuotaWakeupAccounts
-                    ? t(
-                        "codex.wakeup.fullQuotaActionTitle",
-                        "向满额且尚未开始计时的 OAuth 账号发送微小请求，启动额度倒计时。",
-                      )
-                    : t(
-                        "codex.wakeup.fullQuotaNoAccounts",
-                        "当前列表没有可启动额度倒计时的 OAuth 账号。",
-                      )
-                }
-              >
-                <Power size={14} />
-                <span>{t("codex.wakeup.fullQuotaAction", "启动额度倒计时")}</span>
-              </button>
-              <button
                 className="btn btn-primary icon-only"
                 onClick={() => openCodexAddModal("oauth")}
                 title={t("common.shared.addAccount", "添加账号")}
@@ -12747,8 +12727,27 @@ export function CodexAccountsPage() {
                       </>
                     )}
                   </div>
-                  {(selected.size > 0 || errorAccountIds.length > 0) && (
-                    <div className="codex-overview-selection-actions">
+                  <div className="codex-overview-selection-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary codex-overview-full-quota-wakeup-btn"
+                      onClick={openFullQuotaWakeupTestModal}
+                      disabled={!hasDetectableFullQuotaWakeupAccounts}
+                      title={
+                        hasDetectableFullQuotaWakeupAccounts
+                          ? t(
+                              "codex.wakeup.fullQuotaActionTitle",
+                              "向满额且尚未开始计时的 OAuth 账号发送微小请求，启动额度倒计时。",
+                            )
+                          : t(
+                              "codex.wakeup.fullQuotaNoAccounts",
+                              "当前列表没有可启动额度倒计时的 OAuth 账号。",
+                            )
+                      }
+                    >
+                      <Power size={14} />
+                      <span>{t("codex.wakeup.fullQuotaAction", "启动额度倒计时")}</span>
+                    </button>
                       {errorAccountIds.length > 0 && (
                         <button
                           className="btn btn-danger icon-only codex-overview-clear-error-btn"
@@ -12780,8 +12779,7 @@ export function CodexAccountsPage() {
                           </button>
                         </>
                       )}
-                    </div>
-                  )}
+                  </div>
                 </div>
               )}
               {batchDeleteJob && (

@@ -19,7 +19,7 @@ const (
 	k12DeactivatedWorkspaceQuarantine = 7 * 24 * time.Hour
 	k12TentativeTTL                   = 2 * time.Minute
 	defaultK12SpilloverTTL            = time.Hour
-	k12MaxActiveSessions              = 2
+	k12MaxConcurrentSessionStarts     = 2
 )
 
 // K12QuotaSnapshot describes the latest local quota observation used only to
@@ -549,19 +549,35 @@ func (p *k12SessionPolicy) reserveCandidate(
 		delete(p.spillovers, sessionDigest)
 	}
 
-	confirmedCounts, recentCounts := p.store.confirmedAndRecentCounts(now.Add(-p.spilloverTTL), now)
-	activeLoads := make(map[string]int, len(recentCounts)+len(p.tentative))
-	for authID, count := range recentCounts {
-		activeLoads[authID] = count
+	confirmedCounts := p.store.confirmedCounts(now)
+	p.cleanupSelectionAttemptsLocked(now)
+	activeSessions := make(map[string]map[string]struct{}, len(p.attempts)+len(p.tentative))
+	addActiveSession := func(authID, digest string) {
+		if authID == "" || digest == "" {
+			return
+		}
+		if activeSessions[authID] == nil {
+			activeSessions[authID] = make(map[string]struct{})
+		}
+		activeSessions[authID][digest] = struct{}{}
 	}
-	for _, selection := range p.tentative {
-		activeLoads[selection.authID]++
+	for key, state := range p.attempts {
+		if state.k12 && len(state.active) > 0 {
+			addActiveSession(key.authID, key.sessionDigest)
+		}
+	}
+	for digest, selection := range p.tentative {
+		addActiveSession(selection.authID, digest)
+	}
+	activeLoads := make(map[string]int, len(activeSessions))
+	for authID, sessions := range activeSessions {
+		activeLoads[authID] = len(sessions)
 	}
 
 	reservation := k12CandidateReservation{}
 	underCapacity := make([]*Auth, 0, len(k12Candidates))
 	for _, auth := range k12Candidates {
-		if activeLoads[auth.ID] < k12MaxActiveSessions {
+		if activeLoads[auth.ID] < k12MaxConcurrentSessionStarts {
 			underCapacity = append(underCapacity, auth)
 		}
 	}
@@ -845,11 +861,11 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		}
 		if reservation.spilled {
 			selectorLogEntry(ctx).Infof(
-				"k12-session-affinity: K12 capacity spillover | source=%s session=%s auth=%s max_active_per_k12=%d",
+				"k12-session-affinity: K12 capacity spillover | source=%s session=%s auth=%s max_concurrent_starts_per_k12=%d",
 				identity.Source,
 				shortSessionDigest(digest),
 				reservation.auth.ID,
-				k12MaxActiveSessions,
+				k12MaxConcurrentSessionStarts,
 			)
 			return reservation.auth, nil, true, nil
 		}

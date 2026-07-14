@@ -544,7 +544,7 @@ func TestK12SessionStateRecoversFromCorruptAndExpiredFiles(t *testing.T) {
 	})
 }
 
-func TestK12NewSessionsBalanceByConfirmedCountThenQuota(t *testing.T) {
+func TestK12NewSessionsIgnoreIdleBindingsAndPreferQuota(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(30), "k12-b": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -559,8 +559,8 @@ func TestK12NewSessionsBalanceByConfirmedCountThenQuota(t *testing.T) {
 
 	secondOpts := promptCacheOptions("balance-second")
 	second, err := selector.Pick(context.Background(), "codex", "gpt-5", secondOpts, auths)
-	if err != nil || second == nil || second.ID != "k12-b" {
-		t.Fatalf("confirmed-count balancing = %#v, %v", second, err)
+	if err != nil || second == nil || second.ID != "k12-a" {
+		t.Fatalf("idle binding affected quota routing = %#v, %v", second, err)
 	}
 	selector.OnSelectionResult(context.Background(), Result{AuthID: second.ID, Success: true}, secondOpts)
 
@@ -572,6 +572,32 @@ func TestK12NewSessionsBalanceByConfirmedCountThenQuota(t *testing.T) {
 	}
 }
 
+func TestK12IdleConfirmedBindingsDoNotConsumeNewSessionCapacity(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-a")}
+
+	for index := 0; index < k12MaxConcurrentSessionStarts; index++ {
+		opts := promptCacheOptions(fmt.Sprintf("confirmed-idle-%d", index))
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+		if err != nil || selected == nil || selected.ID != "k12-a" {
+			t.Fatalf("confirmed selection %d = %#v, %v; want k12-a", index, selected, err)
+		}
+		selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+	}
+
+	selected, err := selector.Pick(
+		context.Background(),
+		"codex",
+		"gpt-5",
+		promptCacheOptions("new-after-idle-bindings"),
+		auths,
+	)
+	if err != nil || selected == nil || selected.ID != "k12-a" {
+		t.Fatalf("new session after idle bindings = %#v, %v; want k12-a", selected, err)
+	}
+}
 func TestK12TentativeSessionsReserveLoadBeforeFirstSuccess(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80), "k12-b": intPtr(60)}
@@ -606,7 +632,7 @@ func TestK12TentativeSessionsReserveLoadBeforeFirstSuccess(t *testing.T) {
 	}
 }
 
-func TestK12SingleCandidateCapsActiveSessionsAtTwo(t *testing.T) {
+func TestK12SingleCandidateCapsTentativeSessionsAtTwo(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -632,7 +658,7 @@ func TestK12SingleCandidateCapsActiveSessionsAtTwo(t *testing.T) {
 	}
 }
 
-func TestK12SingleCandidateConcurrentCapacityLimit(t *testing.T) {
+func TestK12SingleCandidateConcurrentTentativeCapacityLimit(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)

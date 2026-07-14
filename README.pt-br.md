@@ -1,17 +1,19 @@
-# Cockpit Tools
+# Cockpit Tools K12 Custom
 
 [English](README.en.md)  · Portuguese (BR) · [简体中文](README.md)
 
-[![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
-[![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub release](https://img.shields.io/github/v/release/jlcodes99/cockpit-tools?style=flat)](https://github.com/jlcodes99/cockpit-tools/releases)
-[![GitHub issues](https://img.shields.io/github/issues/jlcodes99/cockpit-tools)](https://github.com/jlcodes99/cockpit-tools/issues)
+[![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.0-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.0)
+[![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
-Uma **ferramenta universal de gerenciamento de contas para IDEs de IA**, atualmente compatível com **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Gemini Cli**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae** e **Zed**, com fluxos de trabalho paralelos em múltiplas instâncias.
+> [!IMPORTANT]
+> Este fork integra todos os recursos do Cockpit Tools v1.3.0 e adiciona afinidade de sessão K12, failover para tarefas longas e reserva de cota OAuth ao serviço de API local do Codex. Consulte a documentação [em inglês](README.en.md) ou [em chinês](README.md) para conhecer o comportamento personalizado; o restante desta tradução acompanha a documentação da versão upstream.
+
+Uma **ferramenta universal de gerenciamento de contas para IDEs de IA**, atualmente compatível com **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Gemini Cli**, **Grok CLI**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TRAE SOLO**, **Trae CN**, **TRAE SOLO CN**, **Zed** e **ZCode**, com fluxos de trabalho paralelos em múltiplas instâncias.
 
 > Projetada para ajudar os usuários a gerenciar com eficiência múltiplas contas de IDE com IA, esta ferramenta oferece suporte à troca com um clique, monitoramento de cota, tarefas de ativação e execuções paralelas em múltiplas instâncias, ajudando você a utilizar totalmente os recursos de diferentes contas.
 
-**Recursos**: Alternância com um clique · Gerenciamento de múltiplas contas · Múltiplas instâncias · Monitoramento de cotas · Tarefas de ativação · Integração de plugins · Gerenciamento do GitHub Copilot · Gerenciamento do Windsurf · Gerenciamento do Kiro · Gerenciamento do Cursor · Gerenciamento do Gemini Cli · Gerenciamento do CodeBuddy · Gerenciamento do CodeBuddy CN · Gerenciamento do Qoder · Gerenciamento do Trae · Gerenciamento do Zed
+**Recursos**: Alternância com um clique · Gerenciamento de múltiplas contas · Múltiplas instâncias · Monitoramento de cotas · Tarefas de ativação · Integração de plugins · Gerenciamento do GitHub Copilot · Gerenciamento do Windsurf · Gerenciamento do Kiro · Gerenciamento do Cursor · Gerenciamento do Gemini Cli · Gerenciamento do Grok CLI · Gerenciamento do CodeBuddy · Gerenciamento do CodeBuddy CN · Gerenciamento do Qoder · Gerenciamento do conjunto Trae · Gerenciamento do Zed · Gerenciamento do ZCode
 
 **Idiomas**: Suporta 18 idiomas
 
@@ -27,7 +29,7 @@ Uma **ferramenta universal de gerenciamento de contas para IDEs de IA**, atualme
 
 Um painel visual totalmente novo que oferece uma visão geral do status em um único lugar:
 
-- **Suporte a doze Plataformas**: Exibe simultaneamente o status das contas do Antigravity IDE, Codex, GitHub Copilot, Windsurf, Kiro, Cursor, Gemini Cli, CodeBuddy, CodeBuddy CN, Qoder, Trae e Zed
+- **Suporte a dezessete plataformas**: Exibe simultaneamente o status das contas do Antigravity IDE, Codex, GitHub Copilot, Windsurf, Kiro, Cursor, Gemini Cli, Grok CLI, CodeBuddy, CodeBuddy CN, Qoder, Trae, TRAE SOLO, Trae CN, TRAE SOLO CN, Zed e ZCode
 - **Monitoramento de Cotas**: Visualização em tempo real das cotas restantes e dos horários de redefinição para cada modelo
 - **Ações Rápidas**: Atualização com um clique, ativação com um clique
 - **Progresso Visual**: Barras de progresso intuitivas mostrando o consumo de cotas

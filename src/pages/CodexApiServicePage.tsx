@@ -672,6 +672,17 @@ export function CodexApiServicePage() {
       }),
     [memberAccounts, t],
   );
+  const accountDisplayNames = useMemo(() => {
+    const next = new Map<string, string>();
+    localAccessAccounts.forEach((account) => {
+      const displayName = buildCodexAccountPresentation(account, t).displayName;
+      const accountId = account.id.trim();
+      const email = account.email.trim();
+      if (accountId) next.set(accountId, displayName);
+      if (email) next.set(email, displayName);
+    });
+    return next;
+  }, [localAccessAccounts, t]);
   const accountModelRuleCount = collection?.accountModelRules.length ?? 0;
   const accountModelRuleAllSelected =
     memberAccounts.length > 0 &&
@@ -4053,9 +4064,17 @@ export function CodexApiServicePage() {
                     </div>
                   )}
                   {requestLogEvents.map((event, index) => {
-                    const errorDetail = truncateRequestLogErrorDetail(
-                      cleanRequestLogErrorDetail(event.errorMessage),
+                    const fullErrorDetail = cleanRequestLogErrorDetail(
+                      event.errorMessage,
                     );
+                    const errorDetail =
+                      truncateRequestLogErrorDetail(fullErrorDetail);
+                    const accountDisplayName =
+                      accountDisplayNames.get((event.accountId || "").trim()) ||
+                      accountDisplayNames.get((event.email || "").trim()) ||
+                      event.email ||
+                      event.accountId ||
+                      "-";
                     return (
                       <div
                         key={`${event.timestamp}-${event.requestId || event.apiKeyId}-${index}`}
@@ -4089,7 +4108,7 @@ export function CodexApiServicePage() {
                             {event.apiKeyLabel || event.apiKeyId || "-"}
                           </span>
                           <span>
-                            {maskAccountText(event.email || event.accountId)}
+                            {maskAccountText(accountDisplayName)}
                           </span>
                           <span>{formatLatencyMs(event.latencyMs)}</span>
                           <span>
@@ -4118,7 +4137,7 @@ export function CodexApiServicePage() {
                           {errorDetail ? (
                             <span
                               className="codex-api-service-log-error-detail"
-                              title={errorDetail}
+                              title={fullErrorDetail}
                             >
                               {errorDetail}
                             </span>

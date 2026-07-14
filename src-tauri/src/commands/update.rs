@@ -57,6 +57,38 @@ pub fn save_update_settings(settings: UpdateSettings) -> Result<(), String> {
     update_checker::save_update_settings(&settings)
 }
 
+/// Patch only the updater fields changed by the caller.
+#[tauri::command]
+pub fn patch_update_settings(
+    auto_check: Option<bool>,
+    check_interval_hours: Option<u64>,
+    auto_install: Option<bool>,
+    last_run_version: Option<String>,
+    remind_on_update: Option<bool>,
+    skipped_version: Option<String>,
+) -> Result<UpdateSettings, String> {
+    update_checker::patch_update_settings(move |settings| {
+        if let Some(value) = auto_check {
+            settings.auto_check = value;
+        }
+        if let Some(value) = check_interval_hours {
+            settings.check_interval_hours = value;
+        }
+        if let Some(value) = auto_install {
+            settings.auto_install = value;
+        }
+        if let Some(value) = last_run_version {
+            settings.last_run_version = value;
+        }
+        if let Some(value) = remind_on_update {
+            settings.remind_on_update = value;
+        }
+        if let Some(value) = skipped_version {
+            settings.skipped_version = value;
+        }
+    })
+}
+
 /// Save release notes for a downloaded/pending update
 #[tauri::command]
 pub fn save_pending_update_notes(

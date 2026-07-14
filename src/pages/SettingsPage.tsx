@@ -54,11 +54,13 @@ import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
 import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
+import { useGrokAccountStore } from '../stores/useGrokAccountStore';
 import { useClaudeAccountStore } from '../stores/useClaudeAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
 import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
+import { useZcodeAccountStore } from '../stores/useZcodeAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
 import { useZedAccountStore } from '../stores/useZedAccountStore';
 import { getGitHubCopilotAccountDisplayEmail } from '../types/githubCopilot';
@@ -66,10 +68,12 @@ import { getWindsurfAccountDisplayEmail } from '../types/windsurf';
 import { getKiroAccountDisplayEmail } from '../types/kiro';
 import { getCursorAccountDisplayEmail } from '../types/cursor';
 import { getGeminiAccountDisplayEmail } from '../types/gemini';
+import { getGrokAccountDisplayEmail } from '../types/grok';
 import { getClaudeAccountDisplayEmail } from '../types/claude';
 import { getCodebuddyAccountDisplayEmail } from '../types/codebuddy';
 import { getWorkbuddyAccountDisplayEmail } from '../types/workbuddy';
 import { getQoderAccountDisplayEmail } from '../types/qoder';
+import { getZcodeAccountDisplayEmail } from '../types/zcode';
 import {
   getTraeAccountDisplayEmail,
   getTraeAccountPlatformId,
@@ -109,6 +113,15 @@ interface DiagnosticsConfig {
   endpointConfigured: boolean;
 }
 
+interface GrokCliStatus {
+  available: boolean;
+  binaryPath?: string | null;
+  configuredPath?: string | null;
+  version?: string | null;
+  source?: string | null;
+  message?: string | null;
+}
+
 /** 通用配置类型 */
 interface GeneralConfig {
   language: string;
@@ -125,6 +138,7 @@ interface GeneralConfig {
   kiro_auto_refresh_minutes: number;
   cursor_auto_refresh_minutes: number;
   gemini_auto_refresh_minutes: number;
+  grok_auto_refresh_minutes: number;
   gemini_sync_wsl: boolean;
   close_behavior: 'ask' | 'minimize' | 'quit';
   minimize_behavior?: 'dock_and_tray' | 'tray_only';
@@ -148,6 +162,7 @@ interface GeneralConfig {
   codebuddy_app_path: string;
   codebuddy_cn_app_path: string;
   qoder_app_path: string;
+  zcode_app_path: string;
   trae_app_path: string;
   trae_solo_app_path: string;
   trae_cn_app_path: string;
@@ -162,6 +177,7 @@ interface GeneralConfig {
   codebuddy_cn_auto_refresh_minutes: number;
   workbuddy_auto_refresh_minutes: number;
   qoder_auto_refresh_minutes: number;
+  zcode_auto_refresh_minutes: number;
   trae_auto_refresh_minutes: number;
   trae_solo_auto_refresh_minutes: number;
   trae_cn_auto_refresh_minutes: number;
@@ -221,6 +237,8 @@ interface GeneralConfig {
   cursor_quota_alert_threshold: number;
   gemini_quota_alert_enabled: boolean;
   gemini_quota_alert_threshold: number;
+  grok_quota_alert_enabled: boolean;
+  grok_quota_alert_threshold: number;
 }
 
 type AppPathTarget =
@@ -235,6 +253,7 @@ type AppPathTarget =
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'
+  | 'zcode'
   | 'trae'
   | 'trae_solo'
   | 'trae_cn'
@@ -261,6 +280,7 @@ const ANTIGRAVITY_SEAMLESS_SWITCH_UNLOCK_REQUIRED_TAPS = 10;
 const UNLOCK_FIREWORKS_VISIBLE_MS = 6000;
 const AUTO_SWITCH_SCOPE_ALL_ACCOUNTS: AutoSwitchAccountScopeMode = 'all_accounts';
 const AUTO_SWITCH_SCOPE_SELECTED_ACCOUNTS: AutoSwitchAccountScopeMode = 'selected_accounts';
+const SETTINGS_PAGE_CONFIG_UPDATE_SOURCE_PREFIX = 'settings-page';
 const FALLBACK_PLATFORM_SETTINGS_ORDER: Record<PlatformId, number> = {
   antigravity: 0,
   antigravity_ide: 1,
@@ -271,15 +291,20 @@ const FALLBACK_PLATFORM_SETTINGS_ORDER: Record<PlatformId, number> = {
   kiro: 6,
   cursor: 7,
   gemini: 8,
-  codebuddy: 9,
-  codebuddy_cn: 10,
-  qoder: 11,
-  trae: 12,
-  trae_solo: 13,
-  trae_cn: 14,
-  trae_solo_cn: 15,
-  workbuddy: 16,
-  zed: 17,
+  grok: 9,
+  codebuddy: 10,
+  codebuddy_cn: 11,
+  qoder: 12,
+  zcode: 13,
+  trae: 14,
+  trae_solo: 15,
+  trae_cn: 16,
+  trae_solo_cn: 17,
+  workbuddy: 18,
+  zed: 19,
+};
+type ConfigUpdatedEventDetail = {
+  source?: string;
 };
 type UpdateCheckSource = 'auto' | 'manual';
 type UpdateCheckFinishedDetail = {
@@ -333,8 +358,28 @@ const buildDefaultCurrentAccountRefreshCustomModeMap = (): Record<
   }, {} as Record<CurrentAccountRefreshPlatform, boolean>);
 };
 
+const dispatchSettingsConfigUpdated = (source: string) => {
+  window.dispatchEvent(
+    new CustomEvent<ConfigUpdatedEventDetail>('config-updated', {
+      detail: { source },
+    }),
+  );
+};
+
+const areGeneralConfigPayloadValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true;
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => Object.is(value, right[index]));
+};
+
 export function SettingsPage() {
   const { t } = useTranslation();
+  const configUpdateSource = useMemo(
+    () => `${SETTINGS_PAGE_CONFIG_UPDATE_SOURCE_PREFIX}:${generateReportToken()}`,
+    [],
+  );
   const isMacOS = usePlatformRuntimeSupport('macos-only');
   const isWindows = usePlatformRuntimeSupport('windows-only');
   const isLinux = usePlatformRuntimeSupport('linux-only');
@@ -427,6 +472,11 @@ export function SettingsPage() {
   const [kiroAutoRefresh, setKiroAutoRefresh] = useState('10');
   const [cursorAutoRefresh, setCursorAutoRefresh] = useState('10');
   const [geminiAutoRefresh, setGeminiAutoRefresh] = useState('10');
+  const [grokAutoRefresh, setGrokAutoRefresh] = useState('10');
+  const [grokCliPath, setGrokCliPath] = useState('');
+  const [grokCliStatus, setGrokCliStatus] = useState<GrokCliStatus | null>(null);
+  const [grokCliStatusError, setGrokCliStatusError] = useState<string | null>(null);
+  const [grokCliSaving, setGrokCliSaving] = useState(false);
   const [geminiSyncWsl, setGeminiSyncWsl] = useState(true);
   const [closeBehavior, setCloseBehavior] = useState<'ask' | 'minimize' | 'quit'>('ask');
   const [minimizeBehavior, setMinimizeBehavior] = useState<'dock_and_tray' | 'tray_only'>('dock_and_tray');
@@ -452,6 +502,7 @@ export function SettingsPage() {
   const [codebuddyAppPath, setCodebuddyAppPath] = useState('');
   const [codebuddyCnAppPath, setCodebuddyCnAppPath] = useState('');
   const [qoderAppPath, setQoderAppPath] = useState('');
+  const [zcodeAppPath, setZcodeAppPath] = useState('');
   const [traeAppPath, setTraeAppPath] = useState('');
   const [traeSoloAppPath, setTraeSoloAppPath] = useState('');
   const [traeCnAppPath, setTraeCnAppPath] = useState('');
@@ -462,6 +513,7 @@ export function SettingsPage() {
   const [codebuddyCnAutoRefresh, setCodebuddyCnAutoRefresh] = useState('10');
   const [workbuddyAutoRefresh, setWorkbuddyAutoRefresh] = useState('10');
   const [qoderAutoRefresh, setQoderAutoRefresh] = useState('10');
+  const [zcodeAutoRefresh, setZcodeAutoRefresh] = useState('10');
   const [traeAutoRefresh, setTraeAutoRefresh] = useState('10');
   const [traeSoloAutoRefresh, setTraeSoloAutoRefresh] = useState('10');
   const [traeCnAutoRefresh, setTraeCnAutoRefresh] = useState('10');
@@ -504,6 +556,7 @@ export function SettingsPage() {
   const [workbuddyAutoRefreshCustomMode, setWorkbuddyAutoRefreshCustomMode] = useState(false);
   const [codebuddyQuotaAlertThresholdCustomMode, setCodebuddyQuotaAlertThresholdCustomMode] = useState(false);
   const [qoderAutoRefreshCustomMode, setQoderAutoRefreshCustomMode] = useState(false);
+  const [zcodeAutoRefreshCustomMode, setZcodeAutoRefreshCustomMode] = useState(false);
   const [qoderQuotaAlertThresholdCustomMode, setQoderQuotaAlertThresholdCustomMode] = useState(false);
   const [traeAutoRefreshCustomMode, setTraeAutoRefreshCustomMode] = useState(false);
   const [traeQuotaAlertThresholdCustomMode, setTraeQuotaAlertThresholdCustomMode] = useState(false);
@@ -563,6 +616,8 @@ export function SettingsPage() {
   const [cursorQuotaAlertThreshold, setCursorQuotaAlertThreshold] = useState('20');
   const [geminiQuotaAlertEnabled, setGeminiQuotaAlertEnabled] = useState(false);
   const [geminiQuotaAlertThreshold, setGeminiQuotaAlertThreshold] = useState('20');
+  const [grokQuotaAlertEnabled, setGrokQuotaAlertEnabled] = useState(false);
+  const [grokQuotaAlertThreshold, setGrokQuotaAlertThreshold] = useState('20');
   const [autoRefreshCustomMode, setAutoRefreshCustomMode] = useState(false);
   const [codexAutoRefreshCustomMode, setCodexAutoRefreshCustomMode] = useState(false);
   const [claudeAutoRefreshCustomMode, setClaudeAutoRefreshCustomMode] = useState(false);
@@ -588,8 +643,18 @@ export function SettingsPage() {
   const [showUnlockFireworks, setShowUnlockFireworks] = useState(false);
   const unlockFireworksTimerRef = useRef<number | null>(null);
   const [generalLoaded, setGeneralLoaded] = useState(false);
+  const [generalLoadFailed, setGeneralLoadFailed] = useState(false);
+  const [generalConfigHydrationRevision, setGeneralConfigHydrationRevision] = useState(0);
   const generalSaveTimerRef = useRef<number | null>(null);
-  const suppressGeneralSaveRef = useRef(false);
+  const generalSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const generalSaveInFlightRef = useRef(false);
+  const pendingExternalConfigReloadRef = useRef(false);
+  const skipNextGeneralSaveRef = useRef(false);
+  const generalStateRevisionRef = useRef(0);
+  const generalConfigLoadVersionRef = useRef(0);
+  const generalConfigLoadInFlightRef = useRef(false);
+  const hasHydratedGeneralConfigRef = useRef(false);
+  const persistedGeneralPayloadRef = useRef<Record<string, unknown> | null>(null);
   const currentAccountRefreshPersistReadyRef = useRef(false);
   
   const [appVersion, setAppVersion] = useState('');
@@ -607,7 +672,10 @@ export function SettingsPage() {
   const autoInstallTouchedRef = useRef(false);
   const [updateRemindersEnabled, setUpdateRemindersEnabled] = useState(true);
   const [updateRemindersLoaded, setUpdateRemindersLoaded] = useState(false);
+  const [updateSettingsLoadFailed, setUpdateSettingsLoadFailed] = useState(false);
   const updateRemindersTouchedRef = useRef(false);
+  const updateSettingsSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const updateSettingsSaveVersionRef = useRef(0);
   const [antigravityAccounts, setAntigravityAccounts] = useState<Account[]>([]);
   const [antigravityAccountGroups, setAntigravityAccountGroups] = useState<AccountGroup[]>([]);
   const [codexAccounts, setCodexAccounts] = useState<CodexAccount[]>([]);
@@ -683,27 +751,36 @@ export function SettingsPage() {
     };
   }, [activeTab]);
 
+  const loadUpdateSettings = async () => {
+    setUpdateSettingsLoadFailed(false);
+    try {
+      const settings = await invoke<{
+        auto_check: boolean;
+        last_check_time: number;
+        check_interval_hours: number;
+        auto_install?: boolean;
+        last_run_version?: string;
+        remind_on_update?: boolean;
+        skipped_version?: string;
+      }>('get_update_settings');
+      if (!autoInstallTouchedRef.current) {
+        setAutoInstall(Boolean(settings?.auto_install));
+      }
+      if (!updateRemindersTouchedRef.current) {
+        setUpdateRemindersEnabled(settings?.remind_on_update ?? true);
+      }
+      setAutoInstallLoaded(true);
+      setUpdateRemindersLoaded(true);
+    } catch (err) {
+      console.error('加载自动更新设置失败:', err);
+      setUpdateSettingsLoadFailed(true);
+    }
+  };
+
   useEffect(() => {
     getVersion().then(ver => setAppVersion(`v${ver}`));
-    // Load auto_install setting first to avoid overwriting existing value on initial render
-    invoke<{
-      auto_check: boolean;
-      last_check_time: number;
-      check_interval_hours: number;
-      auto_install?: boolean;
-      last_run_version?: string;
-      remind_on_update?: boolean;
-      skipped_version?: string;
-    }>('get_update_settings')
-      .then((s) => {
-        setAutoInstall(Boolean(s?.auto_install));
-        setUpdateRemindersEnabled(s?.remind_on_update ?? true);
-        setAutoInstallLoaded(true);
-        setUpdateRemindersLoaded(true);
-      })
-      .catch((err) => {
-        console.error('加载自动更新设置失败:', err);
-      });
+    // Load updater preferences before enabling their controls.
+    void loadUpdateSettings();
   }, []);
 
   useEffect(() => {
@@ -807,6 +884,7 @@ export function SettingsPage() {
     loadGeneralConfig();
     loadNetworkConfig();
     loadDiagnosticsConfig();
+    loadGrokCliStatus();
   }, []);
   
   useEffect(() => {
@@ -831,6 +909,7 @@ export function SettingsPage() {
 
     if (generalSaveTimerRef.current) {
       window.clearTimeout(generalSaveTimerRef.current);
+      generalSaveTimerRef.current = null;
     }
 
     if (
@@ -844,13 +923,15 @@ export function SettingsPage() {
       !codebuddyCnAutoRefresh.trim() ||
       !workbuddyAutoRefresh.trim() ||
       !qoderAutoRefresh.trim() ||
+      !zcodeAutoRefresh.trim() ||
       !traeAutoRefresh.trim() ||
       !traeSoloAutoRefresh.trim() ||
       !traeCnAutoRefresh.trim() ||
       !traeSoloCnAutoRefresh.trim() ||
       !zedAutoRefresh.trim() ||
       !cursorAutoRefresh.trim() ||
-      !geminiAutoRefresh.trim()
+      !geminiAutoRefresh.trim() ||
+      !grokAutoRefresh.trim()
     ) {
       return;
     }
@@ -865,6 +946,7 @@ export function SettingsPage() {
     const codebuddyCnAutoRefreshNum = parseInt(codebuddyCnAutoRefresh, 10) || -1;
     const workbuddyAutoRefreshNum = parseInt(workbuddyAutoRefresh, 10) || -1;
     const qoderAutoRefreshNum = parseInt(qoderAutoRefresh, 10) || -1;
+    const zcodeAutoRefreshNum = parseInt(zcodeAutoRefresh, 10) || -1;
     const traeAutoRefreshNum = parseInt(traeAutoRefresh, 10) || -1;
     const traeSoloAutoRefreshNum = parseInt(traeSoloAutoRefresh, 10) || -1;
     const traeCnAutoRefreshNum = parseInt(traeCnAutoRefresh, 10) || -1;
@@ -872,6 +954,7 @@ export function SettingsPage() {
     const zedAutoRefreshNum = parseInt(zedAutoRefresh, 10) || -1;
     const cursorAutoRefreshNum = parseInt(cursorAutoRefresh, 10) || -1;
     const geminiAutoRefreshNum = parseInt(geminiAutoRefresh, 10) || -1;
+    const grokAutoRefreshNum = parseInt(grokAutoRefresh, 10) || -1;
     const parsedUiScale = Number.parseFloat(uiScale);
     const normalizedUiScale = Number.isFinite(parsedUiScale)
       ? Math.min(2, Math.max(0.8, parsedUiScale))
@@ -895,168 +978,222 @@ export function SettingsPage() {
     const parsedZedQuotaAlertThreshold = Number.parseInt(zedQuotaAlertThreshold, 10);
     const parsedCursorQuotaAlertThreshold = Number.parseInt(cursorQuotaAlertThreshold, 10);
     const parsedGeminiQuotaAlertThreshold = Number.parseInt(geminiQuotaAlertThreshold, 10);
-    if (suppressGeneralSaveRef.current) {
-      suppressGeneralSaveRef.current = false;
+    const parsedGrokQuotaAlertThreshold = Number.parseInt(grokQuotaAlertThreshold, 10);
+    const payload: Record<string, unknown> = {
+      language,
+      default_terminal: defaultTerminal,
+      theme,
+      ui_scale: normalizedUiScale,
+      auto_refresh_minutes: autoRefreshNum,
+      codex_auto_refresh_minutes: codexAutoRefreshNum,
+      claude_auto_refresh_minutes: claudeAutoRefreshNum,
+      codex_sync_wsl: codexSyncWsl,
+      codex_wsl_config_dir: codexWslConfigDir,
+      ghcp_auto_refresh_minutes: ghcpAutoRefreshNum,
+      windsurf_auto_refresh_minutes: windsurfAutoRefreshNum,
+      kiro_auto_refresh_minutes: kiroAutoRefreshNum,
+      codebuddy_auto_refresh_minutes: codebuddyAutoRefreshNum,
+      codebuddy_cn_auto_refresh_minutes: codebuddyCnAutoRefreshNum,
+      workbuddy_auto_refresh_minutes: workbuddyAutoRefreshNum,
+      qoder_auto_refresh_minutes: qoderAutoRefreshNum,
+      zcode_auto_refresh_minutes: zcodeAutoRefreshNum,
+      trae_auto_refresh_minutes: traeAutoRefreshNum,
+      trae_solo_auto_refresh_minutes: traeSoloAutoRefreshNum,
+      trae_cn_auto_refresh_minutes: traeCnAutoRefreshNum,
+      trae_solo_cn_auto_refresh_minutes: traeSoloCnAutoRefreshNum,
+      zed_auto_refresh_minutes: zedAutoRefreshNum,
+      cursor_auto_refresh_minutes: cursorAutoRefreshNum,
+      gemini_auto_refresh_minutes: geminiAutoRefreshNum,
+      grok_auto_refresh_minutes: grokAutoRefreshNum,
+      gemini_sync_wsl: geminiSyncWsl,
+      close_behavior: closeBehavior,
+      minimize_behavior: minimizeBehavior,
+      hide_dock_icon: hideDockIcon,
+      tray_icon_style: isMacOS ? trayIconStyle : undefined,
+      floating_card_show_on_startup: floatingCardShowOnStartup,
+      startup_minimized: startupMinimized,
+      floating_card_always_on_top: floatingCardAlwaysOnTop,
+      app_auto_launch_enabled: appAutoLaunchEnabled,
+      token_keeper_enabled: tokenKeeperEnabled,
+      opencode_app_path: opencodeAppPath,
+      antigravity_app_path: antigravityAppPath,
+      codex_app_path: codexAppPath,
+      claude_app_path: claudeAppPath,
+      claude_app_scan_roots: claudeAppScanRoots,
+      codex_specified_app_path: codexSpecifiedAppPath,
+      vscode_app_path: vscodeAppPath,
+      windsurf_app_path: windsurfAppPath,
+      kiro_app_path: kiroAppPath,
+      cursor_app_path: cursorAppPath,
+      codebuddy_app_path: codebuddyAppPath,
+      codebuddy_cn_app_path: codebuddyCnAppPath,
+      qoder_app_path: qoderAppPath,
+      zcode_app_path: zcodeAppPath,
+      trae_app_path: traeAppPath,
+      trae_solo_app_path: traeSoloAppPath,
+      trae_cn_app_path: traeCnAppPath,
+      trae_solo_cn_app_path: traeSoloCnAppPath,
+      trae_app_scan_roots: traeAppScanRoots,
+      trae_solo_app_scan_roots: traeSoloAppScanRoots,
+      trae_cn_app_scan_roots: traeCnAppScanRoots,
+      trae_solo_cn_app_scan_roots: traeSoloCnAppScanRoots,
+      workbuddy_app_path: workbuddyAppPath,
+      zed_app_path: zedAppPath,
+      opencode_sync_on_switch: opencodeSyncOnSwitch,
+      opencode_auth_overwrite_on_switch: opencodeAuthOverwriteOnSwitch,
+      openclaw_auth_overwrite_on_switch: openclawAuthOverwriteOnSwitch,
+      codex_launch_on_switch: codexLaunchOnSwitch,
+      antigravity_launch_on_switch: antigravityLaunchOnSwitch,
+      codex_restart_specified_app_on_switch: codexRestartSpecifiedAppOnSwitch,
+      codex_local_access_entry_visible: codexLocalAccessEntryVisible,
+      top_right_ad_visible: topRightAdVisible,
+      antigravity_dual_switch_no_restart_enabled: antigravityDualSwitchNoRestartEnabled,
+      auto_switch_enabled: autoSwitchEnabled,
+      auto_switch_threshold: Number.isNaN(parsedAutoSwitchThreshold)
+        ? 20
+        : parsedAutoSwitchThreshold,
+      auto_switch_credits_enabled: autoSwitchCreditsEnabled,
+      auto_switch_credits_threshold: Number.isNaN(parsedAutoSwitchCreditsThreshold)
+        ? 5
+        : parsedAutoSwitchCreditsThreshold,
+      auto_switch_account_scope_mode: autoSwitchAccountScopeMode,
+      auto_switch_selected_account_ids: autoSwitchSelectedAccountIds,
+      codex_auto_switch_account_scope_mode: codexAutoSwitchAccountScopeMode,
+      codex_auto_switch_selected_account_ids: codexAutoSwitchSelectedAccountIds,
+      quota_alert_enabled: quotaAlertEnabled,
+      quota_alert_threshold: Number.isNaN(parsedQuotaAlertThreshold)
+        ? 20
+        : parsedQuotaAlertThreshold,
+      codex_quota_alert_enabled: codexQuotaAlertEnabled,
+      codex_quota_alert_threshold: Number.isNaN(parsedCodexQuotaAlertThreshold)
+        ? 20
+        : parsedCodexQuotaAlertThreshold,
+      claude_quota_alert_enabled: claudeQuotaAlertEnabled,
+      claude_quota_alert_threshold: Number.isNaN(parsedClaudeQuotaAlertThreshold)
+        ? 20
+        : parsedClaudeQuotaAlertThreshold,
+      ghcp_quota_alert_enabled: ghcpQuotaAlertEnabled,
+      ghcp_quota_alert_threshold: Number.isNaN(parsedGhcpQuotaAlertThreshold)
+        ? 20
+        : parsedGhcpQuotaAlertThreshold,
+      windsurf_quota_alert_enabled: windsurfQuotaAlertEnabled,
+      windsurf_quota_alert_threshold: Number.isNaN(parsedWindsurfQuotaAlertThreshold)
+        ? 20
+        : parsedWindsurfQuotaAlertThreshold,
+      kiro_quota_alert_enabled: kiroQuotaAlertEnabled,
+      kiro_quota_alert_threshold: Number.isNaN(parsedKiroQuotaAlertThreshold)
+        ? 20
+        : parsedKiroQuotaAlertThreshold,
+      codebuddy_quota_alert_enabled: codebuddyQuotaAlertEnabled,
+      codebuddy_quota_alert_threshold: Number.isNaN(parsedCodebuddyQuotaAlertThreshold)
+        ? 20
+        : parsedCodebuddyQuotaAlertThreshold,
+      codebuddy_cn_quota_alert_enabled: codebuddyCnQuotaAlertEnabled,
+      codebuddy_cn_quota_alert_threshold: Number.isNaN(parsedCodebuddyCnQuotaAlertThreshold)
+        ? 20
+        : parsedCodebuddyCnQuotaAlertThreshold,
+      workbuddy_quota_alert_enabled: workbuddyQuotaAlertEnabled,
+      workbuddy_quota_alert_threshold: Number.isNaN(parsedWorkbuddyQuotaAlertThreshold)
+        ? 20
+        : parsedWorkbuddyQuotaAlertThreshold,
+      qoder_quota_alert_enabled: qoderQuotaAlertEnabled,
+      qoder_quota_alert_threshold: Number.isNaN(parsedQoderQuotaAlertThreshold)
+        ? 20
+        : parsedQoderQuotaAlertThreshold,
+      trae_quota_alert_enabled: traeQuotaAlertEnabled,
+      trae_quota_alert_threshold: Number.isNaN(parsedTraeQuotaAlertThreshold)
+        ? 20
+        : parsedTraeQuotaAlertThreshold,
+      trae_solo_quota_alert_enabled: traeSoloQuotaAlertEnabled,
+      trae_solo_quota_alert_threshold: Number.isNaN(parsedTraeSoloQuotaAlertThreshold)
+        ? 20
+        : parsedTraeSoloQuotaAlertThreshold,
+      trae_cn_quota_alert_enabled: traeCnQuotaAlertEnabled,
+      trae_cn_quota_alert_threshold: Number.isNaN(parsedTraeCnQuotaAlertThreshold)
+        ? 20
+        : parsedTraeCnQuotaAlertThreshold,
+      trae_solo_cn_quota_alert_enabled: traeSoloCnQuotaAlertEnabled,
+      trae_solo_cn_quota_alert_threshold: Number.isNaN(parsedTraeSoloCnQuotaAlertThreshold)
+        ? 20
+        : parsedTraeSoloCnQuotaAlertThreshold,
+      zed_quota_alert_enabled: zedQuotaAlertEnabled,
+      zed_quota_alert_threshold: Number.isNaN(parsedZedQuotaAlertThreshold)
+        ? 20
+        : parsedZedQuotaAlertThreshold,
+      cursor_quota_alert_enabled: cursorQuotaAlertEnabled,
+      cursor_quota_alert_threshold: Number.isNaN(parsedCursorQuotaAlertThreshold)
+        ? 20
+        : parsedCursorQuotaAlertThreshold,
+      gemini_quota_alert_enabled: geminiQuotaAlertEnabled,
+      gemini_quota_alert_threshold: Number.isNaN(parsedGeminiQuotaAlertThreshold)
+        ? 20
+        : parsedGeminiQuotaAlertThreshold,
+      grok_quota_alert_enabled: grokQuotaAlertEnabled,
+      grok_quota_alert_threshold: Number.isNaN(parsedGrokQuotaAlertThreshold)
+        ? 20
+        : parsedGrokQuotaAlertThreshold,
+    };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === undefined) delete payload[key];
+    });
+    if (skipNextGeneralSaveRef.current) {
+      skipNextGeneralSaveRef.current = false;
+      persistedGeneralPayloadRef.current = payload;
       return;
     }
 
+    const persistedPayload = persistedGeneralPayloadRef.current;
+    if (!persistedPayload) {
+      persistedGeneralPayloadRef.current = payload;
+      return;
+    }
+    const updates = Object.fromEntries(
+      Object.entries(payload).filter(
+        ([key, value]) =>
+          !areGeneralConfigPayloadValuesEqual(value, persistedPayload[key]),
+      ),
+    );
+    if (Object.keys(updates).length === 0) {
+      return;
+    }
+    generalStateRevisionRef.current += 1;
+
     generalSaveTimerRef.current = window.setTimeout(async () => {
-      try {
-        await invoke('save_general_config', {
-          language,
-          defaultTerminal,
-          theme,
-          uiScale: normalizedUiScale,
-          autoRefreshMinutes: autoRefreshNum,
-          codexAutoRefreshMinutes: codexAutoRefreshNum,
-          claudeAutoRefreshMinutes: claudeAutoRefreshNum,
-          codexSyncWsl,
-          codexWslConfigDir,
-          ghcpAutoRefreshMinutes: ghcpAutoRefreshNum,
-          windsurfAutoRefreshMinutes: windsurfAutoRefreshNum,
-          kiroAutoRefreshMinutes: kiroAutoRefreshNum,
-          codebuddyAutoRefreshMinutes: codebuddyAutoRefreshNum,
-          codebuddyCnAutoRefreshMinutes: codebuddyCnAutoRefreshNum,
-          workbuddyAutoRefreshMinutes: workbuddyAutoRefreshNum,
-          qoderAutoRefreshMinutes: qoderAutoRefreshNum,
-          traeAutoRefreshMinutes: traeAutoRefreshNum,
-          traeSoloAutoRefreshMinutes: traeSoloAutoRefreshNum,
-          traeCnAutoRefreshMinutes: traeCnAutoRefreshNum,
-          traeSoloCnAutoRefreshMinutes: traeSoloCnAutoRefreshNum,
-          zedAutoRefreshMinutes: zedAutoRefreshNum,
-          cursorAutoRefreshMinutes: cursorAutoRefreshNum,
-          geminiAutoRefreshMinutes: geminiAutoRefreshNum,
-          geminiSyncWsl,
-          closeBehavior,
-          minimizeBehavior,
-          hideDockIcon,
-          trayIconStyle: isMacOS ? trayIconStyle : undefined,
-          floatingCardShowOnStartup,
-          startupMinimized,
-          floatingCardAlwaysOnTop,
-          appAutoLaunchEnabled,
-          tokenKeeperEnabled,
-          opencodeAppPath,
-          antigravityAppPath,
-          codexAppPath,
-          claudeAppPath,
-          claudeAppScanRoots,
-          codexSpecifiedAppPath,
-          vscodeAppPath,
-          windsurfAppPath,
-          kiroAppPath,
-          cursorAppPath,
-          codebuddyAppPath,
-          codebuddyCnAppPath,
-          qoderAppPath,
-          traeAppPath,
-          traeSoloAppPath,
-          traeCnAppPath,
-          traeSoloCnAppPath,
-          traeAppScanRoots,
-          traeSoloAppScanRoots,
-          traeCnAppScanRoots,
-          traeSoloCnAppScanRoots,
-          workbuddyAppPath,
-          zedAppPath,
-          opencodeSyncOnSwitch,
-          opencodeAuthOverwriteOnSwitch,
-          openclawAuthOverwriteOnSwitch,
-          codexLaunchOnSwitch,
-          antigravityLaunchOnSwitch,
-          codexRestartSpecifiedAppOnSwitch,
-          codexLocalAccessEntryVisible,
-          topRightAdVisible,
-          antigravityDualSwitchNoRestartEnabled,
-          autoSwitchEnabled,
-          autoSwitchThreshold: Number.isNaN(parsedAutoSwitchThreshold) ? 20 : parsedAutoSwitchThreshold,
-          autoSwitchCreditsEnabled,
-          autoSwitchCreditsThreshold: Number.isNaN(parsedAutoSwitchCreditsThreshold)
-            ? 5
-            : parsedAutoSwitchCreditsThreshold,
-          autoSwitchAccountScopeMode,
-          autoSwitchSelectedAccountIds,
-          codexAutoSwitchAccountScopeMode,
-          codexAutoSwitchSelectedAccountIds,
-          quotaAlertEnabled,
-          quotaAlertThreshold: Number.isNaN(parsedQuotaAlertThreshold) ? 20 : parsedQuotaAlertThreshold,
-          codexQuotaAlertEnabled,
-          codexQuotaAlertThreshold: Number.isNaN(parsedCodexQuotaAlertThreshold)
-            ? 20
-            : parsedCodexQuotaAlertThreshold,
-          claudeQuotaAlertEnabled,
-          claudeQuotaAlertThreshold: Number.isNaN(parsedClaudeQuotaAlertThreshold)
-            ? 20
-            : parsedClaudeQuotaAlertThreshold,
-          ghcpQuotaAlertEnabled,
-          ghcpQuotaAlertThreshold: Number.isNaN(parsedGhcpQuotaAlertThreshold)
-            ? 20
-            : parsedGhcpQuotaAlertThreshold,
-          windsurfQuotaAlertEnabled,
-          windsurfQuotaAlertThreshold: Number.isNaN(parsedWindsurfQuotaAlertThreshold)
-            ? 20
-            : parsedWindsurfQuotaAlertThreshold,
-          kiroQuotaAlertEnabled,
-          kiroQuotaAlertThreshold: Number.isNaN(parsedKiroQuotaAlertThreshold)
-            ? 20
-            : parsedKiroQuotaAlertThreshold,
-          codebuddyQuotaAlertEnabled,
-          codebuddyQuotaAlertThreshold: Number.isNaN(parsedCodebuddyQuotaAlertThreshold)
-            ? 20
-            : parsedCodebuddyQuotaAlertThreshold,
-          codebuddyCnQuotaAlertEnabled,
-          codebuddyCnQuotaAlertThreshold: Number.isNaN(parsedCodebuddyCnQuotaAlertThreshold)
-            ? 20
-            : parsedCodebuddyCnQuotaAlertThreshold,
-          workbuddyQuotaAlertEnabled,
-          workbuddyQuotaAlertThreshold: Number.isNaN(parsedWorkbuddyQuotaAlertThreshold)
-            ? 20
-            : parsedWorkbuddyQuotaAlertThreshold,
-          qoderQuotaAlertEnabled,
-          qoderQuotaAlertThreshold: Number.isNaN(parsedQoderQuotaAlertThreshold)
-            ? 20
-            : parsedQoderQuotaAlertThreshold,
-          traeQuotaAlertEnabled,
-          traeQuotaAlertThreshold: Number.isNaN(parsedTraeQuotaAlertThreshold)
-            ? 20
-            : parsedTraeQuotaAlertThreshold,
-          traeSoloQuotaAlertEnabled,
-          traeSoloQuotaAlertThreshold: Number.isNaN(parsedTraeSoloQuotaAlertThreshold)
-            ? 20
-            : parsedTraeSoloQuotaAlertThreshold,
-          traeCnQuotaAlertEnabled,
-          traeCnQuotaAlertThreshold: Number.isNaN(parsedTraeCnQuotaAlertThreshold)
-            ? 20
-            : parsedTraeCnQuotaAlertThreshold,
-          traeSoloCnQuotaAlertEnabled,
-          traeSoloCnQuotaAlertThreshold: Number.isNaN(parsedTraeSoloCnQuotaAlertThreshold)
-            ? 20
-            : parsedTraeSoloCnQuotaAlertThreshold,
-          zedQuotaAlertEnabled,
-          zedQuotaAlertThreshold: Number.isNaN(parsedZedQuotaAlertThreshold)
-            ? 20
-            : parsedZedQuotaAlertThreshold,
-          cursorQuotaAlertEnabled,
-          cursorQuotaAlertThreshold: Number.isNaN(parsedCursorQuotaAlertThreshold)
-            ? 20
-            : parsedCursorQuotaAlertThreshold,
-          geminiQuotaAlertEnabled,
-          geminiQuotaAlertThreshold: Number.isNaN(parsedGeminiQuotaAlertThreshold)
-            ? 20
-            : parsedGeminiQuotaAlertThreshold,
-        });
-        window.dispatchEvent(new Event('config-updated'));
-      } catch (err) {
-        console.error('保存通用配置失败:', err);
-        alert(`${t('settings.network.saveFailed').replace('{error}', String(err))}`);
-      }
+      generalSaveTimerRef.current = null;
+      generalSaveInFlightRef.current = true;
+      const operation = generalSaveQueueRef.current.then(async () => {
+        try {
+          await invoke('patch_general_config', { updates });
+          persistedGeneralPayloadRef.current = {
+            ...(persistedGeneralPayloadRef.current ?? {}),
+            ...updates,
+          };
+          dispatchSettingsConfigUpdated(configUpdateSource);
+        } catch (err) {
+          console.error('保存通用配置失败:', err);
+          alert(`${t('settings.network.saveFailed').replace('{error}', String(err))}`);
+          if (generalSaveQueueRef.current === operation) {
+            await loadGeneralConfig();
+          }
+        } finally {
+          if (generalSaveQueueRef.current === operation) {
+            generalSaveInFlightRef.current = false;
+            if (
+              pendingExternalConfigReloadRef.current &&
+              generalSaveTimerRef.current === null &&
+              !generalConfigLoadInFlightRef.current
+            ) {
+              pendingExternalConfigReloadRef.current = false;
+              void loadGeneralConfig();
+            }
+          }
+        }
+      });
+      generalSaveQueueRef.current = operation;
+      await operation;
     }, 300);
 
-    return () => {
-      if (generalSaveTimerRef.current) {
-        window.clearTimeout(generalSaveTimerRef.current);
-      }
-    };
+    return undefined;
   }, [
     autoRefresh,
     codexAutoRefresh,
@@ -1073,8 +1210,11 @@ export function SettingsPage() {
     zedAutoRefresh,
     workbuddyAutoRefresh,
     qoderAutoRefresh,
+    zcodeAutoRefresh,
     cursorAutoRefresh,
     geminiAutoRefresh,
+    grokAutoRefresh,
+    geminiSyncWsl,
     closeBehavior,
     minimizeBehavior,
     hideDockIcon,
@@ -1086,6 +1226,7 @@ export function SettingsPage() {
     appAutoLaunchEnabled,
     tokenKeeperEnabled,
     generalLoaded,
+    generalConfigHydrationRevision,
     language,
     defaultTerminal,
     theme,
@@ -1103,6 +1244,7 @@ export function SettingsPage() {
     codebuddyAppPath,
     codebuddyCnAppPath,
     qoderAppPath,
+    zcodeAppPath,
     traeAppPath,
     traeSoloAppPath,
     traeCnAppPath,
@@ -1166,6 +1308,9 @@ export function SettingsPage() {
     cursorQuotaAlertThreshold,
     geminiQuotaAlertEnabled,
     geminiQuotaAlertThreshold,
+    grokQuotaAlertEnabled,
+    grokQuotaAlertThreshold,
+    configUpdateSource,
     t,
   ]);
 
@@ -1185,8 +1330,8 @@ export function SettingsPage() {
       return result;
     }, {} as Partial<Record<CurrentAccountRefreshPlatform, number>>);
     saveCurrentAccountRefreshMinutesMap(payload);
-    window.dispatchEvent(new Event('config-updated'));
-  }, [generalLoaded, currentAccountRefreshMinutes]);
+    dispatchSettingsConfigUpdated(configUpdateSource);
+  }, [configUpdateSource, generalLoaded, currentAccountRefreshMinutes]);
 
   useEffect(() => {
     const handleLanguageUpdated = (event: Event) => {
@@ -1194,8 +1339,7 @@ export function SettingsPage() {
       if (!detail?.language) {
         return;
       }
-      suppressGeneralSaveRef.current = true;
-      setLanguage(detail.language);
+      setLanguage(normalizeLanguage(detail.language));
     };
 
     window.addEventListener('general-language-updated', handleLanguageUpdated);
@@ -1206,76 +1350,69 @@ export function SettingsPage() {
 
   // 监听外部配置更新（如 QuickSettingsPopover 保存后同步）
   useEffect(() => {
-    const handleConfigUpdated = () => {
-      suppressGeneralSaveRef.current = true;
-      loadGeneralConfig();
+    const handleConfigUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<ConfigUpdatedEventDetail>).detail;
+      if (detail?.source === configUpdateSource) {
+        return;
+      }
+      if (
+        generalSaveTimerRef.current !== null ||
+        generalSaveInFlightRef.current ||
+        generalConfigLoadInFlightRef.current
+      ) {
+        pendingExternalConfigReloadRef.current = true;
+        return;
+      }
+      void loadGeneralConfig();
     };
     window.addEventListener('config-updated', handleConfigUpdated);
     return () => {
       window.removeEventListener('config-updated', handleConfigUpdated);
     };
-  }, []);
+  }, [configUpdateSource]);
 
-  // Save auto_install setting when changed
+  // Serialize updater preference saves so the two toggles cannot overwrite each other.
   useEffect(() => {
-    if (!autoInstallLoaded && !autoInstallTouchedRef.current) {
+    if (!autoInstallLoaded || !updateRemindersLoaded) {
       return;
     }
 
-    invoke<{
-      auto_check: boolean;
-      last_check_time: number;
-      check_interval_hours: number;
-      auto_install?: boolean;
-      last_run_version?: string;
-      remind_on_update?: boolean;
-      skipped_version?: string;
-    }>('get_update_settings')
-      .then((s) => {
-        if (Boolean(s?.auto_install) === autoInstall) {
-          return;
-        }
-        invoke('save_update_settings', {
-          settings: { ...s, auto_install: autoInstall },
-        }).catch((err: unknown) =>
-          console.error('Failed to save auto_install setting:', err),
-        );
-      })
-      .catch(() => {});
-  }, [autoInstall, autoInstallLoaded]);
+    const saveVersion = updateSettingsSaveVersionRef.current + 1;
+    updateSettingsSaveVersionRef.current = saveVersion;
+    const operation = updateSettingsSaveQueueRef.current.then(async () => {
+      await invoke('patch_update_settings', {
+        autoInstall,
+        remindOnUpdate: updateRemindersEnabled,
+      });
+      window.dispatchEvent(
+        new CustomEvent('update-reminder-changed', {
+          detail: { enabled: updateRemindersEnabled },
+        }),
+      );
+    }).catch(async (error: unknown) => {
+      console.error('Failed to save update settings:', error);
+      if (saveVersion !== updateSettingsSaveVersionRef.current) {
+        return;
+      }
+      try {
+        const settings = await invoke<{
+          auto_install?: boolean;
+          remind_on_update?: boolean;
+        }>('get_update_settings');
+        setAutoInstall(Boolean(settings.auto_install));
+        setUpdateRemindersEnabled(settings.remind_on_update ?? true);
+      } catch (reloadError) {
+        console.error('Failed to reload update settings:', reloadError);
+      }
+    });
+    updateSettingsSaveQueueRef.current = operation;
+  }, [
+    autoInstall,
+    autoInstallLoaded,
+    updateRemindersEnabled,
+    updateRemindersLoaded,
+  ]);
 
-  // Save update reminder setting when changed
-  useEffect(() => {
-    if (!updateRemindersLoaded && !updateRemindersTouchedRef.current) {
-      return;
-    }
-
-    invoke<{
-      auto_check: boolean;
-      last_check_time: number;
-      check_interval_hours: number;
-      auto_install?: boolean;
-      last_run_version?: string;
-      remind_on_update?: boolean;
-      skipped_version?: string;
-    }>('get_update_settings')
-      .then((s) => {
-        if ((s?.remind_on_update ?? true) === updateRemindersEnabled) {
-          return;
-        }
-        invoke('save_update_settings', {
-          settings: { ...s, remind_on_update: updateRemindersEnabled },
-        }).then(() => {
-          window.dispatchEvent(
-            new CustomEvent('update-reminder-changed', { detail: { enabled: updateRemindersEnabled } }),
-          );
-        }).catch((err: unknown) =>
-          console.error('Failed to save update reminder setting:', err),
-        );
-      })
-      .catch(() => {});
-  }, [updateRemindersEnabled, updateRemindersLoaded]);
-  
   // 检测配额重置任务状态
   useEffect(() => {
     const checkResetTasks = () => {
@@ -1373,8 +1510,29 @@ export function SettingsPage() {
   }, [theme]);
   
   const loadGeneralConfig = async () => {
+    const loadVersion = generalConfigLoadVersionRef.current + 1;
+    generalConfigLoadVersionRef.current = loadVersion;
+    const stateRevisionAtStart = generalStateRevisionRef.current;
+    generalConfigLoadInFlightRef.current = true;
+    setGeneralLoadFailed(false);
+    if (hasHydratedGeneralConfigRef.current) {
+      setGeneralLoaded(false);
+    }
     try {
       const config = await invoke<GeneralConfig>('get_general_config');
+      if (loadVersion !== generalConfigLoadVersionRef.current) {
+        return;
+      }
+      if (
+        hasHydratedGeneralConfigRef.current &&
+        stateRevisionAtStart !== generalStateRevisionRef.current
+      ) {
+        pendingExternalConfigReloadRef.current = true;
+        setGeneralLoaded(true);
+        return;
+      }
+      skipNextGeneralSaveRef.current = true;
+      setGeneralConfigHydrationRevision((revision) => revision + 1);
       setLanguage(normalizeLanguage(config.language));
       setDefaultTerminal(config.default_terminal || 'system');
       setTheme(config.theme);
@@ -1389,6 +1547,7 @@ export function SettingsPage() {
       setKiroAutoRefresh(String(config.kiro_auto_refresh_minutes ?? 10));
       setCursorAutoRefresh(String(config.cursor_auto_refresh_minutes ?? 10));
       setGeminiAutoRefresh(String(config.gemini_auto_refresh_minutes ?? 10));
+      setGrokAutoRefresh(String(config.grok_auto_refresh_minutes ?? 10));
       setGeminiSyncWsl(Boolean(config.gemini_sync_wsl ?? true));
       setCloseBehavior(config.close_behavior || 'ask');
       setMinimizeBehavior(config.minimize_behavior || 'dock_and_tray');
@@ -1413,6 +1572,7 @@ export function SettingsPage() {
       setCodebuddyAppPath(config.codebuddy_app_path || '');
       setCodebuddyCnAppPath(config.codebuddy_cn_app_path || '');
       setQoderAppPath(config.qoder_app_path || '');
+      setZcodeAppPath(config.zcode_app_path || '');
       setTraeAppPath(config.trae_app_path || '');
       setTraeSoloAppPath(config.trae_solo_app_path || '');
       setTraeCnAppPath(config.trae_cn_app_path || '');
@@ -1429,6 +1589,7 @@ export function SettingsPage() {
       setCodebuddyCnAutoRefresh(String(config.codebuddy_cn_auto_refresh_minutes ?? 10));
       setWorkbuddyAutoRefresh(String(config.workbuddy_auto_refresh_minutes ?? 10));
       setQoderAutoRefresh(String(config.qoder_auto_refresh_minutes ?? 10));
+      setZcodeAutoRefresh(String(config.zcode_auto_refresh_minutes ?? 10));
       setTraeAutoRefresh(String(config.trae_auto_refresh_minutes ?? 10));
       setTraeSoloAutoRefresh(String(config.trae_solo_auto_refresh_minutes ?? 10));
       setTraeCnAutoRefresh(String(config.trae_cn_auto_refresh_minutes ?? 10));
@@ -1497,6 +1658,8 @@ export function SettingsPage() {
       setCursorQuotaAlertThreshold(String(config.cursor_quota_alert_threshold ?? 20));
       setGeminiQuotaAlertEnabled(config.gemini_quota_alert_enabled ?? false);
       setGeminiQuotaAlertThreshold(String(config.gemini_quota_alert_threshold ?? 20));
+      setGrokQuotaAlertEnabled(config.grok_quota_alert_enabled ?? false);
+      setGrokQuotaAlertThreshold(String(config.grok_quota_alert_threshold ?? 20));
       setAutoRefreshCustomMode(false);
       setCodexAutoRefreshCustomMode(false);
       setClaudeAutoRefreshCustomMode(false);
@@ -1507,6 +1670,7 @@ export function SettingsPage() {
       setCodebuddyCnAutoRefreshCustomMode(false);
       setWorkbuddyAutoRefreshCustomMode(false);
       setQoderAutoRefreshCustomMode(false);
+      setZcodeAutoRefreshCustomMode(false);
       setTraeAutoRefreshCustomMode(false);
       setTraeSoloAutoRefreshCustomMode(false);
       setTraeCnAutoRefreshCustomMode(false);
@@ -1538,9 +1702,31 @@ export function SettingsPage() {
       // 同步语言
       changeLanguage(config.language);
       applyTheme(config.theme);
+      hasHydratedGeneralConfigRef.current = true;
+      setGeneralLoadFailed(false);
       setGeneralLoaded(true);
     } catch (err) {
+      if (loadVersion !== generalConfigLoadVersionRef.current) {
+        return;
+      }
       console.error('加载通用配置失败:', err);
+      setGeneralLoadFailed(true);
+      if (hasHydratedGeneralConfigRef.current) {
+        setGeneralLoaded(true);
+      }
+    } finally {
+      if (loadVersion !== generalConfigLoadVersionRef.current) {
+        return;
+      }
+      generalConfigLoadInFlightRef.current = false;
+      if (
+        pendingExternalConfigReloadRef.current &&
+        generalSaveTimerRef.current === null &&
+        !generalSaveInFlightRef.current
+      ) {
+        pendingExternalConfigReloadRef.current = false;
+        void loadGeneralConfig();
+      }
     }
   };
 
@@ -1562,6 +1748,33 @@ export function SettingsPage() {
       setNeedsRestart(false);
     } catch (err) {
       console.error('加载网络配置失败:', err);
+    }
+  };
+
+  const loadGrokCliStatus = async () => {
+    try {
+      const status = await invoke<GrokCliStatus>('grok_get_cli_status');
+      setGrokCliStatus(status);
+      setGrokCliPath(status.configuredPath || '');
+      setGrokCliStatusError(null);
+    } catch (error) {
+      setGrokCliStatusError(String(error));
+    }
+  };
+
+  const saveGrokCliPath = async () => {
+    setGrokCliSaving(true);
+    setGrokCliStatusError(null);
+    try {
+      const status = await invoke<GrokCliStatus>('grok_update_cli_runtime_config', {
+        grokCliPath: grokCliPath.trim() || null,
+      });
+      setGrokCliStatus(status);
+      setGrokCliPath(status.configuredPath || '');
+    } catch (error) {
+      setGrokCliStatusError(String(error));
+    } finally {
+      setGrokCliSaving(false);
     }
   };
 
@@ -1742,6 +1955,8 @@ export function SettingsPage() {
       setCodebuddyCnAppPath(path);
     } else if (target === 'qoder') {
       setQoderAppPath(path);
+    } else if (target === 'zcode') {
+      setZcodeAppPath(path);
     } else if (isTraeAppPathTarget(target)) {
       setTraeAppPathValue(target, path);
       setTraeLaunchCandidatesTarget(target);
@@ -1776,6 +1991,11 @@ export function SettingsPage() {
     }
     if (target === 'qoder') {
       return t('settings.general.qoderPathReset', '重置默认');
+    }
+    if (target === 'zcode') {
+      return isWindows
+        ? t('appPath.missing.scanApps', '扫描应用')
+        : t('settings.general.codexPathReset', '重置默认');
     }
     if (isTraeAppPathTarget(target)) {
       return isWindows
@@ -2085,6 +2305,8 @@ export function SettingsPage() {
         return parseRefresh(cursorAutoRefresh) > 0;
       case 'gemini':
         return parseRefresh(geminiAutoRefresh) > 0;
+      case 'grok':
+        return parseRefresh(grokAutoRefresh) > 0;
       case 'codebuddy':
         return parseRefresh(codebuddyAutoRefresh) > 0;
       case 'codebuddy_cn':
@@ -2093,6 +2315,8 @@ export function SettingsPage() {
         return parseRefresh(workbuddyAutoRefresh) > 0;
       case 'qoder':
         return parseRefresh(qoderAutoRefresh) > 0;
+      case 'zcode':
+        return parseRefresh(zcodeAutoRefresh) > 0;
       case 'trae':
         return parseRefresh(traeAutoRefresh) > 0;
       case 'trae_solo':
@@ -2211,7 +2435,7 @@ export function SettingsPage() {
     ): Array<{ id: string; email: string }> =>
       store.getState().accounts.map((a) => ({
         id: a.id,
-        email: a.email ?? getDisplayEmail(a),
+        email: getDisplayEmail(a),
       }));
     const getTraeAccounts = (target: TraeAppPathTarget) =>
       useTraeAccountStore
@@ -2239,6 +2463,8 @@ export function SettingsPage() {
         return getProviderAccounts(useCursorAccountStore, getCursorAccountDisplayEmail);
       case 'gemini':
         return getProviderAccounts(useGeminiAccountStore, getGeminiAccountDisplayEmail);
+      case 'grok':
+        return getProviderAccounts(useGrokAccountStore, getGrokAccountDisplayEmail);
       case 'codebuddy':
         return getProviderAccounts(useCodebuddyAccountStore, getCodebuddyAccountDisplayEmail);
       case 'codebuddy_cn':
@@ -2247,6 +2473,8 @@ export function SettingsPage() {
         return getProviderAccounts(useWorkbuddyAccountStore, getWorkbuddyAccountDisplayEmail);
       case 'qoder':
         return getProviderAccounts(useQoderAccountStore, getQoderAccountDisplayEmail);
+      case 'zcode':
+        return getProviderAccounts(useZcodeAccountStore, getZcodeAccountDisplayEmail);
       case 'trae':
         return getTraeAccounts('trae');
       case 'trae_solo':
@@ -2294,6 +2522,7 @@ export function SettingsPage() {
       });
     }
     setAccountOverrides(loadAccountRefreshOverrides());
+    dispatchSettingsConfigUpdated(configUpdateSource);
   };
 
   const renderAccountLevelRefreshConfig = (platform: CurrentAccountRefreshPlatform) => {
@@ -2378,6 +2607,7 @@ export function SettingsPage() {
                               delete next[`${platform}:${account.email}`];
                               return next;
                             });
+                            dispatchSettingsConfigUpdated(configUpdateSource);
                           }}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter') {
@@ -2391,6 +2621,7 @@ export function SettingsPage() {
                                 delete next[`${platform}:${account.email}`];
                                 return next;
                               });
+                              dispatchSettingsConfigUpdated(configUpdateSource);
                             }
                           }}
                         />
@@ -2701,6 +2932,7 @@ export function SettingsPage() {
   const codebuddyCnAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(codebuddyCnAutoRefresh);
   const workbuddyAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(workbuddyAutoRefresh);
   const qoderAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(qoderAutoRefresh);
+  const zcodeAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(zcodeAutoRefresh);
   const traeAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(traeAutoRefresh);
   const traeSoloAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(traeSoloAutoRefresh);
   const traeCnAutoRefreshIsPreset = REFRESH_PRESET_VALUES.includes(traeCnAutoRefresh);
@@ -2874,6 +3106,28 @@ export function SettingsPage() {
         {/* === General Tab === */}
         {activeTab === 'general' && (
           <>
+          {(generalLoadFailed || updateSettingsLoadFailed) && (
+            <div className="settings-load-error" role="alert">
+              <AlertCircle size={16} />
+              <span>{t('common.failed')}</span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  if (generalLoadFailed) void loadGeneralConfig();
+                  if (updateSettingsLoadFailed) void loadUpdateSettings();
+                }}
+              >
+                <RefreshCw size={14} />
+                {t('common.refresh')}
+              </button>
+            </div>
+          )}
+          <fieldset
+            className="settings-general-fieldset"
+            disabled={!generalLoaded}
+            aria-busy={!generalLoaded}
+          >
             <div className="group-title">{t('settings.general.commonTitle', '通用')}</div>
             <div className="settings-group">
               <div className="settings-row">
@@ -3016,6 +3270,7 @@ export function SettingsPage() {
                   <select
                     className="settings-select"
                     value={autoInstall ? 'true' : 'false'}
+                    disabled={!autoInstallLoaded}
                     onChange={(e) => {
                       autoInstallTouchedRef.current = true;
                       setAutoInstall(e.target.value === 'true');
@@ -3036,6 +3291,7 @@ export function SettingsPage() {
                   <select
                     className="settings-select"
                     value={updateRemindersEnabled ? 'true' : 'false'}
+                    disabled={!updateRemindersLoaded}
                     onChange={(e) => {
                       updateRemindersTouchedRef.current = true;
                       setUpdateRemindersEnabled(e.target.value === 'true');
@@ -5448,6 +5704,124 @@ export function SettingsPage() {
                 </div>
               </div>
 
+              <div style={{ order: platformSettingsOrder.zcode }}>
+                <div className="group-title">{t('quickSettings.zcode.title', 'ZCode 设置')}</div>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('settings.general.zcodeAutoRefresh', 'ZCode 自动刷新配额')}</div>
+                      <div className="row-desc">{t('settings.general.zcodeAutoRefreshDesc', '后台自动更新频率')}</div>
+                    </div>
+                    <div className="row-control">
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        {zcodeAutoRefreshCustomMode ? (
+                          <div className="settings-inline-input" style={{ minWidth: '120px', width: 'auto' }}>
+                            <input
+                              type="number"
+                              min={1}
+                              max={999}
+                              className="settings-select settings-select--input-mode settings-select--with-unit"
+                              value={zcodeAutoRefresh}
+                              placeholder={t('quickSettings.inputMinutes', '输入分钟数')}
+                              onChange={(event) => setZcodeAutoRefresh(sanitizeNumberInput(event.target.value))}
+                              onBlur={() => {
+                                const normalized = normalizeNumberInput(zcodeAutoRefresh, 1, 999);
+                                if (REFRESH_PRESET_VALUES.includes(normalized)) {
+                                  setZcodeAutoRefreshCustomMode(false);
+                                }
+                                setZcodeAutoRefresh(normalized);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  const normalized = normalizeNumberInput(zcodeAutoRefresh, 1, 999);
+                                  setZcodeAutoRefreshCustomMode(false);
+                                  setZcodeAutoRefresh(normalized);
+                                }
+                              }}
+                            />
+                            <span className="settings-input-unit">{t('settings.general.minutes')}</span>
+                          </div>
+                        ) : (
+                          <select
+                            className="settings-select"
+                            style={{ minWidth: '120px', width: 'auto' }}
+                            value={zcodeAutoRefresh}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              if (value === 'custom') {
+                                setZcodeAutoRefreshCustomMode(true);
+                                setZcodeAutoRefresh(zcodeAutoRefresh !== '-1' ? zcodeAutoRefresh : '1');
+                                return;
+                              }
+                              setZcodeAutoRefreshCustomMode(false);
+                              setZcodeAutoRefresh(value);
+                            }}
+                          >
+                            {!zcodeAutoRefreshIsPreset && (
+                              <option value={zcodeAutoRefresh}>
+                                {zcodeAutoRefresh} {t('settings.general.minutes')}
+                              </option>
+                            )}
+                            <option value="-1">{t('settings.general.autoRefreshDisabled')}</option>
+                            <option value="2">2 {t('settings.general.minutes')}</option>
+                            <option value="5">5 {t('settings.general.minutes')}</option>
+                            <option value="10">10 {t('settings.general.minutes')}</option>
+                            <option value="15">15 {t('settings.general.minutes')}</option>
+                            <option value="custom">{t('settings.general.autoRefreshCustom')}</option>
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {renderCurrentAccountRefreshRow('zcode')}
+                  {renderAccountLevelRefreshConfig('zcode')}
+
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('settings.general.zcodeAppPath', 'ZCode 启动路径')}</div>
+                      <div className="row-desc">{t('settings.general.zcodeAppPathDesc', '留空则使用默认路径')}</div>
+                    </div>
+                    <div className="row-control row-control--grow">
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flex: 1 }}>
+                        <input
+                          type="text"
+                          className="settings-input settings-input--path"
+                          value={zcodeAppPath}
+                          placeholder={t('settings.general.codexAppPathPlaceholder', '默认路径')}
+                          onChange={(event) => setZcodeAppPath(event.target.value)}
+                        />
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => setZcodeAppPath('')}
+                          disabled={isAppPathResetDetecting('zcode') || !zcodeAppPath.trim()}
+                        >
+                          {t('common.clear', '清除')}
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => handlePickAppPath('zcode')}
+                          disabled={isAppPathResetDetecting('zcode')}
+                        >
+                          {t('settings.general.codexPathSelect', '选择')}
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => handleResetAppPath('zcode')}
+                          disabled={isAppPathResetDetecting('zcode')}
+                        >
+                          <RefreshCw size={16} className={isAppPathResetDetecting('zcode') ? 'spin' : undefined} />
+                          {isAppPathResetDetecting('zcode')
+                            ? t('common.loading', '加载中...')
+                            : getResetLabelByTarget('zcode')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div style={{ order: platformSettingsOrder.trae }}>
                 <div className="group-title">{t('quickSettings.trae.title', 'Trae 设置')}</div>
                 <div className="settings-group">
@@ -6490,8 +6864,116 @@ export function SettingsPage() {
                   )}
                 </div>
               </div>
+
+              <div style={{ order: platformSettingsOrder.grok }}>
+                <div className="group-title">{t('quickSettings.grok.title', 'Grok CLI 设置')}</div>
+                <div className="settings-group">
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('quickSettings.grok.cliPath', 'CLI 路径')}</div>
+                      <div className="row-desc">
+                        {grokCliStatus?.available
+                          ? t('quickSettings.grok.cliDetected', '已检测 {{version}} · {{path}}', {
+                              version: grokCliStatus.version || '--',
+                              path: grokCliStatus.binaryPath || '--',
+                            })
+                          : t('quickSettings.grok.cliMissing', '未检测到 Grok CLI，可填写自定义路径')}
+                      </div>
+                    </div>
+                    <div className="row-control">
+                      <input
+                        className="settings-input settings-input--path"
+                        value={grokCliPath}
+                        placeholder={grokCliStatus?.binaryPath || '~/.grok/bin/grok'}
+                        onChange={(event) => {
+                          setGrokCliPath(event.target.value);
+                          setGrokCliStatusError(null);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => void saveGrokCliPath()}
+                        disabled={grokCliSaving}
+                      >
+                        <Save size={14} />
+                        {grokCliSaving ? t('common.loading', '加载中...') : t('common.save', '保存')}
+                      </button>
+                    </div>
+                  </div>
+                  {grokCliStatusError && <div className="form-error">{grokCliStatusError}</div>}
+
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('quickSettings.grokRefreshInterval', '配额自动刷新')}</div>
+                      <div className="row-desc">{t('settings.general.windsurfAutoRefreshDesc', '后台自动更新频率')}</div>
+                    </div>
+                    <div className="row-control">
+                      <div className="settings-inline-input">
+                        <input
+                          type="number"
+                          min={-1}
+                          max={999}
+                          className="settings-select settings-select--input-mode settings-select--with-unit"
+                          value={grokAutoRefresh}
+                          onChange={(event) => {
+                            if (/^-?\d*$/.test(event.target.value)) {
+                              setGrokAutoRefresh(event.target.value);
+                            }
+                          }}
+                          onBlur={() => setGrokAutoRefresh(normalizeNumberInput(grokAutoRefresh, -1, 999))}
+                        />
+                        <span className="settings-input-unit">{t('settings.general.minutes')}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {renderCurrentAccountRefreshRow('grok')}
+                  {renderAccountLevelRefreshConfig('grok')}
+
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('quickSettings.quotaAlert.enable', '超额预警')}</div>
+                      <div className="row-desc">{t('grok.quotaAlert.hint', '当当前账号任意配额项低于阈值时，发送原生通知并在页面提示快捷切号。')}</div>
+                    </div>
+                    <div className="row-control">
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={grokQuotaAlertEnabled}
+                          onChange={(event) => setGrokQuotaAlertEnabled(event.target.checked)}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                  {grokQuotaAlertEnabled && (
+                    <div className="settings-row">
+                      <div className="row-label">
+                        <div className="row-title">{t('quickSettings.quotaAlert.threshold', '预警阈值')}</div>
+                        <div className="row-desc">{t('grok.quotaAlert.thresholdDesc', '任意配额项低于此百分比时触发预警')}</div>
+                      </div>
+                      <div className="row-control">
+                        <div className="settings-inline-input">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            className="settings-select settings-select--input-mode settings-select--with-unit"
+                            value={grokQuotaAlertThreshold}
+                            onChange={(event) => setGrokQuotaAlertThreshold(sanitizeNumberInput(event.target.value))}
+                            onBlur={() => setGrokQuotaAlertThreshold(normalizeNumberInput(grokQuotaAlertThreshold, 0, 100))}
+                          />
+                          <span className="settings-input-unit">%</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
+          </fieldset>
           </>
         )}
 

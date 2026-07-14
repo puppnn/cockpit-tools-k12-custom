@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback, Fragment } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, Fragment, MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus,
@@ -23,6 +23,9 @@ import {
   RotateCw,
   History,
   ArrowDownWideNarrow,
+  ArrowUp,
+  ArrowDown,
+  Wrench,
   Rows3,
   GripVertical,
   Eye,
@@ -221,6 +224,48 @@ const ANTIGRAVITY_FILTER_FIELD_ACTIVE_GROUP_ID = 'active_group_id'
 
 const DEFAULT_FILTER_TYPES: AccountsFilterType[] = []
 const DEFAULT_TAG_FILTER: string[] = []
+
+const ANTIGRAVITY_CUSTOM_SORT_ORDER_KEY = 'agtools.antigravity.accounts.custom_sort_order.v1'
+const ANTIGRAVITY_CUSTOM_SORT_ACTIVE_KEY = 'agtools.antigravity.accounts.custom_sort_active.v1'
+
+function readAntigravityCustomSortOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(ANTIGRAVITY_CUSTOM_SORT_ORDER_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (item): item is string =>
+        typeof item === 'string' && item.trim().length > 0
+    )
+  } catch {
+    return []
+  }
+}
+
+function writeAntigravityCustomSortOrder(accountIds: string[]): void {
+  try {
+    localStorage.setItem(ANTIGRAVITY_CUSTOM_SORT_ORDER_KEY, JSON.stringify(accountIds))
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+function readAntigravityCustomSortActive(): boolean {
+  try {
+    return localStorage.getItem(ANTIGRAVITY_CUSTOM_SORT_ACTIVE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeAntigravityCustomSortActive(active: boolean): void {
+  try {
+    localStorage.setItem(ANTIGRAVITY_CUSTOM_SORT_ACTIVE_KEY, active ? '1' : '0')
+  } catch {
+    // ignore persistence failures
+  }
+}
 
 export function AccountsPage({ onNavigate }: AccountsPageProps) {
   const { t, i18n } = useTranslation()
@@ -497,6 +542,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     )
     return typeof saved === 'string' && saved.trim() ? saved : null
   })
+  const [addTargetGroupId, setAddTargetGroupId] = useState<string | null>(null)
   const [showAccountGroupModal, setShowAccountGroupModal] = useState(false)
   const [showAddToGroupModal, setShowAddToGroupModal] = useState(false)
   const [groupAccountPickerGroupId, setGroupAccountPickerGroupId] = useState<string | null>(null)
@@ -514,6 +560,43 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     if (!activeGroupId) return null
     return accountGroups.find((g) => g.id === activeGroupId) || null
   }, [accountGroups, activeGroupId])
+
+  const addTargetGroup = useMemo(() => {
+    if (!addTargetGroupId) return null
+    return accountGroups.find((group) => group.id === addTargetGroupId) || null
+  }, [accountGroups, addTargetGroupId])
+
+  const resolveValidAccountGroupId = useCallback(
+    (groupId?: string | null) => {
+      const normalized = groupId?.trim()
+      if (!normalized) return null
+      return accountGroups.some((group) => group.id === normalized) ? normalized : null
+    },
+    [accountGroups],
+  )
+
+  const assignAccountsToAddTargetGroup = useCallback(
+    async (
+      targetAccounts: Array<Account | null | undefined>,
+      targetGroupId = addTargetGroupId,
+    ) => {
+      const resolvedGroupId = resolveValidAccountGroupId(targetGroupId)
+      if (!resolvedGroupId) return
+
+      const accountIds = Array.from(
+        new Set(
+          targetAccounts
+            .map((account) => account?.id?.trim())
+            .filter((id): id is string => Boolean(id)),
+        ),
+      )
+      if (accountIds.length === 0) return
+
+      await assignAccountsToGroup(resolvedGroupId, accountIds)
+      await reloadAccountGroups()
+    },
+    [addTargetGroupId, reloadAccountGroups, resolveValidAccountGroupId],
+  )
 
   const groupAccountPickerGroup = useMemo(() => {
     if (!groupAccountPickerGroupId) return null
@@ -538,6 +621,9 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     }
   }, [accountGroups, groupQuickAddGroupId])
   const [sortBy, setSortBy] = useState<string>(() => {
+    if (readAntigravityCustomSortActive()) {
+      return 'custom'
+    }
     if (!initialFilterPersistenceEnabled) {
       return DEFAULT_ANTIGRAVITY_SORT_BY
     }
@@ -561,6 +647,13 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       ) as string | null,
     )
   })
+
+  const [customSortOrder, setCustomSortOrder] = useState<string[]>(
+    readAntigravityCustomSortOrder
+  )
+  const [showCustomSortModal, setShowCustomSortModal] = useState(false)
+  const [draggedCustomSortAccountId, setDraggedCustomSortAccountId] = useState<string | null>(null)
+  const [customSortDropTargetId, setCustomSortDropTargetId] = useState<string | null>(null)
 
   // Compact view model sorting
   const [compactGroupOrder, setCompactGroupOrder] = useState<string[]>([])
@@ -589,7 +682,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   const addTabRef = useRef(addTab)
   const oauthUrlRef = useRef(oauthUrl)
   const addStatusRef = useRef(addStatus)
-  const activeGroupIdRef = useRef(activeGroupId)
+  const addTargetGroupIdRef = useRef<string | null>(null)
   const verificationHistoryRequestIdRef = useRef(0)
   const colorPickerRef = useRef<HTMLDivElement>(null)
 
@@ -598,8 +691,8 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     addTabRef.current = addTab
     oauthUrlRef.current = oauthUrl
     addStatusRef.current = addStatus
-    activeGroupIdRef.current = activeGroupId
-  }, [showAddModal, addTab, oauthUrl, addStatus, activeGroupId])
+    addTargetGroupIdRef.current = addTargetGroupId
+  }, [showAddModal, addTab, oauthUrl, addStatus, addTargetGroupId])
 
   useEffect(() => {
     const handleFeatureUnlockChanged = (event: Event) => {
@@ -901,6 +994,149 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     )
   }, [activeGroupId, filterPersistenceEnabled])
 
+  // Sync customSortOrder when accounts load or change
+  useEffect(() => {
+    if (accounts.length === 0) {
+      return
+    }
+    const accountIds = accounts.map((account) => account.id)
+    const accountIdSet = new Set(accountIds)
+    setCustomSortOrder((prev) => {
+      const next = prev.filter((accountId) => accountIdSet.has(accountId))
+      const seen = new Set(next)
+      for (const accountId of accountIds) {
+        if (!seen.has(accountId)) {
+          next.push(accountId)
+          seen.add(accountId)
+        }
+      }
+      const unchanged =
+        next.length === prev.length &&
+        next.every((accountId, index) => accountId === prev[index])
+      return unchanged ? prev : next
+    })
+  }, [accounts])
+
+  useEffect(() => {
+    writeAntigravityCustomSortOrder(customSortOrder)
+  }, [customSortOrder])
+
+  useEffect(() => {
+    writeAntigravityCustomSortActive(sortBy === 'custom')
+  }, [sortBy])
+
+  useEffect(() => {
+    if (!showCustomSortModal || !draggedCustomSortAccountId) return
+    const handleMouseUp = () => {
+      setDraggedCustomSortAccountId(null)
+      setCustomSortDropTargetId(null)
+    }
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => window.removeEventListener('mouseup', handleMouseUp)
+  }, [showCustomSortModal, draggedCustomSortAccountId])
+
+  useEffect(() => {
+    if (!showCustomSortModal) {
+      setDraggedCustomSortAccountId(null)
+      setCustomSortDropTargetId(null)
+    }
+  }, [showCustomSortModal])
+
+  const isCustomSortActive = sortBy === 'custom'
+  const customSortAccounts = useMemo(() => {
+    const accountMap = new Map(
+      accounts.map((account) => [account.id, account])
+    )
+    const result: Account[] = []
+    const seen = new Set<string>()
+
+    customSortOrder.forEach((accountId) => {
+      const account = accountMap.get(accountId)
+      if (!account || seen.has(accountId)) return
+      result.push(account)
+      seen.add(accountId)
+    })
+
+    accounts.forEach((account) => {
+      if (seen.has(account.id)) return
+      result.push(account)
+      seen.add(account.id)
+    })
+
+    return result
+  }, [accounts, customSortOrder])
+
+  const customSortAccountIds = useMemo(
+    () => customSortAccounts.map((account) => account.id),
+    [customSortAccounts]
+  )
+
+  const moveCustomSortAccount = useCallback(
+    (accountId: string, direction: 'up' | 'down') => {
+      const currentIndex = customSortAccountIds.indexOf(accountId)
+      if (currentIndex < 0) return
+      const targetIndex =
+        direction === 'up' ? currentIndex - 1 : currentIndex + 1
+      if (targetIndex < 0 || targetIndex >= customSortAccountIds.length) return
+      const next = [...customSortAccountIds]
+      const [moved] = next.splice(currentIndex, 1)
+      next.splice(targetIndex, 0, moved)
+      setCustomSortOrder(next)
+    },
+    [customSortAccountIds]
+  )
+
+  const stopCustomSortDragging = useCallback(() => {
+    setDraggedCustomSortAccountId(null)
+    setCustomSortDropTargetId(null)
+  }, [])
+
+  const handleCustomSortDragStart = useCallback(
+    (event: ReactMouseEvent, accountId: string) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      setDraggedCustomSortAccountId(accountId)
+      setCustomSortDropTargetId(null)
+    },
+    []
+  )
+
+  const handleCustomSortDragMove = useCallback(
+    (targetAccountId: string) => {
+      if (!draggedCustomSortAccountId) return
+      if (draggedCustomSortAccountId === targetAccountId) {
+        setCustomSortDropTargetId(null)
+        return
+      }
+      const fromIndex = customSortAccountIds.indexOf(
+        draggedCustomSortAccountId
+      )
+      const toIndex = customSortAccountIds.indexOf(targetAccountId)
+      if (fromIndex < 0 || toIndex < 0) return
+      setCustomSortDropTargetId(targetAccountId)
+      const next = [...customSortAccountIds]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      setCustomSortOrder(next)
+    },
+    [customSortAccountIds, draggedCustomSortAccountId]
+  )
+
+  const resetCustomSortOrder = useCallback(() => {
+    setCustomSortOrder(accounts.map((account) => account.id))
+  }, [accounts])
+
+  const handleSortByChange = useCallback(
+    (value: string) => {
+      setSortBy(value)
+      if (value === 'custom') {
+        setShowCustomSortModal(true)
+      }
+    },
+    [setSortBy]
+  )
+
   useEffect(() => {
     if (!displayGroupsLoaded) {
       return
@@ -909,7 +1145,8 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     if (
       normalizedSortBy === 'overall' ||
       normalizedSortBy === 'created_at' ||
-      normalizedSortBy === 'default'
+      normalizedSortBy === 'default' ||
+      normalizedSortBy === 'custom'
     ) {
       return
     }
@@ -928,6 +1165,14 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     }
   }, [displayGroups, displayGroupsLoaded, sortBy])
 
+  const customSortOrderIndex = useMemo(() => {
+    const map = new Map<string, number>()
+    customSortOrder.forEach((accountId, index) => {
+      map.set(accountId, index)
+    })
+    return map
+  }, [customSortOrder])
+
   const accountSortComparator = useMemo(
     () =>
       createAntigravityAccountComparator({
@@ -935,8 +1180,9 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
         sortDirection,
         displayGroups,
         currentAccountId: currentAccount?.id ?? null,
+        customSortOrderIndex,
       }),
-    [currentAccount?.id, displayGroups, sortBy, sortDirection]
+    [currentAccount?.id, displayGroups, sortBy, sortDirection, customSortOrderIndex]
   )
 
   const availableTags = useMemo(() => collectAvailableAccountTags(accounts), [accounts])
@@ -1319,11 +1565,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
         const newAccount = await accountService.completeOAuthLogin()
         await fetchAccounts()
         await fetchCurrentAccount(antigravityRuntimeTarget)
-        // 如果在文件夹内添加，自动归入当前文件夹
-        if (activeGroupIdRef.current && newAccount?.id) {
-          await assignAccountsToGroup(activeGroupIdRef.current, [newAccount.id])
-          await reloadAccountGroups()
-        }
+        await assignAccountsToAddTargetGroup([newAccount], addTargetGroupIdRef.current)
         setAddStatus('success')
         setAddMessage(t('accounts.oauth.success'))
         setTimeout(() => {
@@ -1344,7 +1586,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       if (unlistenUrl) unlistenUrl()
       if (unlistenCallback) unlistenCallback()
     }
-  }, [fetchAccounts, fetchCurrentAccount])
+  }, [assignAccountsToAddTargetGroup, fetchAccounts, fetchCurrentAccount])
 
   useEffect(() => {
     if (!showAddModal || addTab !== 'oauth' || oauthUrl) return
@@ -1518,10 +1760,11 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   }, [])
 
   const openAddModal = useCallback((tab: 'oauth' | 'token' | 'import') => {
+    setAddTargetGroupId(resolveValidAccountGroupId(activeGroupId))
     setAddTab(tab)
     setShowAddModal(true)
     resetAddModalState()
-  }, [resetAddModalState])
+  }, [activeGroupId, resetAddModalState, resolveValidAccountGroupId])
 
   const consumeExternalProviderImport = useCallback(() => {
     const request = consumeQueuedExternalProviderImportForPlatform('antigravity')
@@ -1564,6 +1807,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       accountService.cancelOAuthLogin().catch(() => { })
     }
     setShowAddModal(false)
+    setAddTargetGroupId(null)
     resetAddModalState()
     setOauthUrl('')
   }
@@ -1598,17 +1842,19 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
 
   const handleOAuthStart = async () => {
     await runModalAction(t('modals.import.oauthAction'), async () => {
-      await startOAuthLogin()
+      const account = await startOAuthLogin()
       await fetchAccounts()
       await fetchCurrentAccount(antigravityRuntimeTarget)
+      await assignAccountsToAddTargetGroup([account])
     })
   }
 
   const handleOAuthComplete = async () => {
     await runModalAction(t('modals.import.oauthAction'), async () => {
-      await accountService.completeOAuthLogin()
+      const account = await accountService.completeOAuthLogin()
       await fetchAccounts()
       await fetchCurrentAccount(antigravityRuntimeTarget)
+      await assignAccountsToAddTargetGroup([account])
     })
   }
 
@@ -1785,6 +2031,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       await fetchAccounts()
       await Promise.allSettled(imported.map((acc) => refreshQuota(acc.id, antigravityRuntimeTarget)))
       await fetchAccounts()
+      await assignAccountsToAddTargetGroup(imported)
       if (imported.length === 0) {
         setAddStatus('error')
         setAddMessage(t('modals.import.noAccountsFound'))
@@ -1814,6 +2061,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       await fetchAccounts()
       await refreshQuota(imported.id, antigravityRuntimeTarget)
       await fetchAccounts()
+      await assignAccountsToAddTargetGroup([imported])
       setAddStatus('success')
       setAddMessage(
         t('messages.importLocalSuccess', { email: maskAccountText(imported.email) })
@@ -1858,6 +2106,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       await fetchAccounts()
       await Promise.allSettled(imported.map((acc) => refreshQuota(acc.id, antigravityRuntimeTarget)))
       await fetchAccounts()
+      await assignAccountsToAddTargetGroup(imported)
       if (imported.length === 0 && failed.length === 0) {
         setAddStatus('error')
         setAddMessage(t('modals.import.noAccountsFound'))
@@ -1893,6 +2142,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     setAddMessage(t('modals.import.importingExtension'))
     let unlistenProgress: UnlistenFn | undefined
     try {
+      const knownAccountIds = new Set(accounts.map((account) => account.id))
       unlistenProgress = await listen<ExtensionImportProgressPayload>(
         'accounts:extension-import-progress',
         (event) => {
@@ -1912,6 +2162,12 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       const count = await accountService.syncFromExtension()
       await fetchAccounts()
       await fetchCurrentAccount(antigravityRuntimeTarget)
+      if (count > 0) {
+        const imported = (await accountService.listAccounts()).filter(
+          (account) => !knownAccountIds.has(account.id),
+        )
+        await assignAccountsToAddTargetGroup(imported)
+      }
       if (count === 0) {
         setAddStatus('error')
         setAddMessage(t('modals.import.noAccountsFound'))
@@ -2019,11 +2275,7 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
         importedAccounts.map((acc) => refreshQuota(acc.id, antigravityRuntimeTarget))
       )
       await fetchAccounts()
-      // 如果在文件夹内添加，自动归入当前文件夹
-      if (activeGroupId) {
-        await assignAccountsToGroup(activeGroupId, importedAccounts.map((acc) => acc.id))
-        await reloadAccountGroups()
-      }
+      await assignAccountsToAddTargetGroup(importedAccounts)
     }
 
     if (success === tokens.length) {
@@ -3537,27 +3789,42 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
                     defaultValue: `按 ${group.name} 重置时间`,
                   }),
                 })),
+                {
+                  value: 'custom',
+                  label: t('accounts.sort.custom', '自定义顺序'),
+                },
               ]}
               ariaLabel={t('accounts.sortLabel', '排序')}
               icon={<ArrowDownWideNarrow size={14} />}
-              onChange={setSortBy}
+              onChange={handleSortByChange}
             />
 
-            {/* 排序方向切换按钮 */}
-            <button
-              className="sort-direction-btn"
-              onClick={() =>
-                setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))
-              }
-              title={
-                sortDirection === 'desc'
-                  ? t('accounts.sort.descTooltip', '当前：降序，点击切换为升序')
-                  : t('accounts.sort.ascTooltip', '当前：升序，点击切换为降序')
-              }
-              aria-label={t('accounts.sort.toggleDirection', '切换排序方向')}
-            >
-              {sortDirection === 'desc' ? '⬇' : '⬆'}
-            </button>
+            {/* 排序方向切换按钮 / 自定义排序配置按钮 */}
+            {!isCustomSortActive ? (
+              <button
+                className="sort-direction-btn"
+                onClick={() =>
+                  setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))
+                }
+                title={
+                  sortDirection === 'desc'
+                    ? t('accounts.sort.descTooltip', '当前：降序，点击切换为升序')
+                    : t('accounts.sort.ascTooltip', '当前：升序，点击切换为降序')
+                }
+                aria-label={t('accounts.sort.toggleDirection', '切换排序方向')}
+              >
+                {sortDirection === 'desc' ? '⬇' : '⬆'}
+              </button>
+            ) : (
+              <button
+                className="sort-direction-btn"
+                onClick={() => setShowCustomSortModal(true)}
+                title={t('accounts.sort.customSettingsTooltip', '配置自定义顺序')}
+                aria-label={t('accounts.sort.customSettingsTooltip', '配置自定义顺序')}
+              >
+                <Wrench size={14} />
+              </button>
+            )}
           </div>
 
           <div className="toolbar-right">
@@ -3772,6 +4039,17 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
             </div>
             <div className="modal-body">
               <MfaQuickCodeSelect />
+              {addTargetGroup && (
+                <div className="accounts-add-target-group-hint">
+                  <FolderPlus size={14} />
+                  <span>
+                    {t('accounts.addModal.targetGroup', {
+                      defaultValue: '将添加到分组：{{group}}',
+                      group: addTargetGroup.name,
+                    })}
+                  </span>
+                </div>
+              )}
               <div className="add-tabs">
                 <button
                   className={`add-tab ${addTab === 'oauth' ? 'active' : ''}`}
@@ -4019,6 +4297,183 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
         onOpenSavedDirectory={exportModal.openSavedDirectory}
         onCopySavedPath={exportModal.copySavedPath}
       />
+
+      {showCustomSortModal && (
+        <div className="modal-overlay">
+          <div
+            className="modal codex-custom-sort-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>
+                  {t('accounts.sort.customModalTitle', '自定义账号排序')}
+                </h2>
+                <p className="codex-custom-sort-modal-desc">
+                  {t(
+                    'accounts.sort.customModalDesc',
+                    '拖动账号或使用上下按钮调整展示顺序。'
+                  )}
+                </p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setShowCustomSortModal(false)}
+                aria-label={t('common.close', '关闭')}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div
+                className={`codex-custom-sort-list ${
+                  draggedCustomSortAccountId ? 'is-sorting' : ''
+                }`}
+                onMouseUp={stopCustomSortDragging}
+                onMouseLeave={stopCustomSortDragging}
+              >
+                {customSortAccounts.map((account, index) => {
+                  const isCurrent = currentAccount?.id === account.id
+                  const tierBadge = getAntigravityTierBadge(account.quota)
+                  const quotaDisplayItems = getQuotaDisplayItems(account)
+                  const rowClass = [
+                    'codex-custom-sort-row',
+                    draggedCustomSortAccountId === account.id
+                      ? 'is-dragging'
+                      : '',
+                    draggedCustomSortAccountId &&
+                    draggedCustomSortAccountId !== account.id
+                      ? 'is-drop-candidate'
+                      : '',
+                    draggedCustomSortAccountId &&
+                    draggedCustomSortAccountId !== account.id &&
+                    customSortDropTargetId === account.id
+                      ? 'is-drop-target'
+                      : '',
+                  ]
+                    .join(' ')
+                    .trim()
+
+                  return (
+                    <div
+                      key={account.id}
+                      className={rowClass}
+                      onMouseEnter={() =>
+                        handleCustomSortDragMove(account.id)
+                      }
+                    >
+                      <div className="codex-custom-sort-row-main">
+                        <button
+                          type="button"
+                          className="codex-custom-sort-drag-handle"
+                          onMouseDown={(event) =>
+                            handleCustomSortDragStart(event, account.id)
+                          }
+                          title={t(
+                            'accounts.sort.customDragHandle',
+                            '拖拽排序'
+                          )}
+                          aria-label={t(
+                            'accounts.sort.customDragHandle',
+                            '拖拽排序'
+                          )}
+                        >
+                          <GripVertical size={16} />
+                        </button>
+                        <span className="codex-custom-sort-index">
+                          {index + 1}
+                        </span>
+                        <div className="codex-custom-sort-account">
+                          <div className="codex-custom-sort-account-title">
+                            <span
+                              title={maskAccountText(account.email)}
+                            >
+                              {maskAccountText(account.email)}
+                            </span>
+                            {isCurrent && (
+                              <span className="mini-tag current">
+                                {t('accounts.status.current', '当前')}
+                              </span>
+                            )}
+                            <span
+                              className={`tier-badge ${tierBadge.className}`}
+                            >
+                              {tierBadge.label}
+                            </span>
+                          </div>
+                          <div className="codex-custom-sort-quota-line">
+                            {quotaDisplayItems.length > 0 ? (
+                              quotaDisplayItems.slice(0, 2).map((item) => (
+                                <span
+                                  key={`${account.id}-${item.key}`}
+                                  className="codex-custom-sort-quota"
+                                >
+                                  <span>{item.key.includes('claude') ? 'Claude' : 'Gemini'} {item.key.includes('5h') ? '5h' : 'Weekly'}:</span>
+                                  <strong className={getQuotaClass(item.percentage)}>
+                                    {item.percentage}%
+                                  </strong>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="codex-custom-sort-quota-empty">
+                                {t('common.shared.quota.noData', '暂无配额数据')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="codex-custom-sort-row-actions">
+                        <button
+                          type="button"
+                          className="folder-icon-btn"
+                          onClick={() =>
+                            moveCustomSortAccount(account.id, 'up')
+                          }
+                          disabled={index === 0}
+                          title={t('accounts.sort.customMoveUp', '上移')}
+                          aria-label={t('accounts.sort.customMoveUp', '上移')}
+                        >
+                          <ArrowUp size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="folder-icon-btn"
+                          onClick={() =>
+                            moveCustomSortAccount(account.id, 'down')
+                          }
+                          disabled={index === customSortAccounts.length - 1}
+                          title={t('accounts.sort.customMoveDown', '下移')}
+                          aria-label={t(
+                            'accounts.sort.customMoveDown',
+                            '下移'
+                          )}
+                        >
+                          <ArrowDown size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-secondary"
+                onClick={resetCustomSortOrder}
+              >
+                <RotateCw size={14} />
+                {t('accounts.sort.customReset', '重置自定义顺序')}
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowCustomSortModal(false)}
+              >
+                {t('common.confirm', '确认')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {antigravitySeamlessSwitchUnlocked && showSwitchHistoryModal && (
         <div

@@ -1013,7 +1013,7 @@
 
 .codex-local-access-custom-routing-guide {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1164,7 +1164,8 @@
 .codex-local-access-custom-routing-list {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .codex-local-access-custom-routing-row {
@@ -1290,6 +1291,92 @@
   width: 100%;
 }
 
+.codex-local-access-custom-routing-backup-field {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.codex-local-access-custom-routing-backup-label {
+  display: inline;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.codex-local-access-custom-routing-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.codex-local-access-custom-routing-switch input[type="checkbox"] {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.codex-local-access-custom-routing-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 24%, var(--bg-card));
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.codex-local-access-custom-routing-switch-track::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  transition: transform 0.16s ease;
+}
+
+.codex-local-access-custom-routing-switch
+  input:checked
+  + .codex-local-access-custom-routing-switch-track {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.codex-local-access-custom-routing-switch
+  input:checked
+  + .codex-local-access-custom-routing-switch-track::before {
+  transform: translateX(16px);
+}
+
+.codex-local-access-custom-routing-switch
+  input:focus-visible
+  + .codex-local-access-custom-routing-switch-track {
+  outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.codex-local-access-custom-routing-switch input:disabled {
+  cursor: not-allowed;
+}
+
+.codex-local-access-custom-routing-backup-field:has(input:disabled) {
+  opacity: 0.65;
+}
+
 .codex-local-access-custom-routing-muted {
   color: var(--text-muted);
   font-size: 12px;
@@ -1297,6 +1384,58 @@
 
 .codex-local-access-custom-routing-footer {
   padding: 16px 24px 20px;
+}
+
+.codex-local-access-backup-confirm-overlay {
+  z-index: 10020;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.68);
+}
+
+.codex-local-access-backup-confirm-dialog {
+  width: min(420px, calc(100vw - 40px));
+  max-width: calc(100vw - 40px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: 0 24px 64px rgba(2, 6, 23, 0.36);
+}
+
+.codex-local-access-backup-confirm-header {
+  padding: 18px 20px 14px;
+}
+
+.codex-local-access-backup-confirm-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.codex-local-access-backup-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+}
+
+.codex-local-access-backup-confirm-body strong {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.codex-local-access-backup-confirm-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.codex-local-access-backup-confirm-footer {
+  gap: 10px;
+  padding: 14px 20px 18px;
 }
 
 .codex-local-access-section {
@@ -2345,7 +2484,7 @@
   }
 
   .codex-local-access-custom-routing-row {
-    grid-template-columns: 24px minmax(0, 1fr) 76px 76px;
+    grid-template-columns: 24px minmax(76px, 1fr) minmax(76px, 1fr);
     align-items: start;
     gap: 10px;
     padding: 13px 12px;
@@ -2367,6 +2506,14 @@
 
   .codex-local-access-custom-routing-number-field span {
     display: inline;
+  }
+
+  .codex-local-access-custom-routing-number-field.is-priority {
+    grid-column: 2;
+  }
+
+  .codex-local-access-custom-routing-number-field.is-weight {
+    grid-column: 3;
   }
 }
 
@@ -2484,10 +2631,7 @@
   }
 
   .codex-local-access-custom-routing-row {
-    grid-template-columns: 22px minmax(0, 1fr) minmax(70px, 0.48fr) minmax(
-        70px,
-        0.48fr
-      );
+    grid-template-columns: 22px minmax(70px, 1fr) minmax(70px, 1fr);
   }
 
   .codex-local-access-custom-routing-account {

@@ -279,9 +279,9 @@ jobs:
 
   build-macos-aarch64:
     name: Build macOS Apple Silicon
+    # Parallel with Windows / macOS Intel after prepare (no hard platform deps).
     needs:
       - prepare-release
-      - build-windows
     runs-on: macos-latest
     permissions:
       contents: write
@@ -381,9 +381,9 @@ jobs:
 
   build-macos-x86_64:
     name: Build macOS Intel
+    # Parallel with Windows / macOS Apple Silicon after prepare.
     needs:
       - prepare-release
-      - build-macos-aarch64
     runs-on: macos-latest
     permissions:
       contents: write
@@ -483,8 +483,10 @@ jobs:
 
   build-macos-universal:
     name: Build macOS Universal
+    # Still sequential after both arch builds (needs arm + x64 artifacts).
     needs:
       - prepare-release
+      - build-macos-aarch64
       - build-macos-x86_64
     runs-on: macos-latest
     permissions:
@@ -554,9 +556,9 @@ jobs:
 
   build-linux:
     name: Build Linux (${{ matrix.label }})
+    # Parallel with Windows / macOS after prepare; matrix arches run in parallel.
     needs:
       - prepare-release
-      - build-macos-universal
     runs-on: ${{ matrix.platform }}
     permissions:
       contents: write
@@ -669,8 +671,11 @@ jobs:
 
   finalize-legacy-latest:
     name: Finalize legacy latest.json
+    # Wait for every platform build so latest.json is complete.
     needs:
       - prepare-release
+      - build-windows
+      - build-macos-universal
       - build-linux
     runs-on: ubuntu-latest
     permissions:

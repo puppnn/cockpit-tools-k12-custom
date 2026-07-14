@@ -98,14 +98,14 @@ pub fn save_diagnostics_config(
     error_reporting_enabled: bool,
     error_reporting_debug: Option<bool>,
 ) -> Result<(), String> {
-    let current = config::get_user_config();
-    let new_config = config::UserConfig {
-        diagnostics_error_reporting_enabled: error_reporting_enabled,
-        diagnostics_error_reporting_debug: error_reporting_debug
-            .unwrap_or(current.diagnostics_error_reporting_debug),
-        ..current
-    };
-    config::save_user_config(&new_config)
+    config::patch_user_config(move |current| {
+        current.diagnostics_error_reporting_enabled = error_reporting_enabled;
+        if let Some(debug) = error_reporting_debug {
+            current.diagnostics_error_reporting_debug = debug;
+        }
+        Ok(())
+    })?;
+    Ok(())
 }
 
 pub fn install_panic_hook() {

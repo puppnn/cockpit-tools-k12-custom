@@ -6,12 +6,14 @@
     "saving": "Сохранение...",
     "delete": "Удалить",
     "refresh": "Обновить",
+    "reauthorize": "Авторизовать повторно",
     "loading": "Загрузка...",
     "success": "Успешно",
     "failed": "Ошибка",
     "enabled": "Включено",
     "disabled": "Выключено",
     "close": "Закрыть",
+    "back": "Назад",
     "open": "Открыть",
     "copy": "Копировать",
     "copied": "Скопировано",
@@ -124,6 +126,8 @@
         "failed": "Ошибка авторизации",
         "hint": "После авторизации это окно обновится автоматически",
         "openBrowser": "Открыть в браузере",
+        "normalWindow": "Обычное окно",
+        "incognitoWindow": "Приватное окно",
         "success": "Авторизация успешна",
         "meta": "Истекает через: {{expires}}с; интервал опроса: {{interval}}с",
         "preparing": "Подготовка ссылки авторизации...",
@@ -174,7 +178,9 @@
         "resetDone": "Сброшено",
         "hourly": "Квота 5 часов",
         "weekly": "Недельная квота",
-        "resetAt": "Сброс: {{time}}"
+        "resetAt": "Сброс: {{time}}",
+        "expiresAt": "Истекает: {{time}}",
+        "leftPercent": "Осталось {{value}}%"
       },
       "subtitle": "Управляйте аккаунтами GitHub Copilot",
       "time": {
@@ -759,9 +765,13 @@
       "codebuddyCnPathReset": "Сбросить по умолчанию",
       "codebuddyCnPathSelect": "Выбрать",
       "codebuddyCnSettingsTitle": "Настройки CodeBuddy CN",
+      "zcodeAppPath": "Путь запуска ZCode",
+      "zcodeAppPathDesc": "Оставьте пустым для пути по умолчанию",
       "qoderAppPath": "Путь приложения Qoder",
       "qoderAppPathDesc": "Оставьте пустым для использования пути по умолчанию",
       "qoderAppPathPlaceholder": "Путь по умолчанию",
+      "zcodeAutoRefresh": "Автообновление ZCode",
+      "zcodeAutoRefreshDesc": "Интервал фонового обновления квоты",
       "qoderAutoRefresh": "Автообновление квоты Qoder",
       "qoderAutoRefreshDesc": "Частота автоматического обновления в фоне",
       "qoderPathSelect": "Выбрать",
@@ -942,7 +952,7 @@
       "importModalDesc": "Выберите, что импортировать. Старые резервные копии аккаунтов будут обработаны как импорт только данных аккаунтов.",
       "selectionTitle": "Объём данных",
       "accountsOptionTitle": "Данные аккаунтов",
-      "accountsOptionDesc": "Включает резервные копии аккаунтов платформ и сохраняет совместимость со старым JSON аккаунтов.",
+      "accountsOptionDesc": "Включает восстанавливаемые резервные копии аккаунтов и сохраняет совместимость со старым JSON. Учётные данные Grok CLI исключены; импортируйте официальный auth.json отдельно.",
       "configOptionTitle": "Данные конфигурации",
       "configOptionDesc": "Включает настройки приложения, группы, экземпляры, задачи wakeup и конфигурацию провайдеров моделей.",
       "exportConfirm": "Экспортировать данные",
@@ -1954,6 +1964,9 @@
       "customRoutingEdit": "Изменить настраиваемую маршрутизацию",
       "customRoutingTitle": "Настраиваемая маршрутизация",
       "customRoutingDesc": "Задайте приоритет и вес для каждой учетной записи, чтобы управлять порядком выбора и распределением нагрузки на одном уровне.",
+      "customRoutingBackupTitle": "Резервный аккаунт",
+      "customRoutingBackupDesc": "Используется только тогда, когда все обычные аккаунты недоступны. Новые запросы автоматически возвращаются после восстановления обычного аккаунта.",
+      "customRoutingBackupShort": "Резерв",
       "customRoutingPriorityTitle": "Приоритет",
       "customRoutingPriorityDesc": "Более высокие значения выбираются раньше; учетные записи с низким приоритетом пробуются только при недоступности более высоких.",
       "customRoutingWeightTitle": "Вес",
@@ -2108,7 +2121,8 @@
       "enterprise": "ENTERPRISE​"
     },
     "list": {
-      "showCodeReviewQuota": "Показать квоту Code Review"
+      "showCodeReviewQuota": "Показать квоту Code Review",
+      "showAdditionalQuota": "Квоты по моделям"
     },
     "time": {
       "today": "Сегодня {{time}}",
@@ -2129,6 +2143,7 @@
       "hourlyReset": "Время сброса 5-часовой квоты",
       "subscriptionExpiry": "Срок подписки",
       "custom": "Свой порядок",
+      "customSettingsTooltip": "Настроить свой порядок",
       "customModalTitle": "Свой порядок аккаунтов",
       "customModalDesc": "Перетаскивайте аккаунты или используйте кнопки вверх/вниз, чтобы изменить порядок.",
       "customDragHandle": "Перетащить",
@@ -2716,7 +2731,8 @@
         "modelCatalog": "Каталог моделей",
         "visionCapability": "Ввод изображений",
         "visionModels": "Модели с vision",
-        "visionRoutingModel": "Модель для изображений"
+        "visionRoutingModel": "Модель для изображений",
+        "supportsWebsockets": "Передача WebSocket"
       },
       "validation": {
         "nameRequired": "Укажите название провайдера.",
@@ -2952,6 +2968,12 @@
         "customMoveUp": "Вверх",
         "customMoveDown": "Вниз",
         "customReset": "Сбросить порядок"
+      },
+      "websockets": {
+        "title": "Разрешить Codex использовать Responses через WebSocket",
+        "help": "Включайте только при явной поддержке Responses через WebSocket поставщиком; тип соединения можно проверить в журналах Codex или прокси-сервиса.",
+        "enabled": "Включено",
+        "disabled": "Отключено"
       }
     },
     "quickSwitch": {
@@ -3167,6 +3189,15 @@
         "optionsTitle": "Параметры маршрута",
         "sessionAffinity": "Привязка сессии",
         "sessionAffinityTtl": "TTL привязки",
+        "newSessionPriority": "Приоритет для новых сессий",
+        "newSessionPriorityTitle": "Этот пул используется только сессиями без существующей привязки; существующие сессии сохраняют свой аккаунт",
+        "newSessionPriorityAccounts": "Приоритетные аккаунты",
+        "newSessionPriorityAccountsTitle": "Если приоритетный пул недоступен, используется текущая политика маршрутизации",
+        "selectPriorityAccounts": "Выбрать аккаунты",
+        "selectedPriorityAccounts": "Выбрано",
+        "noPriorityAccounts": "Нет доступных аккаунтов",
+        "newSessionPriorityRequiresAffinity": "Перед включением приоритетной маршрутизации новых сессий включите привязку сессии",
+        "newSessionPriorityAccountsRequired": "Выберите хотя бы один приоритетный аккаунт для новых сессий",
         "maxRetryCredentials": "Аккаунты retry",
         "maxRetryInterval": "Ожидание retry",
         "disableCooling": "Отключить cooldown",
@@ -3262,6 +3293,15 @@
       "renameSuccess": "Переименовано",
       "renameFailed": "Не удалось переименовать"
     },
+    "importApiService": {
+      "toggle": "Добавить в API-сервис",
+      "description": "Добавляет подходящие импортированные аккаунты в пул API-сервиса.",
+      "syncFailed": "Аккаунты импортированы, но добавить их в API-сервис не удалось: {{error}}",
+      "guideTitle": "Аккаунты добавлены в API-сервис",
+      "guideDescription": "В API-сервис добавлено аккаунтов: {{count}}. Нажмите «Запустить API-сервис», чтобы переключиться и использовать их.",
+      "later": "Позже",
+      "startAction": "Запустить API-сервис"
+    },
     "batchImport": {
       "title": "Пакетный импорт Codex",
       "resultSubtitle": "Результат импорта",
@@ -3300,7 +3340,8 @@
       "hiddenTask": "Пакетный импорт Codex",
       "taskRunning": "Обработка {{current}} / {{total}}",
       "taskPreview": "Предпросмотр готов: {{total}}",
-      "reopen": "Открыть задачу"
+      "reopen": "Открыть задачу",
+      "dismissTask": "Сбросить"
     },
     "autoRepairMode": {
       "label": "Логика автоисправления",
@@ -3336,6 +3377,17 @@
       "started": "Запущено удаление аккаунтов Codex: {{count}}",
       "pollFailed": "Не удалось обновить ход массового удаления: {{error}}",
       "actionFailed": "Действие массового удаления завершилось ошибкой: {{error}}"
+    },
+    "filters": {
+      "allPlans": "Все планы ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "Фильтр: {{visible}}/{{total}}",
+      "clearAll": "Сбросить",
+      "chipGroup": "Группа",
+      "chipTags": "Теги",
+      "chipSearch": "Поиск",
+      "chipPlan": "План",
+      "chipFolder": "Папка"
     }
   },
   "githubCopilot": {
@@ -3573,6 +3625,14 @@
       "syncWslDesc": "Автоматически перезаписывать конфигурацию .gemini в WSL при переключении аккаунта"
     },
     "geminiRefreshInterval": "Автоматическое обновление квоты",
+    "grok": {
+      "title": "Настройки Grok CLI",
+      "appPath": "Путь к Grok CLI",
+      "cliPath": "Путь к CLI",
+      "cliDetected": "Обнаружено: {{version}} · {{path}}",
+      "cliMissing": "Grok CLI не найден. Укажите свой путь."
+    },
+    "grokRefreshInterval": "Автоматическое обновление квоты",
     "codebuddy": {
       "title": "Настройки CodeBuddy",
       "appPath": "Путь CodeBuddy"
@@ -3598,6 +3658,10 @@
     "workbuddy": {
       "title": "Настройки WorkBuddy",
       "appPath": "Путь WorkBuddy"
+    },
+    "zcode": {
+      "title": "Настройки ZCode",
+      "appPath": "Путь ZCode"
     },
     "zed": {
       "title": "Настройки Zed",
@@ -4590,6 +4654,62 @@
       "recentDates": "Недавние: "
     }
   },
+  "zcode": {
+    "search": "Поиск аккаунтов ZCode...",
+    "flowNotice": {
+      "title": "Управление аккаунтами ZCode",
+      "desc": "Cockpit читает и перезаписывает зашифрованные локальные данные ZCode для реального переключения аккаунтов и привязки экземпляров.",
+      "permission": "Локальный доступ: ~/.zcode/v2/credentials.json и каталоги управляемых экземпляров.",
+      "network": "Сетевой доступ: API OAuth, профиля, подписки и квот. Аккаунты не отправляются в сервис Cockpit."
+    },
+    "empty": "Нет аккаунтов ZCode",
+    "addAccount": "Добавить аккаунт ZCode",
+    "oauth": {
+      "desc": "Закройте ZCode и войдите через окно авторизации Cockpit; Cockpit получит обратный вызов напрямую.",
+      "title": "OAuth ZCode",
+      "item1": "Официальный вход через Z.ai и BigModel.",
+      "item2": "Сохраняет аккаунт и обновляет тариф и квоты моделей.",
+      "item3": "Используйте аккаунты для смены клиента и привязки экземпляров.",
+      "urlPlaceholder": "URL OAuth ZCode",
+      "waiting": "Ожидание обратного вызова OAuth ZCode...",
+      "openWindow": "Открыть окно авторизации",
+      "provider": "Сервис входа",
+      "success": "Вход через OAuth ZCode выполнен"
+    },
+    "token": {
+      "desc": "Вставьте JSON аккаунта ZCode, экспортированный из Cockpit."
+    },
+    "apiKey": {
+      "tab": "Ключ API",
+      "desc": "Добавьте официальный ключ API Z.ai или BigModel. При смене аккаунта и для управляемых экземпляров он записывается в их config.json.",
+      "placeholder": "Вставьте ключ API",
+      "add": "Добавить ключ API",
+      "provider": "Сервис ключа API"
+    },
+    "import": {
+      "localDesc": "Импортируйте зашифрованные локальные данные ZCode или файл JSON.",
+      "localClient": "Импорт из локального ZCode"
+    },
+    "usageNormal": "Норма",
+    "usageAbnormal": "Ошибка",
+    "usageViewDetail": "Подробнее",
+    "usageDetailTitle": "Сведения об использовании",
+    "usage": "Использование",
+    "quota": {
+      "models": "Квота моделей",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "Обновлено: {{time}}",
+      "expireAt": "Истекает: {{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Не удалось получить квоту",
+      "empty": "Нет данных о квоте",
+      "sectionTitle": "Квота"
+    },
+    "instances": {
+      "unsupported": "Несколько экземпляров ZCode доступны только в macOS, Windows и Linux."
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Добавить аккаунт Zed"
@@ -4694,6 +4814,7 @@
     "errors": {
       "refreshFailed": "Не удалось обновить: {{error}}",
       "switchFailed": "Не удалось переключить: {{error}}",
+      "stopInstanceBeforeSwitch": "Остановите инстанс перед сменой аккаунта",
       "pinFailed": "Не удалось обновить состояние закрепления: {{error}}",
       "closeFailed": "Не удалось закрыть: {{error}}"
     },
@@ -4956,6 +5077,86 @@
     },
     "copyKey": "Copy Key​",
     "clearKey": "Clear input​"
+  },
+  "grok": {
+    "search": "Поиск аккаунтов Grok CLI...",
+    "flowNotice": {
+      "title": "Управление аккаунтами Grok CLI",
+      "desc": "Cockpit управляет аккаунтами в официальном формате учётных данных Grok CLI для фактического переключения аккаунта по умолчанию и привязки изолированных экземпляров.",
+      "permission": "Локальный доступ: чтение стандартного ~/.grok/auth.json и управление отдельными каталогами аккаунтов Grok и GROK_HOME в локальных данных Cockpit.",
+      "network": "Сетевой доступ: авторизация OAuth, обновление учётных данных и запрос использования аккаунта. Учётные данные не отправляются в службы Cockpit."
+    },
+    "empty": "Аккаунтов Grok CLI пока нет",
+    "addAccount": "Добавить аккаунт Grok CLI",
+    "oauth": {
+      "desc": "Откройте страницу авторизации xAI и введите код устройства. После этого аккаунт сохранится автоматически.",
+      "title": "OAuth на устройстве Grok",
+      "item1": "Использует официальный поток устройства Grok CLI, не занимая локальный порт обратного вызова.",
+      "item2": "После авторизации сохраняет отдельный GROK_HOME и поддерживает действительность учётных данных.",
+      "item3": "Аккаунты могут переключать CLI по умолчанию или работать во взаимно изолированных экземплярах.",
+      "urlPlaceholder": "Адрес авторизации OAuth Grok",
+      "waiting": "Ожидание авторизации OAuth Grok...",
+      "openWindow": "Открыть авторизацию",
+      "success": "Вход через OAuth Grok выполнен"
+    },
+    "import": {
+      "pasteTab": "Вставить JSON",
+      "pasteDesc": "Вставьте официальный auth.json из Grok CLI. Учётные данные обрабатываются только локальным сервером. Cockpit экспортирует лишь скрытые метаданные, по которым нельзя восстановить вход.",
+      "pastePlaceholder": "Вставить JSON аккаунта Grok",
+      "pasteAction": "Импортировать JSON",
+      "localDesc": "Импортируйте текущий аккаунт из стандартного ~/.grok/auth.json. При выборе файла используйте официальный auth.json из Grok CLI.",
+      "localClient": "Импортировать из локального Grok CLI",
+      "apiKeyTab": "Ключ API",
+      "apiKeyDesc": "Вставьте xAI API key (официальный XAI_API_KEY). Подставляется при запуске. Можно также вставить официальный auth.json для OAuth.",
+      "apiKeyPlaceholder": "вставьте xai-…",
+      "apiKeyAction": "Добавить API Key"
+    },
+    "instances": {
+      "unsupported": "Несколько экземпляров Grok CLI поддерживаются только в macOS, Windows и Linux.",
+      "launchDialogTitle": "Запустить экземпляр",
+      "launchHint": "Скопируйте команду для ручного запуска или выполните её прямо в терминале.",
+      "runInTerminal": "Запустить в терминале",
+      "cliReady": "Обнаружен",
+      "cliMissingShort": "Не обнаружен",
+      "cliPathInvalid": "Указанный путь к Grok CLI недействителен: {{path}}",
+      "saveAndRetry": "Сохранить и повторить",
+      "installCommand": "Официальная команда установки",
+      "installHint": "Выполните указанную ниже официальную команду в терминале, а после установки нажмите «Обновить».",
+      "selectWorkingDir": "Выберите рабочую папку Grok CLI",
+      "workingDirAccountHint": "Рабочая папка привязана к этому аккаунту и будет восстановлена при следующем запуске.",
+      "launchCommandPlaceholder": "Выберите или подтвердите папку, чтобы сформировать команду запуска"
+    },
+    "switch": {
+      "success": "Аккаунт переключён"
+    },
+    "usageNormal": "В порядке",
+    "usageAbnormal": "Есть отклонения",
+    "usageViewDetail": "Показать сведения",
+    "usageDetailTitle": "Сведения об использовании",
+    "usage": "Использование",
+    "quotaQuery": {
+      "failedRefreshCompact": "Не удалось запросить квоту",
+      "empty": "Нет данных о квоте",
+      "sectionTitle": "Квота"
+    },
+    "quota": {
+      "weekly": "Недельное использование",
+      "onDemand": "Использование по запросу",
+      "balance": "Баланс и кредиты",
+      "included": "Включённое использование",
+      "promotional": "Промоквота",
+      "frequent": "Частые задачи",
+      "occasional": "Обычные задачи",
+      "resetAt": "{{label}} сброс: {{time}}",
+      "empty": "Нет квоты",
+      "apiKeyUnsupported": "У API Key-аккаунтов нет квоты подписки"
+    },
+    "quotaAlert": {
+      "hint": "Если любой элемент квоты текущей учётной записи опустится ниже порога, будет отправлено системное уведомление, а в приложении появится действие быстрого переключения.",
+      "thresholdDesc": "Предупреждать, когда любой элемент квоты опускается ниже этого процента",
+      "items": "Элементы квоты",
+      "unknownItem": "Неизвестный элемент квоты"
+    }
   },
   "claude": {
     "import": {

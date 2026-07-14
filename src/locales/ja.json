@@ -6,12 +6,14 @@
     "saving": "保存中...",
     "delete": "削除",
     "refresh": "更新",
+    "reauthorize": "再認証",
     "loading": "読み込み中...",
     "success": "成功",
     "failed": "失敗",
     "enabled": "有効",
     "disabled": "無効",
     "close": "閉じる",
+    "back": "戻る",
     "open": "開く",
     "copy": "コピー",
     "copied": "コピー済み",
@@ -124,6 +126,8 @@
         "failed": "認可失敗",
         "hint": "認可完了後、このウィンドウは自動更新されます",
         "openBrowser": "ブラウザで開く",
+        "normalWindow": "通常ウィンドウ",
+        "incognitoWindow": "シークレット",
         "success": "認可成功",
         "meta": "有効期限: {{expires}}s; ポーリング間隔: {{interval}}s",
         "preparing": "認可リンクを準備中...",
@@ -174,7 +178,9 @@
         "resetDone": "リセット済み",
         "hourly": "5 時間クォータ",
         "weekly": "週次クォータ",
-        "resetAt": "リセット: {{time}}"
+        "resetAt": "リセット: {{time}}",
+        "expiresAt": "有効期限：{{time}}",
+        "leftPercent": "残り {{value}}%"
       },
       "subtitle": "GitHub Copilot アカウントを管理します",
       "time": {
@@ -759,9 +765,13 @@
       "codebuddyCnPathReset": "デフォルトにリセット",
       "codebuddyCnPathSelect": "選択",
       "codebuddyCnSettingsTitle": "CodeBuddy CN 設定",
+      "zcodeAppPath": "ZCode 起動パス",
+      "zcodeAppPathDesc": "空欄の場合は既定のパスを使用します",
       "qoderAppPath": "Qoder 起動パス",
       "qoderAppPathDesc": "空欄の場合はデフォルトパスを使用",
       "qoderAppPathPlaceholder": "デフォルトパス",
+      "zcodeAutoRefresh": "ZCode 自動更新",
+      "zcodeAutoRefreshDesc": "バックグラウンドでのクォータ更新間隔",
       "qoderAutoRefresh": "Qoder 自動配額更新",
       "qoderAutoRefreshDesc": "バックグラウンド自動更新頻度",
       "qoderPathSelect": "選択",
@@ -942,7 +952,7 @@
       "importModalDesc": "インポートする内容を選択してください。旧形式のアカウントバックアップは「アカウントデータのみ」として扱われます。",
       "selectionTitle": "データ範囲",
       "accountsOptionTitle": "アカウントデータ",
-      "accountsOptionDesc": "各プラットフォームのアカウントバックアップを含み、旧形式のアカウント JSON との互換性も維持します。",
+      "accountsOptionDesc": "復元可能な各プラットフォームのアカウントバックアップを含み、旧形式の JSON との互換性も維持します。Grok CLI の認証情報は含まれないため、公式の auth.json を別途インポートしてください。",
       "configOptionTitle": "設定データ",
       "configOptionDesc": "アプリ設定、グループ、インスタンス、Wakeup タスク、モデルプロバイダー設定を含みます。",
       "exportConfirm": "データをエクスポート",
@@ -1954,6 +1964,9 @@
       "customRoutingEdit": "カスタムルーティングを編集",
       "customRoutingTitle": "カスタムルーティング",
       "customRoutingDesc": "アカウントごとに優先度と重みを設定し、選択順と同じ優先度内の負荷配分を制御します。",
+      "customRoutingBackupTitle": "予備アカウント",
+      "customRoutingBackupDesc": "通常アカウントがすべて利用できない場合のみ使用します。通常アカウントが復旧すると、新しいリクエストは自動的に切り戻されます。",
+      "customRoutingBackupShort": "予備",
       "customRoutingPriorityTitle": "優先度",
       "customRoutingPriorityDesc": "値が高いほど先に選ばれます。高優先度のアカウントが使えない場合にのみ低優先度を試します。",
       "customRoutingWeightTitle": "重み",
@@ -2108,7 +2121,8 @@
       "enterprise": "ENTERPRISE​"
     },
     "list": {
-      "showCodeReviewQuota": "Code Review 配額を表示"
+      "showCodeReviewQuota": "Code Review 配額を表示",
+      "showAdditionalQuota": "モデル専用枠を表示"
     },
     "time": {
       "today": "今日 {{time}}",
@@ -2129,6 +2143,7 @@
       "hourlyReset": "5時間クォータのリセット時間",
       "subscriptionExpiry": "契約期限",
       "custom": "カスタム順",
+      "customSettingsTooltip": "カスタム順を設定",
       "customModalTitle": "アカウントのカスタム順",
       "customModalDesc": "アカウントをドラッグするか上下ボタンで表示順を調整します。",
       "customDragHandle": "ドラッグして並べ替え",
@@ -2716,7 +2731,8 @@
         "modelCatalog": "モデルカタログ",
         "visionCapability": "画像入力",
         "visionModels": "画像対応モデル",
-        "visionRoutingModel": "画像ルートモデル"
+        "visionRoutingModel": "画像ルートモデル",
+        "supportsWebsockets": "WebSocket 転送"
       },
       "validation": {
         "nameRequired": "プロバイダー名は必須です。",
@@ -2952,6 +2968,12 @@
         "customMoveUp": "上へ",
         "customMoveDown": "下へ",
         "customReset": "順序をリセット"
+      },
+      "websockets": {
+        "title": "Codex に Responses WebSocket の使用を許可",
+        "help": "プロバイダーが Responses WebSocket を明示的にサポートしている場合のみ有効にしてください。接続方式は Codex またはプロキシサービスのログで確認できます。",
+        "enabled": "有効",
+        "disabled": "無効"
       }
     },
     "quickSwitch": {
@@ -3167,6 +3189,15 @@
         "optionsTitle": "ルーティング設定",
         "sessionAffinity": "セッション固定",
         "sessionAffinityTtl": "固定 TTL",
+        "newSessionPriority": "新規セッションを優先",
+        "newSessionPriorityTitle": "まだアカウントに固定されていないセッションだけがこのプールを使用します。既存のセッションは元のアカウントを使い続けます",
+        "newSessionPriorityAccounts": "優先アカウント",
+        "newSessionPriorityAccountsTitle": "優先プールが利用できない場合は、現在のルーティングポリシーにフォールバックします",
+        "selectPriorityAccounts": "アカウントを選択",
+        "selectedPriorityAccounts": "選択済み",
+        "noPriorityAccounts": "利用可能なアカウントがありません",
+        "newSessionPriorityRequiresAffinity": "新規セッションの優先ルーティングを有効にする前に、セッション固定を有効にしてください",
+        "newSessionPriorityAccountsRequired": "新規セッション用の優先アカウントを1つ以上選択してください",
         "maxRetryCredentials": "再試行アカウント",
         "maxRetryInterval": "再試行待ち",
         "disableCooling": "クールダウン無効",
@@ -3262,6 +3293,15 @@
       "renameSuccess": "名前を変更しました",
       "renameFailed": "名前の変更に失敗しました"
     },
+    "importApiService": {
+      "toggle": "API サービスに追加",
+      "description": "条件を満たすインポート済みアカウントを API サービスのアカウントプールに追加します。",
+      "syncFailed": "アカウントはインポートされましたが、API サービスへの追加に失敗しました：{{error}}",
+      "guideTitle": "API サービスに追加しました",
+      "guideDescription": "{{count}} 件のアカウントを API サービスに追加しました。「API サービスを起動」をクリックすると切り替えて使用できます。",
+      "later": "後で",
+      "startAction": "API サービスを起動"
+    },
     "batchImport": {
       "title": "Codex 一括インポート",
       "resultSubtitle": "インポート結果",
@@ -3300,7 +3340,8 @@
       "hiddenTask": "Codex 一括インポートタスク",
       "taskRunning": "{{current}} / {{total}} 件を処理中",
       "taskPreview": "{{total}} 件のプレビューを作成済み",
-      "reopen": "タスクを表示"
+      "reopen": "タスクを表示",
+      "dismissTask": "破棄"
     },
     "autoRepairMode": {
       "label": "自動修復ロジック",
@@ -3336,6 +3377,17 @@
       "started": "{{count}} 件の Codex アカウント削除を開始しました",
       "pollFailed": "一括削除の進行状況を更新できません: {{error}}",
       "actionFailed": "一括削除操作に失敗しました: {{error}}"
+    },
+    "filters": {
+      "allPlans": "全プラン ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "フィルター表示 {{visible}}/{{total}}",
+      "clearAll": "解除",
+      "chipGroup": "グループ",
+      "chipTags": "タグ",
+      "chipSearch": "検索",
+      "chipPlan": "プラン",
+      "chipFolder": "フォルダ"
     }
   },
   "githubCopilot": {
@@ -3573,6 +3625,14 @@
       "syncWslDesc": "アカウント切り替え時に WSL 内の .gemini 設定を自動で上書きします"
     },
     "geminiRefreshInterval": "クォータ自動更新",
+    "grok": {
+      "title": "Grok CLI 設定",
+      "appPath": "Grok CLI のパス",
+      "cliPath": "CLI のパス",
+      "cliDetected": "検出済み: {{version}} · {{path}}",
+      "cliMissing": "Grok CLI が見つかりません。任意のパスを入力してください。"
+    },
+    "grokRefreshInterval": "クォータ自動更新",
     "codebuddy": {
       "title": "CodeBuddy 設定",
       "appPath": "CodeBuddy パス"
@@ -3598,6 +3658,10 @@
     "workbuddy": {
       "title": "WorkBuddy 設定",
       "appPath": "WorkBuddy パス"
+    },
+    "zcode": {
+      "title": "ZCode 設定",
+      "appPath": "ZCode パス"
     },
     "zed": {
       "title": "Zed 設定",
@@ -4590,6 +4654,62 @@
       "recentDates": "最近: "
     }
   },
+  "zcode": {
+    "search": "ZCode アカウントを検索...",
+    "flowNotice": {
+      "title": "ZCode アカウント管理について",
+      "desc": "Cockpit は ZCode の暗号化されたローカル認証情報を読み書きし、実際のアカウント切替とインスタンス連携に使用します。",
+      "permission": "ローカル範囲：~/.zcode/v2/credentials.json と管理対象インスタンスのディレクトリ。",
+      "network": "ネットワーク範囲：OAuth、ユーザー情報、サブスクリプション、クォータ API。アカウントを Cockpit サービスへ送信しません。"
+    },
+    "empty": "ZCode アカウントはありません",
+    "addAccount": "ZCode アカウントを追加",
+    "oauth": {
+      "desc": "ZCode を終了し、Cockpit の認証ウィンドウでログインしてください。コールバックは Cockpit が直接受信します。",
+      "title": "ZCode OAuth 認証",
+      "item1": "Z.ai と BigModel の公式ログインに対応。",
+      "item2": "認証後にアカウントを保存し、プランとモデルクォータを更新。",
+      "item3": "標準クライアントの切替と複数インスタンスの連携に使用可能。",
+      "urlPlaceholder": "ZCode OAuth 認証 URL",
+      "waiting": "ZCode OAuth コールバックを待機中...",
+      "openWindow": "認証ウィンドウを開く",
+      "provider": "ログインサービス",
+      "success": "ZCode OAuth ログインに成功しました"
+    },
+    "token": {
+      "desc": "Cockpit からエクスポートした ZCode アカウント JSON を貼り付けます。"
+    },
+    "apiKey": {
+      "tab": "API キー",
+      "desc": "Z.ai または BigModel の公式 API キーを追加します。アカウント切り替えや管理対象インスタンスでは、それぞれの config.json に書き込みます。",
+      "placeholder": "API キーを貼り付け",
+      "add": "API キーを追加",
+      "provider": "API キーサービス"
+    },
+    "import": {
+      "localDesc": "ローカルの暗号化された ZCode 認証情報または JSON ファイルからインポートします。",
+      "localClient": "ローカル ZCode からインポート"
+    },
+    "usageNormal": "正常",
+    "usageAbnormal": "エラー",
+    "usageViewDetail": "詳細",
+    "usageDetailTitle": "使用状況の詳細",
+    "usage": "使用状況",
+    "quota": {
+      "models": "モデルクォータ",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "更新：{{time}}",
+      "expireAt": "有効期限：{{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "クォータ取得失敗",
+      "empty": "クォータデータなし",
+      "sectionTitle": "クォータ"
+    },
+    "instances": {
+      "unsupported": "ZCode の複数インスタンスは macOS、Windows、Linux のみ対応しています。"
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Zed アカウントを追加"
@@ -4694,6 +4814,7 @@
     "errors": {
       "refreshFailed": "更新に失敗しました: {{error}}",
       "switchFailed": "切り替えに失敗しました: {{error}}",
+      "stopInstanceBeforeSwitch": "アカウントを切り替える前にインスタンスを停止してください",
       "pinFailed": "固定状態の更新に失敗しました: {{error}}",
       "closeFailed": "閉じる操作に失敗しました: {{error}}"
     },
@@ -4956,6 +5077,86 @@
     },
     "copyKey": "Copy Key​",
     "clearKey": "Clear input​"
+  },
+  "grok": {
+    "search": "Grok CLI アカウントを検索...",
+    "flowNotice": {
+      "title": "Grok CLI アカウント管理",
+      "desc": "Cockpit は Grok CLI 公式の認証情報形式でアカウントを管理し、既定アカウントの実切り替えと分離インスタンスへの割り当てに使用します。",
+      "permission": "ローカル範囲: 既定の ~/.grok/auth.json を読み取り、Cockpit のローカルデータ内で個別の Grok アカウントと GROK_HOME ディレクトリを管理します。",
+      "network": "ネットワーク範囲: OAuth 認証、認証情報の更新、アカウント使用量の照会。認証情報を Cockpit サービスへアップロードすることはありません。"
+    },
+    "empty": "Grok CLI アカウントはありません",
+    "addAccount": "Grok CLI アカウントを追加",
+    "oauth": {
+      "desc": "xAI の認証ページを開いてデバイスコードを入力します。完了後、アカウントは自動保存されます。",
+      "title": "Grok デバイス OAuth",
+      "item1": "ローカルのコールバックポートを使わず、Grok CLI 公式のデバイスフローを使用します。",
+      "item2": "認証後に個別の GROK_HOME を保存し、認証情報の有効性を維持します。",
+      "item3": "既定 CLI の切り替えや、相互に分離された複数インスタンスで使用できます。",
+      "urlPlaceholder": "Grok OAuth 認証 URL",
+      "waiting": "Grok OAuth 認証を待機中...",
+      "openWindow": "認証ページを開く",
+      "success": "Grok OAuth ログインに成功しました"
+    },
+    "import": {
+      "pasteTab": "JSON を貼り付け",
+      "pasteDesc": "Grok CLI 公式の auth.json を貼り付けます。認証情報はローカルバックエンド内だけで処理されます。Cockpit のエクスポートはマスク済みメタデータのみで、ログインの復元には使えません。",
+      "pastePlaceholder": "Grok アカウントの JSON を貼り付け",
+      "pasteAction": "JSON をインポート",
+      "localDesc": "既定の ~/.grok/auth.json から現在のアカウントをインポートします。ファイルを選ぶ場合は Grok CLI 公式の auth.json を使用してください。",
+      "localClient": "ローカルの Grok CLI からインポート",
+      "apiKeyTab": "APIキー",
+      "apiKeyDesc": "xAI API キー（公式 XAI_API_KEY）を貼り付けます。起動時に環境変数へ注入します。公式 auth.json の貼り付けも可能です。",
+      "apiKeyPlaceholder": "xai- で始まるキー",
+      "apiKeyAction": "API Key を追加"
+    },
+    "instances": {
+      "unsupported": "Grok CLI の複数インスタンスは macOS、Windows、Linux のみ対応しています。",
+      "launchDialogTitle": "インスタンスを起動",
+      "launchHint": "コマンドをコピーして手動実行するか、ターミナルで直接実行できます。",
+      "runInTerminal": "ターミナルで実行",
+      "cliReady": "検出済み",
+      "cliMissingShort": "未検出",
+      "cliPathInvalid": "設定された Grok CLI のパスが無効です：{{path}}",
+      "saveAndRetry": "保存して再試行",
+      "installCommand": "公式インストールコマンド",
+      "installHint": "ターミナルで次の公式コマンドを実行し、インストール完了後に更新してください。",
+      "selectWorkingDir": "Grok CLI の作業ディレクトリを選択",
+      "workingDirAccountHint": "作業ディレクトリはこのアカウントに紐づき、次回起動時に復元されます。",
+      "launchCommandPlaceholder": "作業ディレクトリを選択または確認すると起動コマンドを生成します"
+    },
+    "switch": {
+      "success": "アカウントを切り替えました"
+    },
+    "usageNormal": "正常",
+    "usageAbnormal": "異常",
+    "usageViewDetail": "詳細を表示",
+    "usageDetailTitle": "使用量の詳細",
+    "usage": "使用量",
+    "quotaQuery": {
+      "failedRefreshCompact": "クォータの照会に失敗しました",
+      "empty": "クォータデータがありません",
+      "sectionTitle": "クォータ"
+    },
+    "quota": {
+      "weekly": "週間使用量",
+      "onDemand": "従量使用量",
+      "balance": "残高とクレジット",
+      "included": "プラン内使用量",
+      "promotional": "キャンペーン枠",
+      "frequent": "高頻度タスク",
+      "occasional": "通常タスク",
+      "resetAt": "{{label}} リセット：{{time}}",
+      "empty": "枠なし",
+      "apiKeyUnsupported": "API Key アカウントにプラン枠はありません"
+    },
+    "quotaAlert": {
+      "hint": "現在のアカウントのいずれかのクォータ項目がしきい値を下回った場合、ネイティブ通知を送信し、アプリにクイック切り替え操作を表示します。",
+      "thresholdDesc": "いずれかのクォータ項目がこの割合を下回ったときに警告します",
+      "items": "対象クォータ項目",
+      "unknownItem": "不明なクォータ項目"
+    }
   },
   "claude": {
     "import": {

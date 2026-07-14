@@ -7,11 +7,13 @@ import { WindsurfIcon } from '../icons/WindsurfIcon';
 import { KiroIcon } from '../icons/KiroIcon';
 import { CursorIcon } from '../icons/CursorIcon';
 import { GeminiIcon } from '../icons/GeminiIcon';
+import { GrokIcon } from '../icons/GrokIcon';
 import { CodebuddyIcon } from '../icons/CodebuddyIcon';
 import { QoderIcon } from '../icons/QoderIcon';
 import { TraeCnIcon, TraeIcon, TraeSoloCnIcon, TraeSoloIcon } from '../icons/TraeIcon';
 import { WorkbuddyIcon } from '../icons/WorkbuddyIcon';
 import { ZedIcon } from '../icons/ZedIcon';
+import { ZcodeIcon } from '../icons/ZcodeIcon';
 import { ManualHelpIconButton } from '../ManualHelpIconButton';
 import { PlatformId } from '../../types/platform';
 import {
@@ -33,9 +35,11 @@ export type PlatformOverviewHeaderId =
   | 'kiro'
   | 'cursor'
   | 'gemini'
+  | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'
+  | 'zcode'
   | 'trae'
   | 'trae_solo'
   | 'trae_cn'
@@ -93,6 +97,10 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
     platformLabel: 'Gemini Cli',
     overviewIcon: <GeminiIcon className="tab-icon" />,
   },
+  grok: {
+    platformLabel: 'Grok CLI',
+    overviewIcon: <GrokIcon className="tab-icon" />,
+  },
   codebuddy: {
     platformLabel: 'CodeBuddy',
     overviewIcon: <CodebuddyIcon className="tab-icon" />,
@@ -104,6 +112,10 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
   qoder: {
     platformLabel: 'Qoder',
     overviewIcon: <QoderIcon className="tab-icon" />,
+  },
+  zcode: {
+    platformLabel: 'ZCode',
+    overviewIcon: <ZcodeIcon className="tab-icon" />,
   },
   trae: {
     platformLabel: 'Trae',

@@ -12,9 +12,11 @@ const TRAY_MIGRATED_PLATFORM_IDS: PlatformId[] = [
   'kiro',
   'cursor',
   'gemini',
+  'grok',
   'codebuddy',
   'codebuddy_cn',
   'qoder',
+  'zcode',
   'trae',
   'trae_solo',
   'trae_cn',
@@ -431,6 +433,9 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
   if (fallbackPlatform === 'qoder') {
     return 'Qoder';
   }
+  if (fallbackPlatform === 'zcode') {
+    return 'ZCode';
+  }
   if (fallbackPlatform === 'trae') {
     return 'Trae';
   }
@@ -445,6 +450,9 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
   }
   if (fallbackPlatform === 'gemini') {
     return 'Gemini Cli';
+  }
+  if (fallbackPlatform === 'grok') {
+    return 'Grok CLI';
   }
   return fallbackPlatform.charAt(0).toUpperCase() + fallbackPlatform.slice(1);
 }

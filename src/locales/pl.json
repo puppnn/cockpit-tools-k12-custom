@@ -6,12 +6,14 @@
     "saving": "Zapisywanie...",
     "delete": "Usuń",
     "refresh": "Odśwież",
+    "reauthorize": "Autoryzuj ponownie",
     "loading": "Ładowanie...",
     "success": "Sukces",
     "failed": "Błąd",
     "enabled": "Włączone",
     "disabled": "Wyłączone",
     "close": "Zamknij",
+    "back": "Wstecz",
     "open": "Otwórz",
     "copy": "Kopiuj",
     "copied": "Skopiowano",
@@ -124,6 +126,8 @@
         "failed": "Autoryzacja nieudana",
         "hint": "Po autoryzacji to okno zaktualizuje się automatycznie",
         "openBrowser": "Otwórz w przeglądarce",
+        "normalWindow": "Zwykłe okno",
+        "incognitoWindow": "Okno prywatne",
         "success": "Autoryzacja udana",
         "meta": "Wygasa za: {{expires}}s; interwał odpytywania: {{interval}}s",
         "preparing": "Przygotowywanie linku autoryzacji...",
@@ -174,7 +178,9 @@
         "resetDone": "Zresetowano",
         "hourly": "Limit 5 godzin",
         "weekly": "Limit tygodniowy",
-        "resetAt": "Odnowienie: {{time}}"
+        "resetAt": "Odnowienie: {{time}}",
+        "expiresAt": "Wygasa: {{time}}",
+        "leftPercent": "Pozostało {{value}}%"
       },
       "subtitle": "Zarządzaj kontami GitHub Copilot",
       "time": {
@@ -759,9 +765,13 @@
       "codebuddyCnPathReset": "Przywróć domyślne",
       "codebuddyCnPathSelect": "Wybierz",
       "codebuddyCnSettingsTitle": "Ustawienia CodeBuddy CN",
+      "zcodeAppPath": "Ścieżka uruchamiania ZCode",
+      "zcodeAppPathDesc": "Pozostaw puste, aby użyć ścieżki domyślnej",
       "qoderAppPath": "Ścieżka aplikacji Qoder",
       "qoderAppPathDesc": "Pozostaw puste, aby użyć domyślnej ścieżki",
       "qoderAppPathPlaceholder": "Domyślna ścieżka",
+      "zcodeAutoRefresh": "Automatyczne odświeżanie ZCode",
+      "zcodeAutoRefreshDesc": "Interwał odświeżania limitu w tle",
       "qoderAutoRefresh": "Automatyczne odświeżanie limitu Qoder",
       "qoderAutoRefreshDesc": "Częstotliwość automatycznego odświeżania w tle",
       "qoderPathSelect": "Wybierz",
@@ -942,7 +952,7 @@
       "importModalDesc": "Wybierz, co chcesz zaimportować. Starsze kopie kont są obsługiwane jako import tylko danych kont.",
       "selectionTitle": "Zakres danych",
       "accountsOptionTitle": "Dane kont",
-      "accountsOptionDesc": "Zawiera kopie zapasowe kont platform i zachowuje zgodność ze starszym JSON-em kont.",
+      "accountsOptionDesc": "Zawiera odtwarzalne kopie zapasowe kont platform i zachowuje zgodność ze starszym JSON-em. Dane logowania Grok CLI są wykluczone; oficjalny plik auth.json zaimportuj osobno.",
       "configOptionTitle": "Dane konfiguracji",
       "configOptionDesc": "Zawiera ustawienia aplikacji, grupy, instancje, zadania wakeup i konfigurację dostawców modeli.",
       "exportConfirm": "Eksportuj dane",
@@ -1954,6 +1964,9 @@
       "customRoutingEdit": "Edytuj niestandardowe routowanie",
       "customRoutingTitle": "Niestandardowe routowanie",
       "customRoutingDesc": "Ustaw priorytet i wagę dla konta, aby sterować kolejnością wyboru oraz rozkładem obciążenia przy tym samym priorytecie.",
+      "customRoutingBackupTitle": "Konto zapasowe",
+      "customRoutingBackupDesc": "Jest używane tylko wtedy, gdy wszystkie zwykłe konta są niedostępne. Nowe żądania automatycznie wracają po odzyskaniu zwykłego konta.",
+      "customRoutingBackupShort": "Zapasowe",
       "customRoutingPriorityTitle": "Priorytet",
       "customRoutingPriorityDesc": "Wyższe wartości są wybierane wcześniej; konta o niższym priorytecie są próbowane dopiero, gdy wyższe są niedostępne.",
       "customRoutingWeightTitle": "Waga",
@@ -2108,7 +2121,8 @@
       "enterprise": "ENTERPRISE​"
     },
     "list": {
-      "showCodeReviewQuota": "Pokaż limit Code Review"
+      "showCodeReviewQuota": "Pokaż limit Code Review",
+      "showAdditionalQuota": "Limity modeli"
     },
     "time": {
       "today": "Dzisiaj {{time}}",
@@ -2129,6 +2143,7 @@
       "hourlyReset": "Czas resetu 5-godzinnego",
       "subscriptionExpiry": "Koniec subskrypcji",
       "custom": "Własna kolejność",
+      "customSettingsTooltip": "Skonfiguruj własną kolejność",
       "customModalTitle": "Własna kolejność kont",
       "customModalDesc": "Przeciągnij konta albo użyj przycisków góra/dół, aby zmienić kolejność.",
       "customDragHandle": "Przeciągnij",
@@ -2716,7 +2731,8 @@
         "modelCatalog": "Katalog modeli",
         "visionCapability": "Wejście obrazów",
         "visionModels": "Modele wizyjne",
-        "visionRoutingModel": "Model obrazów"
+        "visionRoutingModel": "Model obrazów",
+        "supportsWebsockets": "Transport WebSocket"
       },
       "validation": {
         "nameRequired": "Nazwa dostawcy jest wymagana.",
@@ -2952,6 +2968,12 @@
         "customMoveUp": "W górę",
         "customMoveDown": "W dół",
         "customReset": "Resetuj kolejność"
+      },
+      "websockets": {
+        "title": "Zezwalaj Codex na używanie Responses przez WebSocket",
+        "help": "Włącz tylko wtedy, gdy dostawca jawnie obsługuje Responses przez WebSocket; sprawdź sposób połączenia w dziennikach Codex lub usługi proxy.",
+        "enabled": "Włączono",
+        "disabled": "Wyłączono"
       }
     },
     "quickSwitch": {
@@ -3167,6 +3189,15 @@
         "optionsTitle": "Opcje routingu",
         "sessionAffinity": "Przywiązanie sesji",
         "sessionAffinityTtl": "TTL przywiązania",
+        "newSessionPriority": "Preferuj nowe sesje",
+        "newSessionPriorityTitle": "Z tej puli korzystają tylko sesje, które nie są jeszcze przywiązane do konta; istniejące sesje pozostają na swoim koncie",
+        "newSessionPriorityAccounts": "Preferowane konta",
+        "newSessionPriorityAccountsTitle": "Gdy preferowana pula jest niedostępna, używana jest bieżąca polityka routingu",
+        "selectPriorityAccounts": "Wybierz konta",
+        "selectedPriorityAccounts": "Wybrane",
+        "noPriorityAccounts": "Brak dostępnych kont",
+        "newSessionPriorityRequiresAffinity": "Przed włączeniem preferowanego routingu nowych sesji włącz przywiązanie sesji",
+        "newSessionPriorityAccountsRequired": "Wybierz co najmniej jedno preferowane konto dla nowych sesji",
         "maxRetryCredentials": "Konta retry",
         "maxRetryInterval": "Czas retry",
         "disableCooling": "Wyłącz cooldown",
@@ -3262,6 +3293,15 @@
       "renameSuccess": "Zmieniono nazwę",
       "renameFailed": "Nie udało się zmienić nazwy"
     },
+    "importApiService": {
+      "toggle": "Dodaj do usługi API",
+      "description": "Dodaje kwalifikujące się zaimportowane konta do puli usługi API.",
+      "syncFailed": "Konta zaimportowano, ale nie udało się dodać ich do usługi API: {{error}}",
+      "guideTitle": "Konta dodane do usługi API",
+      "guideDescription": "Dodano {{count}} kont do usługi API. Wybierz „Uruchom usługę API”, aby się przełączyć i ich używać.",
+      "later": "Później",
+      "startAction": "Uruchom usługę API"
+    },
     "batchImport": {
       "title": "Import zbiorczy Codex",
       "resultSubtitle": "Wynik importu",
@@ -3300,7 +3340,8 @@
       "hiddenTask": "Import zbiorczy Codex",
       "taskRunning": "Przetwarzanie {{current}} / {{total}}",
       "taskPreview": "Gotowe podglądy: {{total}}",
-      "reopen": "Pokaż zadanie"
+      "reopen": "Pokaż zadanie",
+      "dismissTask": "Odrzuć"
     },
     "autoRepairMode": {
       "label": "Logika autonaprawy",
@@ -3336,6 +3377,17 @@
       "started": "Rozpoczęto usuwanie kont Codex: {{count}}",
       "pollFailed": "Nie udało się odświeżyć postępu usuwania: {{error}}",
       "actionFailed": "Akcja usuwania zbiorczego nie powiodła się: {{error}}"
+    },
+    "filters": {
+      "allPlans": "Wszystkie ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "Filtry: {{visible}}/{{total}}",
+      "clearAll": "Wyczyść",
+      "chipGroup": "Grupa",
+      "chipTags": "Tagi",
+      "chipSearch": "Szukaj",
+      "chipPlan": "Taryfa",
+      "chipFolder": "Katalog"
     }
   },
   "githubCopilot": {
@@ -3573,6 +3625,14 @@
       "syncWslDesc": "Podczas przełączania konta automatycznie nadpisz konfigurację .gemini w WSL"
     },
     "geminiRefreshInterval": "Automatyczne odświeżanie limitu",
+    "grok": {
+      "title": "Ustawienia Grok CLI",
+      "appPath": "Ścieżka Grok CLI",
+      "cliPath": "Ścieżka CLI",
+      "cliDetected": "Wykryto: {{version}} · {{path}}",
+      "cliMissing": "Nie wykryto Grok CLI. Podaj własną ścieżkę."
+    },
+    "grokRefreshInterval": "Automatyczne odświeżanie limitu",
     "codebuddy": {
       "title": "Ustawienia CodeBuddy",
       "appPath": "Ścieżka CodeBuddy"
@@ -3598,6 +3658,10 @@
     "workbuddy": {
       "title": "Ustawienia WorkBuddy",
       "appPath": "Ścieżka WorkBuddy"
+    },
+    "zcode": {
+      "title": "Ustawienia ZCode",
+      "appPath": "Ścieżka ZCode"
     },
     "zed": {
       "title": "Ustawienia Zed",
@@ -4590,6 +4654,62 @@
       "recentDates": "Ostatnie: "
     }
   },
+  "zcode": {
+    "search": "Szukaj kont ZCode...",
+    "flowNotice": {
+      "title": "Informacje o kontach ZCode",
+      "desc": "Cockpit odczytuje i zapisuje zaszyfrowane lokalne dane logowania ZCode w celu rzeczywistej zmiany konta i powiązania instancji.",
+      "permission": "Zakres lokalny: ~/.zcode/v2/credentials.json oraz katalogi zarządzanych instancji.",
+      "network": "Zakres sieciowy: API OAuth, użytkownika, subskrypcji i limitów. Konta nie są wysyłane do usługi Cockpit."
+    },
+    "empty": "Brak kont ZCode",
+    "addAccount": "Dodaj konto ZCode",
+    "oauth": {
+      "desc": "Zamknij ZCode i zaloguj się w oknie autoryzacji Cockpit; Cockpit odbierze wywołanie zwrotne bezpośrednio.",
+      "title": "OAuth ZCode",
+      "item1": "Oficjalne logowanie Z.ai i BigModel.",
+      "item2": "Zapisuje konto oraz odświeża plan i limity modeli.",
+      "item3": "Używaj kont do zmiany klienta i wiązania wielu instancji.",
+      "urlPlaceholder": "Adres OAuth ZCode",
+      "waiting": "Oczekiwanie na wywołanie OAuth ZCode...",
+      "openWindow": "Otwórz okno autoryzacji",
+      "provider": "Usługa logowania",
+      "success": "Logowanie OAuth ZCode powiodło się"
+    },
+    "token": {
+      "desc": "Wklej JSON konta ZCode wyeksportowany przez Cockpit."
+    },
+    "apiKey": {
+      "tab": "Klucz API",
+      "desc": "Dodaj oficjalny klucz API Z.ai lub BigModel. Zmiana konta i instancje zarządzane zapisują go we własnym pliku config.json.",
+      "placeholder": "Wklej klucz API",
+      "add": "Dodaj klucz API",
+      "provider": "Usługa klucza API"
+    },
+    "import": {
+      "localDesc": "Importuj zaszyfrowane lokalne dane ZCode lub plik JSON.",
+      "localClient": "Importuj z lokalnego ZCode"
+    },
+    "usageNormal": "Prawidłowe",
+    "usageAbnormal": "Błąd",
+    "usageViewDetail": "Szczegóły",
+    "usageDetailTitle": "Szczegóły użycia",
+    "usage": "Użycie",
+    "quota": {
+      "models": "Limit modeli",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "Zaktualizowano: {{time}}",
+      "expireAt": "Wygasa: {{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Błąd pobierania limitu",
+      "empty": "Brak danych limitu",
+      "sectionTitle": "Limit"
+    },
+    "instances": {
+      "unsupported": "Wiele instancji ZCode jest dostępnych tylko w systemach macOS, Windows i Linux."
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Dodaj konto Zed"
@@ -4694,6 +4814,7 @@
     "errors": {
       "refreshFailed": "Odświeżanie nie powiodło się: {{error}}",
       "switchFailed": "Przełączenie nie powiodło się: {{error}}",
+      "stopInstanceBeforeSwitch": "Zatrzymaj instancję przed zmianą konta",
       "pinFailed": "Nie udało się zaktualizować stanu przypięcia: {{error}}",
       "closeFailed": "Nie udało się zamknąć: {{error}}"
     },
@@ -4956,6 +5077,86 @@
     },
     "copyKey": "Copy Key​",
     "clearKey": "Clear input​"
+  },
+  "grok": {
+    "search": "Szukaj kont Grok CLI...",
+    "flowNotice": {
+      "title": "Zarządzanie kontami Grok CLI",
+      "desc": "Cockpit zarządza kontami w oficjalnym formacie poświadczeń Grok CLI, aby rzeczywiście przełączać konto domyślne i wiązać odizolowane instancje.",
+      "permission": "Zakres lokalny: odczytuje domyślny plik ~/.grok/auth.json i zarządza oddzielnymi katalogami kont Grok oraz GROK_HOME w lokalnych danych Cockpit.",
+      "network": "Zakres sieciowy: autoryzacja OAuth, odnawianie poświadczeń i sprawdzanie użycia konta. Poświadczenia nie są wysyłane do usług Cockpit."
+    },
+    "empty": "Brak kont Grok CLI",
+    "addAccount": "Dodaj konto Grok CLI",
+    "oauth": {
+      "desc": "Otwórz stronę autoryzacji xAI i wpisz kod urządzenia. Konto zostanie automatycznie zapisane.",
+      "title": "OAuth urządzenia Grok",
+      "item1": "Korzysta z oficjalnego przepływu urządzenia Grok CLI bez zajmowania lokalnego portu zwrotnego.",
+      "item2": "Po autoryzacji zapisuje oddzielny GROK_HOME i utrzymuje ważność poświadczeń.",
+      "item3": "Konta mogą przełączać domyślną CLI lub działać w odizolowanych od siebie instancjach.",
+      "urlPlaceholder": "Adres autoryzacji OAuth Grok",
+      "waiting": "Oczekiwanie na autoryzację OAuth Grok...",
+      "openWindow": "Otwórz autoryzację",
+      "success": "Logowanie OAuth Grok zakończone"
+    },
+    "import": {
+      "pasteTab": "Wklej JSON",
+      "pasteDesc": "Wklej oficjalny plik auth.json z Grok CLI. Poświadczenia są przetwarzane wyłącznie przez lokalny backend. Cockpit eksportuje tylko ukryte metadane, które nie pozwalają odtworzyć logowania.",
+      "pastePlaceholder": "Wklej JSON konta Grok",
+      "pasteAction": "Importuj JSON",
+      "localDesc": "Zaimportuj bieżące konto z domyślnego ~/.grok/auth.json. Przy wyborze pliku użyj oficjalnego auth.json z Grok CLI.",
+      "localClient": "Importuj z lokalnego Grok CLI",
+      "apiKeyTab": "Klucz API",
+      "apiKeyDesc": "Wklej klucz API xAI (oficjalny XAI_API_KEY). Wstrzykiwany przy starcie. Możesz też wkleić oficjalny auth.json (OAuth).",
+      "apiKeyPlaceholder": "wklej xai-…",
+      "apiKeyAction": "Dodaj API Key"
+    },
+    "instances": {
+      "unsupported": "Wiele instancji Grok CLI jest obsługiwanych tylko w macOS, Windows i Linux.",
+      "launchDialogTitle": "Uruchom instancję",
+      "launchHint": "Skopiuj polecenie i uruchom je ręcznie albo wykonaj bezpośrednio w terminalu.",
+      "runInTerminal": "Uruchom w terminalu",
+      "cliReady": "Wykryto",
+      "cliMissingShort": "Nie wykryto",
+      "cliPathInvalid": "Skonfigurowana ścieżka Grok CLI jest nieprawidłowa: {{path}}",
+      "saveAndRetry": "Zapisz i ponów",
+      "installCommand": "Oficjalne polecenie instalacji",
+      "installHint": "Uruchom poniższe oficjalne polecenie w terminalu, a po instalacji kliknij Odśwież.",
+      "selectWorkingDir": "Wybierz katalog roboczy Grok CLI",
+      "workingDirAccountHint": "Katalog roboczy jest powiązany z tym kontem i zostanie przywrócony przy następnym uruchomieniu.",
+      "launchCommandPlaceholder": "Wybierz lub potwierdź katalog, aby wygenerować polecenie uruchomienia"
+    },
+    "switch": {
+      "success": "Konto przełączone"
+    },
+    "usageNormal": "Prawidłowe",
+    "usageAbnormal": "Nieprawidłowe",
+    "usageViewDetail": "Pokaż szczegóły",
+    "usageDetailTitle": "Szczegóły użycia",
+    "usage": "Użycie",
+    "quotaQuery": {
+      "failedRefreshCompact": "Nie udało się sprawdzić limitu",
+      "empty": "Brak danych o limicie",
+      "sectionTitle": "Limit"
+    },
+    "quota": {
+      "weekly": "Użycie tygodniowe",
+      "onDemand": "Użycie na żądanie",
+      "balance": "Saldo i kredyty",
+      "included": "Użycie w pakiecie",
+      "promotional": "Limit promocyjny",
+      "frequent": "Częste zadania",
+      "occasional": "Okazjonalne zadania",
+      "resetAt": "{{label}} reset: {{time}}",
+      "empty": "Brak limitu",
+      "apiKeyUnsupported": "Konta API Key nie mają limitu planu"
+    },
+    "quotaAlert": {
+      "hint": "Gdy dowolna pozycja limitu bieżącego konta spadnie poniżej progu, zostanie wysłane powiadomienie systemowe, a w aplikacji pojawi się szybkie przełączenie.",
+      "thresholdDesc": "Wywołaj alert, gdy dowolna pozycja limitu spadnie poniżej tego procentu",
+      "items": "Pozycje limitu",
+      "unknownItem": "Nieznana pozycja limitu"
+    }
   },
   "claude": {
     "import": {

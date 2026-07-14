@@ -9,6 +9,7 @@ import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
+import { useZcodeAccountStore } from '../stores/useZcodeAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
 import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
 
@@ -24,6 +25,7 @@ const ALL_STORES = [
   useCodebuddyAccountStore,
   useCodebuddyCnAccountStore,
   useQoderAccountStore,
+  useZcodeAccountStore,
   useTraeAccountStore,
   useWorkbuddyAccountStore,
 ];

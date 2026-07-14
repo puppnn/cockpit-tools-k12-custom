@@ -1141,7 +1141,6 @@ async fn codex_start_instance_internal(
             launch_started.elapsed().as_millis(),
             flow_started.elapsed().as_millis()
         ));
-        modules::codex_model_injector::inject_for_codex_home_later(default_dir.clone());
         let finalize_started = Instant::now();
         let updated = modules::codex_instance::update_default_pid(Some(pid))?;
         let running = modules::process::is_pid_running(pid);
@@ -1282,9 +1281,6 @@ async fn codex_start_instance_internal(
         pid,
         launch_started.elapsed().as_millis(),
         flow_started.elapsed().as_millis()
-    ));
-    modules::codex_model_injector::inject_for_codex_home_later(PathBuf::from(
-        &instance.user_data_dir,
     ));
     let finalize_started = Instant::now();
     let updated = modules::codex_instance::update_instance_after_start(&instance.id, pid)?;

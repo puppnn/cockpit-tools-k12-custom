@@ -3892,6 +3892,7 @@ mod tests {
             )
             .expect("read provider-only row");
         assert_eq!(provider_only, ("relay".to_string(), 0));
+        drop(connection);
 
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
     }
@@ -3934,6 +3935,7 @@ mod tests {
             )
             .expect("read old provider");
         assert_eq!(old_provider, "relay");
+        drop(connection);
 
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
     }
@@ -4029,6 +4031,7 @@ mod tests {
             )
             .expect("read unrelated provider");
         assert_eq!(unrelated_provider, "old");
+        drop(connection);
 
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
     }
@@ -4202,6 +4205,7 @@ mod tests {
             )
             .expect("read official provider");
         assert_eq!(official_provider, "relay");
+        drop(connection);
 
         let connection = Connection::open(&unrelated_db_path).expect("reopen unrelated sqlite");
         let unrelated_provider = connection
@@ -4212,6 +4216,7 @@ mod tests {
             )
             .expect("read unrelated provider");
         assert_eq!(unrelated_provider, "old");
+        drop(connection);
 
         let referenced_content =
             fs::read_to_string(&referenced_rollout).expect("read deep repaired rollout");
@@ -4295,6 +4300,7 @@ mod tests {
             )
             .expect("read restored provider");
         assert_eq!(provider, "old");
+        drop(connection);
 
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
     }
@@ -4386,6 +4392,7 @@ mod tests {
             )
             .expect("read unchanged row");
         assert_eq!(row, ("old".to_string(), 0, "".to_string()));
+        drop(connection);
 
         let backup_count = fs::read_dir(&data_dir)
             .expect("read data dir")

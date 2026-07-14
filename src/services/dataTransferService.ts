@@ -53,9 +53,11 @@ import * as windsurfService from './windsurfService';
 import * as kiroService from './kiroService';
 import * as cursorService from './cursorService';
 import * as geminiService from './geminiService';
+import * as grokService from './grokService';
 import * as codebuddyService from './codebuddyService';
 import * as codebuddyCnService from './codebuddyCnService';
 import * as qoderService from './qoderService';
+import * as zcodeService from './zcodeService';
 import * as traeService from './traeService';
 import * as workbuddyService from './workbuddyService';
 import type { InstanceLaunchMode } from '../types/instance';
@@ -74,9 +76,11 @@ const INSTANCE_PLATFORMS = [
   'kiro',
   'cursor',
   'gemini',
+  'grok',
   'codebuddy',
   'codebuddy_cn',
   'qoder',
+  'zcode',
   'trae',
   'workbuddy',
 ] as const;
@@ -285,10 +289,12 @@ const ACCOUNT_LOADERS: Record<PlatformId, AccountLoader> = {
   kiro: async () => (await kiroService.listKiroAccounts()) as unknown as TransferAccountRecord[],
   cursor: async () => (await cursorService.listCursorAccounts()) as unknown as TransferAccountRecord[],
   gemini: async () => (await geminiService.listGeminiAccounts()) as unknown as TransferAccountRecord[],
+  grok: async () => (await grokService.listGrokAccounts()) as unknown as TransferAccountRecord[],
   codebuddy: async () => (await codebuddyService.listCodebuddyAccounts()) as unknown as TransferAccountRecord[],
   codebuddy_cn: async () =>
     (await codebuddyCnService.listCodebuddyCnAccounts()) as unknown as TransferAccountRecord[],
   qoder: async () => (await qoderService.listQoderAccounts()) as unknown as TransferAccountRecord[],
+  zcode: async () => (await zcodeService.listZcodeAccounts()) as unknown as TransferAccountRecord[],
   trae: async () => (await traeService.listTraeAccounts()) as unknown as TransferAccountRecord[],
   trae_solo: async () => (await traeService.listTraeAccounts()) as unknown as TransferAccountRecord[],
   trae_cn: async () => (await traeService.listTraeAccounts()) as unknown as TransferAccountRecord[],
@@ -307,9 +313,11 @@ const LEGACY_IMPORTERS: Record<PlatformId, ((jsonContent: string) => Promise<unk
   kiro: kiroService.importKiroFromJson,
   cursor: cursorService.importCursorFromJson,
   gemini: geminiService.importGeminiFromJson,
+  grok: undefined,
   codebuddy: codebuddyService.importCodebuddyFromJson,
   codebuddy_cn: codebuddyCnService.importCodebuddyCnFromJson,
   qoder: qoderService.importQoderFromJson,
+  zcode: zcodeService.importZcodeFromJson,
   trae: traeService.importTraeFromJson,
   trae_solo: traeService.importTraeFromJson,
   trae_cn: traeService.importTraeFromJson,
@@ -472,6 +480,11 @@ function buildAccountRef(platform: PlatformId, account: TransferAccountRecord): 
       ref.email = normalizeString(account.email) ?? undefined;
       ref.authId = normalizeString(account.auth_id) ?? undefined;
       break;
+    case 'grok':
+      ref.email = normalizeString(account.email) ?? undefined;
+      ref.userId =
+        normalizeString(account.user_id) ?? normalizeString(account.principal_id) ?? undefined;
+      break;
     case 'qoder':
     case 'trae':
     case 'trae_solo':
@@ -479,6 +492,11 @@ function buildAccountRef(platform: PlatformId, account: TransferAccountRecord): 
     case 'trae_solo_cn':
       ref.email = normalizeString(account.email) ?? undefined;
       ref.userId = normalizeString(account.user_id) ?? undefined;
+      break;
+    case 'zcode':
+      ref.email = normalizeString(account.email) ?? undefined;
+      ref.userId = normalizeString(account.user_id) ?? undefined;
+      ref.loginProvider = normalizeString(account.provider) ?? undefined;
       break;
     case 'codebuddy':
     case 'codebuddy_cn':
@@ -544,6 +562,10 @@ function scoreAccountRef(ref: DataTransferAccountRef, account: TransferAccountRe
       addStringScore(ref.authId, account.auth_id, 24);
       addStringScore(ref.email, account.email, 10);
       break;
+    case 'grok':
+      addStringScore(ref.userId, account.user_id ?? account.principal_id, 24);
+      addStringScore(ref.email, account.email, 10);
+      break;
     case 'qoder':
     case 'trae':
     case 'trae_solo':
@@ -551,6 +573,15 @@ function scoreAccountRef(ref: DataTransferAccountRef, account: TransferAccountRe
     case 'trae_solo_cn':
       addStringScore(ref.userId, account.user_id, 24);
       addStringScore(ref.email, account.email, 10);
+      break;
+    case 'zcode':
+      if (ref.loginProvider && !stringEquals(ref.loginProvider, account.provider)) return 0;
+      if (ref.userId && !stringEquals(ref.userId, account.user_id)) return 0;
+      if (ref.email && !stringEquals(ref.email, account.email)) return 0;
+      if (!ref.userId && !ref.email) return 0;
+      addStringScore(ref.userId, account.user_id, 24);
+      addStringScore(ref.email, account.email, 10);
+      addStringScore(ref.loginProvider, account.provider, 4);
       break;
     case 'codebuddy':
     case 'codebuddy_cn':
@@ -1174,6 +1205,13 @@ function detectLegacyPlatform(value: unknown): PlatformId | null {
   if (id?.startsWith('codebuddy_cn_')) return 'codebuddy_cn';
   if (id?.startsWith('workbuddy_')) return 'workbuddy';
   if (id?.startsWith('codebuddy_')) return 'codebuddy';
+  if (
+    id?.startsWith('zcode_') ||
+    'zcode_jwt_token' in sample ||
+    (sample.auth_mode === 'api_key' && 'api_key' in sample && 'provider' in sample)
+  ) {
+    return 'zcode';
+  }
 
   if ('tokens' in sample || 'OPENAI_API_KEY' in sample || 'auth_mode' in sample || 'authMode' in sample) {
     return 'codex';
@@ -1204,6 +1242,9 @@ function detectLegacyPlatform(value: unknown): PlatformId | null {
   }
   if ('auth_user_info_raw' in sample || 'auth_credit_usage_raw' in sample || 'credits_usage_percent' in sample) {
     return 'qoder';
+  }
+  if ('zcode_jwt_token' in sample || ('quota_raw' in sample && 'provider' in sample)) {
+    return 'zcode';
   }
   if ('uid' in sample || 'enterprise_id' in sample || 'dosage_notify_code' in sample) {
     if (stringContains(sample.domain, 'workbuddy')) return 'workbuddy';

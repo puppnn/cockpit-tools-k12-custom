@@ -1207,6 +1207,28 @@
   gap: 4px;
 }
 
+.accounts-add-target-group-hint {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary) 9%, var(--bg-secondary));
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.accounts-add-target-group-hint span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- dark mode ---------- */
 [data-theme="dark"] .account-folder-card {
   background: rgba(30, 41, 59, 0.6);

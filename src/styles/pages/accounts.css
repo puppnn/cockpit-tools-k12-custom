@@ -586,3 +586,169 @@
   grid-template-columns: 1fr 1fr !important;
   gap: 10px 12px;
 }
+
+/* Custom Sort Modal Styles (added for Antigravity custom sorting) */
+.codex-custom-sort-modal {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 48px));
+}
+
+.codex-custom-sort-modal .modal-header {
+  align-items: flex-start;
+}
+
+.codex-custom-sort-modal-desc {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.codex-custom-sort-modal .modal-body {
+  max-height: min(560px, calc(100vh - 220px));
+  overflow: auto;
+}
+
+.codex-custom-sort-list {
+  display: grid;
+  gap: 8px;
+}
+
+.codex-custom-sort-list.is-sorting {
+  user-select: none;
+}
+
+.codex-custom-sort-list.is-sorting .codex-custom-sort-row,
+.codex-custom-sort-list.is-sorting .codex-custom-sort-drag-handle {
+  cursor: grabbing;
+}
+
+.codex-custom-sort-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--bg-card);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.codex-custom-sort-row:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.codex-custom-sort-row.is-dragging {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: var(--bg-hover);
+  box-shadow: var(--shadow-sm);
+  transform: scale(1.005);
+}
+
+.codex-custom-sort-row.is-drop-candidate {
+  border-style: dashed;
+}
+
+.codex-custom-sort-row.is-drop-target {
+  border-color: color-mix(in srgb, var(--primary) 62%, var(--border));
+  background: var(--bg-hover);
+}
+
+.codex-custom-sort-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.codex-custom-sort-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.codex-custom-sort-drag-handle:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.codex-custom-sort-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.codex-custom-sort-account {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.codex-custom-sort-account-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.codex-custom-sort-account-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.codex-custom-sort-quota-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.codex-custom-sort-quota {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.codex-custom-sort-quota > span {
+  color: var(--text-muted);
+}
+
+.codex-custom-sort-quota-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.codex-custom-sort-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}

@@ -1097,9 +1097,13 @@ pub fn detect_and_save_kiro_launch_path(force: bool) -> Option<String> {
     let detected = detect_kiro_exec_path()?;
     let normalized = normalize_kiro_path_for_config(&detected);
     if current.kiro_app_path != normalized {
-        let mut next = current.clone();
-        next.kiro_app_path = normalized.clone();
-        if let Err(err) = modules::config::save_user_config(&next) {
+        let path = normalized.clone();
+        if let Err(err) = modules::config::patch_user_config(move |config| {
+            if force || normalize_custom_path(&config.kiro_app_path).is_none() {
+                config.kiro_app_path = path;
+            }
+            Ok(())
+        }) {
             modules::logger::log_warn(&format!("保存 Kiro 启动路径失败（已忽略）: {}", err));
         }
     }

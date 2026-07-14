@@ -6,12 +6,14 @@
     "saving": "儲存中...",
     "delete": "刪除",
     "refresh": "重新整理",
+    "reauthorize": "重新授權",
     "loading": "載入中...",
     "success": "成功",
     "failed": "失敗",
     "enabled": "已啟用",
     "disabled": "已停用",
     "close": "關閉",
+    "back": "返回",
     "open": "打開",
     "copy": "複製",
     "copied": "已複製",
@@ -124,6 +126,8 @@
         "failed": "授權失敗",
         "hint": "完成授權後，此視窗將自動更新",
         "openBrowser": "在瀏覽器中開啟",
+        "normalWindow": "一般視窗",
+        "incognitoWindow": "無痕視窗",
         "success": "授權成功",
         "meta": "有效期限：{{expires}}s；輪詢間隔：{{interval}}s",
         "preparing": "正在準備授權連結...",
@@ -174,7 +178,9 @@
         "resetDone": "已重置",
         "hourly": "5 小時配額",
         "weekly": "週配額",
-        "resetAt": "重置: {{time}}"
+        "resetAt": "重置: {{time}}",
+        "expiresAt": "到期時間：{{time}}",
+        "leftPercent": "剩餘 {{value}}%"
       },
       "subtitle": "管理您的 GitHub Copilot 帳號",
       "time": {
@@ -759,9 +765,13 @@
       "codebuddyCnPathReset": "重設為預設",
       "codebuddyCnPathSelect": "選擇",
       "codebuddyCnSettingsTitle": "CodeBuddy CN 設定",
+      "zcodeAppPath": "ZCode 啟動路徑",
+      "zcodeAppPathDesc": "留空則使用預設路徑",
       "qoderAppPath": "Qoder 應用程式路徑",
       "qoderAppPathDesc": "留白則使用預設路徑",
       "qoderAppPathPlaceholder": "預設路徑",
+      "zcodeAutoRefresh": "ZCode 自動更新",
+      "zcodeAutoRefreshDesc": "背景配額更新間隔",
       "qoderAutoRefresh": "Qoder 自動刷新配額",
       "qoderAutoRefreshDesc": "背景自動更新頻率",
       "qoderPathSelect": "選擇",
@@ -942,7 +952,7 @@
       "importModalDesc": "選擇要匯入的資料類型。舊版帳號備份會自動按「僅帳號資料」處理。",
       "selectionTitle": "資料範圍",
       "accountsOptionTitle": "帳號資料",
-      "accountsOptionDesc": "包含各平台帳號備份，並持續相容舊版帳號 JSON。",
+      "accountsOptionDesc": "包含可還原的平台帳號備份，並持續相容舊版帳號 JSON。Grok CLI 憑證不在其中，需另外匯入官方 auth.json。",
       "configOptionTitle": "設定資料",
       "configOptionDesc": "包含應用設定、群組、實例、喚醒任務與模型 Provider 設定。",
       "exportConfirm": "匯出資料",
@@ -1954,6 +1964,9 @@
       "customRoutingEdit": "編輯自訂調度",
       "customRoutingTitle": "自訂調度",
       "customRoutingDesc": "依帳號設定優先級與權重，用來控制 API 服務選擇帳號的順序，以及同級帳號的負載分配。",
+      "customRoutingBackupTitle": "備用帳號",
+      "customRoutingBackupDesc": "僅在所有一般帳號無法使用時啟用；一般帳號恢復後，新請求會自動切回。",
+      "customRoutingBackupShort": "備用",
       "customRoutingPriorityTitle": "優先級",
       "customRoutingPriorityDesc": "數值越高越先被選中；高優先級帳號不可用時，才會繼續嘗試低優先級帳號。",
       "customRoutingWeightTitle": "權重",
@@ -2225,7 +2238,8 @@
       "enterprise": "ENTERPRISE"
     },
     "list": {
-      "showCodeReviewQuota": "顯示 Code Review 配額"
+      "showCodeReviewQuota": "顯示 Code Review 配額",
+      "showAdditionalQuota": "顯示模型專屬配額"
     },
     "time": {
       "today": "今天 {{time}}",
@@ -2246,6 +2260,7 @@
       "hourlyReset": "按5小時配額重置時間",
       "subscriptionExpiry": "按訂閱到期",
       "custom": "自訂順序",
+      "customSettingsTooltip": "設定自訂順序",
       "customModalTitle": "自訂帳號排序",
       "customModalDesc": "拖曳帳號或使用上下按鈕調整顯示順序。",
       "customDragHandle": "拖曳排序",
@@ -2716,7 +2731,8 @@
         "modelCatalog": "模型目錄",
         "visionCapability": "圖片輸入能力",
         "visionModels": "支援圖片的模型",
-        "visionRoutingModel": "圖片請求預設模型"
+        "visionRoutingModel": "圖片請求預設模型",
+        "supportsWebsockets": "WebSocket 傳輸"
       },
       "validation": {
         "nameRequired": "供應商名稱不能為空",
@@ -2952,6 +2968,12 @@
         "customMoveUp": "上移",
         "customMoveDown": "下移",
         "customReset": "重設自訂順序"
+      },
+      "websockets": {
+        "title": "允許 Codex 使用 Responses WebSocket",
+        "help": "僅在供應商明確支援 Responses WebSocket 時開啟；連線方式可透過 Codex 或代理服務日誌確認。",
+        "enabled": "已啟用",
+        "disabled": "已停用"
       }
     },
     "quickSwitch": {
@@ -3271,6 +3293,15 @@
       "renameSuccess": "已重新命名",
       "renameFailed": "重新命名失敗"
     },
+    "importApiService": {
+      "toggle": "同步加入 API 服務",
+      "description": "匯入成功後，將符合條件的帳號加入 API 服務帳號池。",
+      "syncFailed": "帳號已匯入，但加入 API 服務失敗：{{error}}",
+      "guideTitle": "帳號已加入 API 服務",
+      "guideDescription": "已將 {{count}} 個帳號加入 API 服務。按一下「啟動 API 服務」即可切換並使用。",
+      "later": "稍後",
+      "startAction": "啟動 API 服務"
+    },
     "batchImport": {
       "title": "Codex 批次匯入",
       "resultSubtitle": "匯入結果",
@@ -3309,7 +3340,8 @@
       "hiddenTask": "Codex 批量匯入任務",
       "taskRunning": "正在處理 {{current}} / {{total}}",
       "taskPreview": "已產生 {{total}} 筆預覽",
-      "reopen": "查看任務"
+      "reopen": "查看任務",
+      "dismissTask": "捨棄"
     },
     "autoRepairMode": {
       "label": "自動修復邏輯",
@@ -3345,6 +3377,17 @@
       "started": "已開始刪除 {{count}} 個 Codex 帳號",
       "pollFailed": "重新整理批量刪除進度失敗：{{error}}",
       "actionFailed": "批量刪除操作失敗：{{error}}"
+    },
+    "filters": {
+      "allPlans": "全部方案 ({{count}})",
+      "visibleOfTotal": "顯示 {{visible}} / 共 {{total}}",
+      "activeBanner": "目前篩選僅顯示 {{visible}}/{{total}} 個帳號",
+      "clearAll": "清除篩選",
+      "chipGroup": "分組",
+      "chipTags": "標籤",
+      "chipSearch": "搜尋",
+      "chipPlan": "方案",
+      "chipFolder": "分組目錄"
     }
   },
   "githubCopilot": {
@@ -3582,6 +3625,14 @@
       "syncWslDesc": "切換帳號時自動覆寫 WSL 內的 .gemini 設定"
     },
     "geminiRefreshInterval": "配額自動刷新",
+    "grok": {
+      "title": "Grok CLI 設定",
+      "appPath": "Grok CLI 路徑",
+      "cliPath": "CLI 路徑",
+      "cliDetected": "已偵測 {{version}} · {{path}}",
+      "cliMissing": "未偵測到 Grok CLI，可填寫自訂路徑"
+    },
+    "grokRefreshInterval": "配額自動重新整理",
     "codebuddy": {
       "title": "CodeBuddy 設定",
       "appPath": "CodeBuddy 路徑"
@@ -3607,6 +3658,10 @@
     "workbuddy": {
       "title": "WorkBuddy 設定",
       "appPath": "WorkBuddy 路徑"
+    },
+    "zcode": {
+      "title": "ZCode 設定",
+      "appPath": "ZCode 路徑"
     },
     "zed": {
       "title": "Zed 設定",
@@ -4599,6 +4654,62 @@
       "recentDates": "近期簽到："
     }
   },
+  "zcode": {
+    "search": "搜尋 ZCode 帳號...",
+    "flowNotice": {
+      "title": "ZCode 帳號管理說明",
+      "desc": "Cockpit 讀取並回寫 ZCode 本機加密憑證，用於實際切換帳號與執行個體綁定。",
+      "permission": "本機範圍：~/.zcode/v2/credentials.json 與受管理的執行個體目錄。",
+      "network": "網路範圍：OAuth、使用者資訊、訂閱與配額介面；不會將帳號上傳至 Cockpit 服務。"
+    },
+    "empty": "尚無 ZCode 帳號",
+    "addAccount": "新增 ZCode 帳號",
+    "oauth": {
+      "desc": "關閉 ZCode 後，請在 Cockpit 授權視窗完成登入；回呼將由 Cockpit 直接接收。",
+      "title": "ZCode 授權登入",
+      "item1": "支援 Z.ai 與 BigModel 官方登入。",
+      "item2": "授權後自動儲存帳號並更新方案與模型配額。",
+      "item3": "帳號可用於預設用戶端切換與多開綁定。",
+      "urlPlaceholder": "ZCode OAuth 授權網址",
+      "waiting": "正在等待 ZCode OAuth 回呼...",
+      "openWindow": "開啟授權視窗",
+      "provider": "登入服務",
+      "success": "ZCode OAuth 登入成功"
+    },
+    "token": {
+      "desc": "貼上由 Cockpit 匯出的 ZCode 帳號 JSON。"
+    },
+    "apiKey": {
+      "tab": "API 金鑰",
+      "desc": "新增 Z.ai 或 BigModel 官方 API Key。切換帳號與受管執行個體會寫入各自的 config.json。",
+      "placeholder": "貼上 API Key",
+      "add": "新增 API Key",
+      "provider": "API Key 服務"
+    },
+    "import": {
+      "localDesc": "從本機 ZCode 加密憑證或 JSON 檔案匯入帳號。",
+      "localClient": "從本機 ZCode 匯入"
+    },
+    "usageNormal": "正常",
+    "usageAbnormal": "異常",
+    "usageViewDetail": "查看詳情",
+    "usageDetailTitle": "用量狀態詳情",
+    "usage": "用量狀態",
+    "quota": {
+      "models": "模型配額",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "更新：{{time}}",
+      "expireAt": "到期：{{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "配額查詢失敗",
+      "empty": "尚無配額資料",
+      "sectionTitle": "配額"
+    },
+    "instances": {
+      "unsupported": "ZCode 多開僅支援 macOS、Windows 與 Linux。"
+    }
+  },
   "zed": {
     "addModal": {
       "title": "新增 Zed 帳號"
@@ -4703,6 +4814,7 @@
     "errors": {
       "refreshFailed": "重新整理失敗：{{error}}",
       "switchFailed": "切換失敗：{{error}}",
+      "stopInstanceBeforeSwitch": "請先停止實例再切換帳號",
       "pinFailed": "置頂設定失敗：{{error}}",
       "closeFailed": "關閉失敗：{{error}}"
     },
@@ -4965,6 +5077,86 @@
     },
     "copyKey": "複製金鑰",
     "clearKey": "清除輸入"
+  },
+  "grok": {
+    "search": "搜尋 Grok CLI 帳號...",
+    "flowNotice": {
+      "title": "Grok CLI 帳號管理說明",
+      "desc": "Cockpit 依 Grok CLI 官方憑證格式管理帳號，用於預設用戶端實際切號與獨立執行個體綁定。",
+      "permission": "本機範圍：讀取預設 ~/.grok/auth.json，並管理 Cockpit 本機資料中的獨立 Grok 帳號與 GROK_HOME 目錄。",
+      "network": "網路範圍：OAuth 授權、憑證重新整理與帳號用量查詢；不會將憑證上傳至 Cockpit 服務。"
+    },
+    "empty": "尚無 Grok CLI 帳號",
+    "addAccount": "新增 Grok CLI 帳號",
+    "oauth": {
+      "desc": "開啟 xAI 授權頁並輸入裝置驗證碼，完成後會自動儲存帳號。",
+      "title": "Grok 裝置 OAuth",
+      "item1": "使用 Grok CLI 官方 device flow，不占用本機回呼連接埠。",
+      "item2": "授權成功後儲存獨立 GROK_HOME，並維持憑證有效。",
+      "item3": "帳號可用於預設 CLI 切號及彼此隔離的多開執行個體。",
+      "urlPlaceholder": "Grok OAuth 授權網址",
+      "waiting": "正在等待 Grok OAuth 授權...",
+      "openWindow": "開啟授權頁",
+      "success": "Grok OAuth 登入成功"
+    },
+    "import": {
+      "pasteTab": "貼上 JSON",
+      "pasteDesc": "貼上 Grok CLI 官方 auth.json；憑證只在本機後端處理。Cockpit 匯出僅含去識別化中繼資料，無法用來還原登入。",
+      "pastePlaceholder": "貼上 Grok 帳號 JSON",
+      "pasteAction": "匯入 JSON",
+      "localDesc": "從預設 ~/.grok/auth.json 匯入目前帳號；選擇檔案時請使用 Grok CLI 官方 auth.json。",
+      "localClient": "從本機 Grok CLI 匯入",
+      "apiKeyTab": "API 金鑰",
+      "apiKeyDesc": "貼上 xAI API Key（官方 XAI_API_KEY）。啟動時注入環境變數；也可貼上官方 auth.json 以 OAuth 匯入。",
+      "apiKeyPlaceholder": "貼上 xai- 開頭的金鑰",
+      "apiKeyAction": "新增 API Key"
+    },
+    "instances": {
+      "unsupported": "Grok CLI 多開僅支援 macOS、Windows 與 Linux。",
+      "launchDialogTitle": "啟動執行個體",
+      "launchHint": "可複製命令手動執行，或按下方按鈕直接在終端機執行。",
+      "runInTerminal": "在終端機執行",
+      "cliReady": "已偵測",
+      "cliMissingShort": "未偵測",
+      "cliPathInvalid": "設定的 Grok CLI 路徑無效：{{path}}",
+      "saveAndRetry": "儲存並重試",
+      "installCommand": "官方安裝指令",
+      "installHint": "可在終端機執行以下官方指令，安裝完成後點擊重新整理。",
+      "selectWorkingDir": "選擇 Grok CLI 工作目錄",
+      "workingDirAccountHint": "工作目錄與目前帳號綁定，下次切號啟動會自動回填。",
+      "launchCommandPlaceholder": "選擇或確認工作目錄後產生啟動命令"
+    },
+    "switch": {
+      "success": "切換帳號成功"
+    },
+    "usageNormal": "正常",
+    "usageAbnormal": "異常",
+    "usageViewDetail": "查看詳情",
+    "usageDetailTitle": "用量狀態詳情",
+    "usage": "用量狀態",
+    "quotaQuery": {
+      "failedRefreshCompact": "配額查詢失敗",
+      "empty": "暫無可用配額資料",
+      "sectionTitle": "配額查詢"
+    },
+    "quota": {
+      "weekly": "每週用量",
+      "onDemand": "按量用量",
+      "balance": "餘額與點數",
+      "included": "方案用量",
+      "promotional": "活動額度",
+      "frequent": "高頻任務",
+      "occasional": "一般任務",
+      "resetAt": "{{label}} 重設：{{time}}",
+      "empty": "暫無額度",
+      "apiKeyUnsupported": "API Key 帳號無套餐配額"
+    },
+    "quotaAlert": {
+      "hint": "當目前帳號任一配額項目低於門檻時，傳送系統通知並在頁面顯示快速切換帳號操作。",
+      "thresholdDesc": "任一配額項目低於此百分比時觸發警示",
+      "items": "觸發配額項目",
+      "unknownItem": "未知配額項目"
+    }
   },
   "claude": {
     "import": {

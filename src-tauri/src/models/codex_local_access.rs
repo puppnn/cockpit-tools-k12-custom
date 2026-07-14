@@ -117,6 +117,8 @@ pub struct CodexLocalAccessCustomRoutingRule {
     pub priority: i32,
     #[serde(default = "default_custom_routing_weight")]
     pub weight: u32,
+    #[serde(default)]
+    pub is_backup: bool,
 }
 
 fn default_custom_routing_weight() -> u32 {
@@ -708,6 +710,22 @@ pub struct CodexLocalAccessState {
     pub stats: CodexLocalAccessStats,
     pub account_health: Vec<CodexLocalAccessAccountHealth>,
     pub quota_reserve_status: Option<CodexLocalAccessQuotaReserveStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessAppendAccountSkipped {
+    pub account_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessAppendAccountsResult {
+    pub state: CodexLocalAccessState,
+    pub synced_account_ids: Vec<String>,
+    pub added_account_ids: Vec<String>,
+    pub skipped_accounts: Vec<CodexLocalAccessAppendAccountSkipped>,
 }
 
 #[derive(Debug, Clone, Serialize)]

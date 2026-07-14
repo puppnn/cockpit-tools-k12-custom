@@ -6,12 +6,14 @@
     "saving": "保存中...",
     "delete": "删除",
     "refresh": "刷新",
+    "reauthorize": "重新授权",
     "loading": "加载中...",
     "success": "成功",
     "failed": "失败",
     "enabled": "已启用",
     "disabled": "已禁用",
     "close": "关闭",
+    "back": "返回",
     "open": "打开",
     "copy": "复制",
     "copied": "已复制",
@@ -131,6 +133,8 @@
         "failed": "授权失败",
         "hint": "完成授权后，此窗口将自动更新",
         "openBrowser": "在浏览器中打开",
+        "normalWindow": "普通窗口",
+        "incognitoWindow": "无痕窗口",
         "success": "授权成功",
         "meta": "授权有效期：{{expires}}s；轮询间隔：{{interval}}s",
         "preparing": "正在准备授权信息...",
@@ -181,7 +185,9 @@
         "resetDone": "已重置",
         "hourly": "Inline Suggestions",
         "weekly": "Chat messages",
-        "resetAt": "重置：{{time}}"
+        "resetAt": "重置：{{time}}",
+        "expiresAt": "到期时间：{{time}}",
+        "leftPercent": "剩余 {{value}}%"
       },
       "subtitle": "实时监控所有账号的配额状态。",
       "time": {
@@ -260,6 +266,7 @@
     "errors": {
       "refreshFailed": "刷新失败：{{error}}",
       "switchFailed": "切换失败：{{error}}",
+      "stopInstanceBeforeSwitch": "请先停止实例再切换账号",
       "pinFailed": "置顶设置失败：{{error}}",
       "closeFailed": "关闭失败：{{error}}"
     },
@@ -840,7 +847,7 @@
       "importModalDesc": "选择要导入的数据类型。旧版账号备份会自动按“仅账号数据”处理。",
       "selectionTitle": "数据范围",
       "accountsOptionTitle": "账号数据",
-      "accountsOptionDesc": "包含各平台账号备份，并继续兼容旧版账号 JSON。",
+      "accountsOptionDesc": "包含可恢复的平台账号备份，并继续兼容旧版账号 JSON。Grok CLI 凭据不在其中，需单独导入官方 auth.json。",
       "configOptionTitle": "配置数据",
       "configOptionDesc": "包含应用设置、分组、实例、唤醒任务与模型 Provider 配置。",
       "exportConfirm": "导出数据",
@@ -1130,9 +1137,13 @@
       "codebuddyCnPathReset": "重置默认",
       "codebuddyCnPathSelect": "选择",
       "codebuddyCnSettingsTitle": "CodeBuddy CN 设置",
+      "zcodeAppPath": "ZCode 启动路径",
+      "zcodeAppPathDesc": "留空则使用默认路径",
       "qoderAppPath": "Qoder 启动路径",
       "qoderAppPathDesc": "留空则使用默认路径",
       "qoderAppPathPlaceholder": "默认路径",
+      "zcodeAutoRefresh": "ZCode 自动刷新",
+      "zcodeAutoRefreshDesc": "后台配额刷新间隔",
       "qoderAutoRefresh": "Qoder 自动刷新配额",
       "qoderAutoRefreshDesc": "后台自动更新频率",
       "qoderPathSelect": "选择",
@@ -2275,7 +2286,10 @@
       },
       "customRoutingEdit": "编辑自定义调度",
       "customRoutingTitle": "自定义调度",
-      "customRoutingDesc": "按账号设置优先级和权重，用于控制 API 服务选择账号的顺序和同级负载分配。",
+      "customRoutingDesc": "设置账号的优先级、权重和备用角色，控制账号选择顺序与负载分配。",
+      "customRoutingBackupTitle": "备用账号",
+      "customRoutingBackupDesc": "仅在所有普通账号不可用时使用；普通账号恢复后，新请求会自动切回。",
+      "customRoutingBackupShort": "备用",
       "customRoutingPriorityTitle": "优先级",
       "customRoutingPriorityDesc": "数值越高越先被选中；高优先级账号不可用时，才会继续尝试低优先级账号。",
       "customRoutingWeightTitle": "权重",
@@ -2495,7 +2509,8 @@
         "newApiKey": "新增 API Key",
         "visionCapability": "图片输入能力",
         "visionModels": "支持图片的模型",
-        "visionRoutingModel": "图片请求默认模型"
+        "visionRoutingModel": "图片请求默认模型",
+        "supportsWebsockets": "WebSocket 传输"
       },
       "validation": {
         "nameRequired": "供应商名称不能为空",
@@ -2727,6 +2742,12 @@
         "customMoveUp": "上移",
         "customMoveDown": "下移",
         "customReset": "重置自定义顺序"
+      },
+      "websockets": {
+        "title": "允许 Codex 使用 Responses WebSocket",
+        "help": "仅在供应商明确支持 Responses WebSocket 时开启；连接方式可通过 Codex 或代理服务日志确认。",
+        "enabled": "已启用",
+        "disabled": "已停用"
       }
     },
     "quickSwitch": {
@@ -2807,7 +2828,8 @@
       "enterprise": "ENTERPRISE"
     },
     "list": {
-      "showCodeReviewQuota": "显示 Code Review 配额"
+      "showCodeReviewQuota": "显示 Code Review 配额",
+      "showAdditionalQuota": "显示模型专属配额"
     },
     "time": {
       "today": "今天 {{time}}",
@@ -2850,6 +2872,7 @@
       "hourlyReset": "按5小时配额重置时间",
       "subscriptionExpiry": "按订阅有效期",
       "custom": "自定义顺序",
+      "customSettingsTooltip": "配置自定义顺序",
       "customModalTitle": "自定义账号排序",
       "customModalDesc": "拖动账号或使用上下按钮调整展示顺序。",
       "customDragHandle": "拖拽排序",
@@ -3481,6 +3504,15 @@
       "renameSuccess": "已重命名",
       "renameFailed": "重命名失败"
     },
+    "importApiService": {
+      "toggle": "同步加入 API 服务",
+      "description": "导入成功后，将符合条件的账号加入 API 服务账号池。",
+      "syncFailed": "账号已导入，但加入 API 服务失败：{{error}}",
+      "guideTitle": "账号已加入 API 服务",
+      "guideDescription": "已将 {{count}} 个账号加入 API 服务。点击“启动 API 服务”即可切换并使用。",
+      "later": "稍后",
+      "startAction": "启动 API 服务"
+    },
     "batchImport": {
       "title": "Codex 批量导入",
       "resultSubtitle": "导入结果",
@@ -3519,7 +3551,8 @@
       "hiddenTask": "Codex 批量导入任务",
       "taskRunning": "正在处理 {{current}} / {{total}}",
       "taskPreview": "已生成 {{total}} 条预览",
-      "reopen": "查看任务"
+      "reopen": "查看任务",
+      "dismissTask": "丢弃"
     },
     "autoRepairMode": {
       "label": "自动修复逻辑",
@@ -3543,6 +3576,17 @@
       "started": "已开始删除 {{count}} 个 Codex 账号",
       "pollFailed": "刷新批量删除进度失败：{{error}}",
       "actionFailed": "批量删除操作失败：{{error}}"
+    },
+    "filters": {
+      "allPlans": "全部套餐 ({{count}})",
+      "visibleOfTotal": "显示 {{visible}} / 共 {{total}}",
+      "activeBanner": "当前筛选仅显示 {{visible}}/{{total}} 个账号",
+      "clearAll": "清除筛选",
+      "chipGroup": "分组",
+      "chipTags": "标签",
+      "chipSearch": "搜索",
+      "chipPlan": "套餐",
+      "chipFolder": "分组目录"
     }
   },
   "codebuddy": {
@@ -3889,6 +3933,14 @@
       "syncWslDesc": "切换账号时自动覆盖 WSL 下的 .gemini 配置"
     },
     "geminiRefreshInterval": "配额自动刷新",
+    "grok": {
+      "title": "Grok CLI 设置",
+      "appPath": "Grok CLI 路径",
+      "cliPath": "CLI 路径",
+      "cliDetected": "已检测 {{version}} · {{path}}",
+      "cliMissing": "未检测到 Grok CLI，可填写自定义路径"
+    },
+    "grokRefreshInterval": "配额自动刷新",
     "error": {
       "loadFailed": "加载配置失败：{{error}}",
       "saveFailed": "保存配置失败：{{error}}",
@@ -3899,6 +3951,10 @@
     "qoder": {
       "title": "Qoder 设置",
       "appPath": "Qoder 路径"
+    },
+    "zcode": {
+      "title": "ZCode 设置",
+      "appPath": "ZCode 路径"
     },
     "zed": {
       "title": "Zed 设置",
@@ -4592,6 +4648,62 @@
       "desc": "点击“添加账号”，可使用授权登录、本机导入或 JSON 导入。"
     }
   },
+  "zcode": {
+    "search": "搜索 ZCode 账号...",
+    "flowNotice": {
+      "title": "ZCode 账号管理说明",
+      "desc": "Cockpit 按 ZCode 官方格式管理 OAuth 凭据与 API Key，用于真实切号与实例绑定。",
+      "permission": "本地范围：~/.zcode/v2/credentials.json、config.json、setting.json 与受管实例目录。",
+      "network": "网络范围：OAuth、用户信息、订阅与配额接口；不会将账号上传到 Cockpit 服务。"
+    },
+    "empty": "暂无 ZCode 账号",
+    "addAccount": "添加 ZCode 账号",
+    "oauth": {
+      "desc": "关闭 ZCode 后，在 Cockpit 授权窗口完成登录；回调将由 Cockpit 直接接收。",
+      "title": "ZCode 授权登录",
+      "item1": "支持 Z.ai 与 BigModel 官方登录。",
+      "item2": "授权后自动保存账号并刷新套餐与模型额度。",
+      "item3": "账号可用于默认客户端切号和多开实例绑定。",
+      "urlPlaceholder": "ZCode OAuth 授权地址",
+      "waiting": "等待 ZCode OAuth 回调...",
+      "openWindow": "打开授权窗口",
+      "provider": "登录服务",
+      "success": "ZCode OAuth 登录成功"
+    },
+    "token": {
+      "desc": "粘贴由 Cockpit 导出的 ZCode 账号 JSON。"
+    },
+    "apiKey": {
+      "tab": "API 密钥",
+      "desc": "添加 ZCode 官方支持的 Z.ai 或 BigModel API Key。切号和多开实例会写入各自的 config.json。",
+      "placeholder": "粘贴 API Key",
+      "add": "添加 API Key",
+      "provider": "API Key 服务"
+    },
+    "import": {
+      "localDesc": "从本机 ZCode 加密凭据或 JSON 文件导入账号。",
+      "localClient": "从本机 ZCode 导入"
+    },
+    "usageNormal": "正常",
+    "usageAbnormal": "异常",
+    "usageViewDetail": "查看详情",
+    "usageDetailTitle": "用量状态详情",
+    "usage": "用量状态",
+    "quota": {
+      "models": "模型额度",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "更新：{{time}}",
+      "expireAt": "到期：{{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "配额查询失败",
+      "empty": "暂无配额数据",
+      "sectionTitle": "配额"
+    },
+    "instances": {
+      "unsupported": "ZCode 多开仅支持 macOS、Windows 和 Linux。"
+    }
+  },
   "zed": {
     "addModal": {
       "title": "添加 Zed 账号"
@@ -4965,6 +5077,86 @@
     "importErrorMsg": "导入失败，请检查文件格式是否为您之前导出的格式 (JSON Array)。",
     "btnImportTitle": "导入本地的 JSON 文件",
     "btnExportTitle": "导出已保存为 JSON"
+  },
+  "grok": {
+    "search": "搜索 Grok CLI 账号...",
+    "flowNotice": {
+      "title": "Grok CLI 账号管理说明",
+      "desc": "Cockpit 按 Grok CLI 官方凭据格式管理账号，用于默认客户端真实切号和独立实例绑定。",
+      "permission": "本地范围：读取默认 ~/.grok/auth.json，并管理 Cockpit 本地数据中的独立 Grok 账号与 GROK_HOME 目录。",
+      "network": "网络范围：OAuth 授权、凭据刷新及账号用量查询；不会上传凭据到 Cockpit 服务。"
+    },
+    "empty": "暂无 Grok CLI 账号",
+    "addAccount": "添加 Grok CLI 账号",
+    "oauth": {
+      "desc": "打开 xAI 授权页并输入设备验证码，完成后账号会自动保存。",
+      "title": "Grok 设备 OAuth",
+      "item1": "使用 Grok CLI 官方 device flow，不占用本地回调端口。",
+      "item2": "授权成功后保存独立 GROK_HOME，并维护凭据有效状态。",
+      "item3": "账号可用于默认 CLI 切号和相互隔离的多开实例。",
+      "urlPlaceholder": "Grok OAuth 授权地址",
+      "waiting": "等待 Grok OAuth 授权...",
+      "openWindow": "打开授权页",
+      "success": "Grok OAuth 登录成功"
+    },
+    "import": {
+      "pasteTab": "粘贴 JSON",
+      "pasteDesc": "粘贴 Grok CLI 官方 auth.json；凭据仅在本机后端处理。Cockpit 导出仅含脱敏元数据，不能用于恢复登录。",
+      "pastePlaceholder": "粘贴 Grok 账号 JSON",
+      "pasteAction": "导入 JSON",
+      "localDesc": "从默认 ~/.grok/auth.json 导入当前账号；选择文件时应使用 Grok CLI 官方 auth.json。",
+      "localClient": "从本机 Grok CLI 导入",
+      "apiKeyTab": "API 密钥",
+      "apiKeyDesc": "粘贴 xAI API Key（官方 XAI_API_KEY）。启动时注入环境变量；也可粘贴官方 auth.json 按 OAuth 导入。",
+      "apiKeyPlaceholder": "粘贴 xai- 开头的密钥",
+      "apiKeyAction": "添加 API Key"
+    },
+    "instances": {
+      "unsupported": "Grok CLI 多开仅支持 macOS、Windows 和 Linux。",
+      "launchDialogTitle": "启动实例",
+      "launchHint": "可复制命令手动执行，或点击下方按钮直接在终端执行。",
+      "runInTerminal": "终端执行",
+      "cliReady": "已检测",
+      "cliMissingShort": "未检测",
+      "cliPathInvalid": "配置的 Grok CLI 路径无效：{{path}}",
+      "saveAndRetry": "保存并重试",
+      "installCommand": "官方安装命令",
+      "installHint": "可在终端运行以下官方命令，安装完成后点击刷新。",
+      "selectWorkingDir": "选择 Grok CLI 工作目录",
+      "workingDirAccountHint": "工作目录与当前账号绑定，下次切号启动会自动回填。",
+      "launchCommandPlaceholder": "选择或确认工作目录后生成启动命令"
+    },
+    "switch": {
+      "success": "切号成功"
+    },
+    "usageNormal": "正常",
+    "usageAbnormal": "异常",
+    "usageViewDetail": "查看详情",
+    "usageDetailTitle": "用量状态详情",
+    "usage": "用量状态",
+    "quotaQuery": {
+      "failedRefreshCompact": "配额查询失败",
+      "empty": "暂无可用配额数据",
+      "sectionTitle": "配额查询"
+    },
+    "quota": {
+      "weekly": "每周用量",
+      "onDemand": "按量用量",
+      "balance": "余额与积分",
+      "included": "套餐用量",
+      "promotional": "活动额度",
+      "frequent": "高频任务",
+      "occasional": "普通任务",
+      "resetAt": "{{label}} 重置：{{time}}",
+      "empty": "暂无额度",
+      "apiKeyUnsupported": "API Key 账号无套餐配额"
+    },
+    "quotaAlert": {
+      "hint": "当当前账号任意配额项低于阈值时，发送原生通知并在页面提示快捷切号。",
+      "thresholdDesc": "任意配额项低于此百分比时触发预警",
+      "items": "触发配额项",
+      "unknownItem": "未知配额项"
+    }
   },
   "claude": {
     "import": {

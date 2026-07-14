@@ -280,6 +280,11 @@ export async function startCodexOAuthLogin(): Promise<CodexOAuthLoginStartRespon
   return await invoke('codex_oauth_login_start');
 }
 
+/** 在内置无痕 WebView 中打开当前 Codex OAuth 授权地址 */
+export async function openCodexOAuthIncognitoWindow(authUrl: string): Promise<void> {
+  await invoke('codex_oauth_open_incognito_window', { authUrl });
+}
+
 /** 新 OAuth 流程：完成登录 */
 export async function completeCodexOAuthLogin(
   loginId: string,
@@ -330,6 +335,7 @@ export async function addCodexAccountWithApiKey(
   apiVisionRoutingModel?: string,
   accountName?: string,
   apiWireApi?: CodexProviderWireApi,
+  apiSupportsWebsockets?: boolean,
 ): Promise<CodexAccount> {
   return await invoke('add_codex_account_with_api_key', {
     apiKey,
@@ -339,6 +345,7 @@ export async function addCodexAccountWithApiKey(
     apiProviderName: apiProviderName ?? null,
     apiModelCatalog: apiModelCatalog ?? null,
     apiWireApi: apiWireApi ?? null,
+    apiSupportsWebsockets: apiSupportsWebsockets ?? false,
     apiSupportsVision: apiSupportsVision ?? false,
     apiModelVisionSupport: apiModelVisionSupport ?? {},
     apiVisionRoutingModel: apiVisionRoutingModel ?? null,
@@ -362,6 +369,7 @@ export async function updateCodexApiKeyCredentials(
   apiModelVisionSupport?: Record<string, boolean>,
   apiVisionRoutingModel?: string,
   apiWireApi?: CodexProviderWireApi,
+  apiSupportsWebsockets?: boolean,
 ): Promise<CodexAccount> {
   return await invoke('update_codex_api_key_credentials', {
     accountId,
@@ -372,6 +380,7 @@ export async function updateCodexApiKeyCredentials(
     apiProviderName: apiProviderName ?? null,
     apiModelCatalog: apiModelCatalog ?? null,
     apiWireApi: apiWireApi ?? null,
+    apiSupportsWebsockets: apiSupportsWebsockets ?? false,
     apiSupportsVision: apiSupportsVision ?? false,
     apiModelVisionSupport: apiModelVisionSupport ?? {},
     apiVisionRoutingModel: apiVisionRoutingModel ?? null,

@@ -6,12 +6,14 @@
     "saving": "Kaydediliyor...",
     "delete": "Sil",
     "refresh": "Yenile",
+    "reauthorize": "Yeniden yetkilendir",
     "loading": "Yükleniyor...",
     "success": "Başarılı",
     "failed": "Hata",
     "enabled": "Etkin",
     "disabled": "Devre Dışı",
     "close": "Kapat",
+    "back": "Geri",
     "open": "Aç",
     "copy": "Kopyala",
     "copied": "Kopyalandı",
@@ -124,6 +126,8 @@
         "failed": "Yetkilendirme başarısız",
         "hint": "Yetkilendirme tamamlanınca bu pencere otomatik güncellenir",
         "openBrowser": "Tarayıcıda aç",
+        "normalWindow": "Normal pencere",
+        "incognitoWindow": "Gizli pencere",
         "success": "Yetkilendirme başarılı",
         "meta": "Süre bitimine: {{expires}}s; yoklama aralığı: {{interval}}s",
         "preparing": "Yetkilendirme bağlantısı hazırlanıyor...",
@@ -174,7 +178,9 @@
         "resetDone": "Sıfırlandı",
         "hourly": "5 saatlik kota",
         "weekly": "Haftalık kota",
-        "resetAt": "Sıfırlama: {{time}}"
+        "resetAt": "Sıfırlama: {{time}}",
+        "expiresAt": "Bitiş: {{time}}",
+        "leftPercent": "%{{value}} kaldı"
       },
       "subtitle": "GitHub Copilot hesaplarınızı yönetin",
       "time": {
@@ -759,9 +765,13 @@
       "codebuddyCnPathReset": "Varsayılana Sıfırla",
       "codebuddyCnPathSelect": "Seç",
       "codebuddyCnSettingsTitle": "CodeBuddy CN Ayarları",
+      "zcodeAppPath": "ZCode Başlatma Yolu",
+      "zcodeAppPathDesc": "Varsayılan yol için boş bırakın",
       "qoderAppPath": "Qoder Uygulama Yolu",
       "qoderAppPathDesc": "Boş bırakırsanız varsayılan yol kullanılır",
       "qoderAppPathPlaceholder": "Varsayılan yol",
+      "zcodeAutoRefresh": "ZCode Otomatik Yenileme",
+      "zcodeAutoRefreshDesc": "Arka planda kota yenileme aralığı",
       "qoderAutoRefresh": "Qoder Otomatik Kota Yenileme",
       "qoderAutoRefreshDesc": "Arka planda otomatik yenileme sıklığı",
       "qoderPathSelect": "Seç",
@@ -942,7 +952,7 @@
       "importModalDesc": "Neyi içe aktaracağınızı seçin. Eski hesap yedekleri yalnızca hesap verisi olarak işlenir.",
       "selectionTitle": "Veri kapsamı",
       "accountsOptionTitle": "Hesap verileri",
-      "accountsOptionDesc": "Platform hesap yedeklerini içerir ve eski hesap JSON biçimiyle uyumluluğu korur.",
+      "accountsOptionDesc": "Geri yüklenebilir platform hesap yedeklerini içerir ve eski hesap JSON biçimiyle uyumluluğu korur. Grok CLI kimlik bilgileri dahil değildir; resmi auth.json dosyasını ayrıca içe aktarın.",
       "configOptionTitle": "Yapılandırma verileri",
       "configOptionDesc": "Uygulama ayarları, gruplar, örnekler, wakeup görevleri ve model sağlayıcı yapılandırmasını içerir.",
       "exportConfirm": "Verileri dışa aktar",
@@ -1954,6 +1964,9 @@
       "customRoutingEdit": "Özel yönlendirmeyi düzenle",
       "customRoutingTitle": "Özel yönlendirme",
       "customRoutingDesc": "Hesap seçme sırasını ve aynı öncelikteki yük dağılımını yönetmek için her hesaba öncelik ve ağırlık verin.",
+      "customRoutingBackupTitle": "Yedek hesap",
+      "customRoutingBackupDesc": "Yalnızca tüm normal hesaplar kullanılamadığında devreye girer. Normal bir hesap düzeldiğinde yeni istekler otomatik olarak geri döner.",
+      "customRoutingBackupShort": "Yedek",
       "customRoutingPriorityTitle": "Öncelik",
       "customRoutingPriorityDesc": "Daha yüksek değerler önce seçilir; düşük öncelikli hesaplar yalnızca yüksek öncelikliler kullanılamadığında denenir.",
       "customRoutingWeightTitle": "Ağırlık",
@@ -2108,7 +2121,8 @@
       "enterprise": "ENTERPRISE​"
     },
     "list": {
-      "showCodeReviewQuota": "Code Review kotasını göster"
+      "showCodeReviewQuota": "Code Review kotasını göster",
+      "showAdditionalQuota": "Modele özel kotalar"
     },
     "time": {
       "today": "Bugün {{time}}",
@@ -2129,6 +2143,7 @@
       "hourlyReset": "5 saatlik sıfırlama zamanı",
       "subscriptionExpiry": "Abonelik bitişi",
       "custom": "Özel sıra",
+      "customSettingsTooltip": "Özel sırayı yapılandır",
       "customModalTitle": "Özel hesap sırası",
       "customModalDesc": "Hesapları sürükleyin veya yukarı/aşağı düğmeleriyle görünüm sırasını ayarlayın.",
       "customDragHandle": "Sürükle",
@@ -2716,7 +2731,8 @@
         "modelCatalog": "Model Kataloğu",
         "visionCapability": "Görsel girişi",
         "visionModels": "Görsel modeller",
-        "visionRoutingModel": "Görsel rota modeli"
+        "visionRoutingModel": "Görsel rota modeli",
+        "supportsWebsockets": "WebSocket aktarımı"
       },
       "validation": {
         "nameRequired": "Sağlayıcı adı gerekli.",
@@ -2952,6 +2968,12 @@
         "customMoveUp": "Yukarı taşı",
         "customMoveDown": "Aşağı taşı",
         "customReset": "Sıralamayı sıfırla"
+      },
+      "websockets": {
+        "title": "Codex’in Responses için WebSocket kullanmasına izin ver",
+        "help": "Yalnızca sağlayıcı Responses için WebSocket desteğini açıkça sunuyorsa etkinleştirin; bağlantı türünü Codex veya proxy hizmeti günlüklerinden doğrulayın.",
+        "enabled": "Etkin",
+        "disabled": "Devre dışı"
       }
     },
     "quickSwitch": {
@@ -3167,6 +3189,15 @@
         "optionsTitle": "Yönlendirme seçenekleri",
         "sessionAffinity": "Oturum bağı",
         "sessionAffinityTtl": "Bağ TTL",
+        "newSessionPriority": "Yeni oturumlara öncelik ver",
+        "newSessionPriorityTitle": "Bu havuzu yalnızca henüz bir hesaba bağlanmamış oturumlar kullanır; mevcut oturumlar bağlı oldukları hesabı kullanmaya devam eder",
+        "newSessionPriorityAccounts": "Öncelikli hesaplar",
+        "newSessionPriorityAccountsTitle": "Öncelikli havuz kullanılamıyorsa mevcut yönlendirme ilkesi kullanılır",
+        "selectPriorityAccounts": "Hesap seç",
+        "selectedPriorityAccounts": "Seçildi",
+        "noPriorityAccounts": "Kullanılabilir hesap yok",
+        "newSessionPriorityRequiresAffinity": "Yeni oturumlar için öncelikli yönlendirmeyi açmadan önce oturum bağını etkinleştirin",
+        "newSessionPriorityAccountsRequired": "Yeni oturumlar için en az bir öncelikli hesap seçin",
         "maxRetryCredentials": "Retry hesapları",
         "maxRetryInterval": "Retry bekleme",
         "disableCooling": "Cooldown kapat",
@@ -3262,6 +3293,15 @@
       "renameSuccess": "Yeniden adlandırıldı",
       "renameFailed": "Yeniden adlandırılamadı"
     },
+    "importApiService": {
+      "toggle": "API hizmetine ekle",
+      "description": "Uygun içe aktarılan hesapları API hizmeti hesap havuzuna ekler.",
+      "syncFailed": "Hesaplar içe aktarıldı ancak API hizmetine eklenemedi: {{error}}",
+      "guideTitle": "Hesaplar API hizmetine eklendi",
+      "guideDescription": "{{count}} hesap API hizmetine eklendi. Geçiş yapıp kullanmak için “API Hizmetini Başlat”ı seçin.",
+      "later": "Daha sonra",
+      "startAction": "API Hizmetini Başlat"
+    },
     "batchImport": {
       "title": "Codex toplu içe aktarma",
       "resultSubtitle": "İçe aktarma sonucu",
@@ -3300,7 +3340,8 @@
       "hiddenTask": "Codex toplu içe aktarma",
       "taskRunning": "{{current}} / {{total}} işleniyor",
       "taskPreview": "{{total}} önizleme hazır",
-      "reopen": "Görevi aç"
+      "reopen": "Görevi aç",
+      "dismissTask": "Kapat"
     },
     "autoRepairMode": {
       "label": "Otomatik onarım mantığı",
@@ -3336,6 +3377,17 @@
       "started": "{{count}} Codex hesabı için silme başlatıldı",
       "pollFailed": "Toplu silme ilerlemesi yenilenemedi: {{error}}",
       "actionFailed": "Toplu silme işlemi başarısız: {{error}}"
+    },
+    "filters": {
+      "allPlans": "Tüm planlar ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "Filtre: {{visible}}/{{total}}",
+      "clearAll": "Temizle",
+      "chipGroup": "Grup",
+      "chipTags": "Etiket",
+      "chipSearch": "Ara",
+      "chipPlan": "Abonelik",
+      "chipFolder": "Klasör"
     }
   },
   "githubCopilot": {
@@ -3573,6 +3625,14 @@
       "syncWslDesc": "Hesap değiştirirken WSL içindeki .gemini yapılandırmasını otomatik olarak üzerine yaz"
     },
     "geminiRefreshInterval": "Kota Otomatik Yenileme",
+    "grok": {
+      "title": "Grok CLI Ayarları",
+      "appPath": "Grok CLI Yolu",
+      "cliPath": "CLI Yolu",
+      "cliDetected": "Algılandı: {{version}} · {{path}}",
+      "cliMissing": "Grok CLI bulunamadı. Özel bir yol girin."
+    },
+    "grokRefreshInterval": "Kotayı Otomatik Yenile",
     "codebuddy": {
       "title": "CodeBuddy Ayarları",
       "appPath": "CodeBuddy Yolu"
@@ -3598,6 +3658,10 @@
     "workbuddy": {
       "title": "WorkBuddy Ayarları",
       "appPath": "WorkBuddy Yolu"
+    },
+    "zcode": {
+      "title": "ZCode Ayarları",
+      "appPath": "ZCode Yolu"
     },
     "zed": {
       "title": "Zed Ayarları",
@@ -4590,6 +4654,62 @@
       "recentDates": "Son: "
     }
   },
+  "zcode": {
+    "search": "ZCode hesaplarını ara...",
+    "flowNotice": {
+      "title": "ZCode hesap yönetimi",
+      "desc": "Cockpit, gerçek hesap geçişi ve örnek bağlama için ZCode'un şifreli yerel kimlik bilgilerini okur ve geri yazar.",
+      "permission": "Yerel kapsam: ~/.zcode/v2/credentials.json ve yönetilen örnek dizinleri.",
+      "network": "Ağ kapsamı: OAuth, kullanıcı, abonelik ve kota API'leri. Hesaplar Cockpit hizmetine yüklenmez."
+    },
+    "empty": "ZCode hesabı yok",
+    "addAccount": "ZCode Hesabı Ekle",
+    "oauth": {
+      "desc": "ZCode'u kapatıp Cockpit yetkilendirme penceresinde oturum açın; geri çağrıyı Cockpit doğrudan alır.",
+      "title": "ZCode OAuth Yetkilendirmesi",
+      "item1": "Resmî Z.ai ve BigModel oturumu.",
+      "item2": "Hesabı kaydeder, planı ve model kotalarını yeniler.",
+      "item3": "Hesapları istemci geçişi ve çoklu örnek bağlama için kullanın.",
+      "urlPlaceholder": "ZCode OAuth URL'si",
+      "waiting": "ZCode OAuth geri çağrısı bekleniyor...",
+      "openWindow": "Yetkilendirme penceresini aç",
+      "provider": "Oturum hizmeti",
+      "success": "ZCode OAuth oturumu açıldı"
+    },
+    "token": {
+      "desc": "Cockpit tarafından dışa aktarılan ZCode hesap JSON'unu yapıştırın."
+    },
+    "apiKey": {
+      "tab": "API Anahtarı",
+      "desc": "Resmî bir Z.ai veya BigModel API Anahtarı ekleyin. Hesap değiştirme ve yönetilen örnekler anahtarı kendi config.json dosyasına yazar.",
+      "placeholder": "API Anahtarını yapıştırın",
+      "add": "API Anahtarı ekle",
+      "provider": "API Anahtarı hizmeti"
+    },
+    "import": {
+      "localDesc": "Şifreli yerel ZCode kimlik bilgilerini veya JSON dosyasını içe aktarın.",
+      "localClient": "Yerel ZCode'dan Aktar"
+    },
+    "usageNormal": "Sorunsuz",
+    "usageAbnormal": "Hata",
+    "usageViewDetail": "Ayrıntılar",
+    "usageDetailTitle": "Kullanım Ayrıntıları",
+    "usage": "Kullanım",
+    "quota": {
+      "models": "Model Kotası",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "Güncellendi: {{time}}",
+      "expireAt": "Bitiş: {{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Kota sorgusu başarısız",
+      "empty": "Kota verisi yok",
+      "sectionTitle": "Kota"
+    },
+    "instances": {
+      "unsupported": "ZCode çoklu örnekleri yalnızca macOS, Windows ve Linux'ta kullanılabilir."
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Zed hesabı ekle"
@@ -4694,6 +4814,7 @@
     "errors": {
       "refreshFailed": "Yenileme başarısız: {{error}}",
       "switchFailed": "Geçiş başarısız: {{error}}",
+      "stopInstanceBeforeSwitch": "Hesap değiştirmeden önce oturumu durdurun",
       "pinFailed": "Sabitleme durumu güncellenemedi: {{error}}",
       "closeFailed": "Kapatma başarısız oldu: {{error}}"
     },
@@ -4956,6 +5077,86 @@
     },
     "copyKey": "Copy Key​",
     "clearKey": "Clear input​"
+  },
+  "grok": {
+    "search": "Grok CLI hesaplarını ara...",
+    "flowNotice": {
+      "title": "Grok CLI Hesap Yönetimi",
+      "desc": "Cockpit, varsayılan hesabı gerçekten değiştirmek ve yalıtılmış örnekleri bağlamak için hesapları resmi Grok CLI kimlik bilgisi biçiminde yönetir.",
+      "permission": "Yerel kapsam: Varsayılan ~/.grok/auth.json dosyasını okur ve Cockpit'in yerel verilerinde ayrı Grok hesap ve GROK_HOME dizinlerini yönetir.",
+      "network": "Ağ kapsamı: OAuth yetkilendirmesi, kimlik bilgisi yenileme ve hesap kullanım sorguları. Kimlik bilgileri Cockpit hizmetlerine yüklenmez."
+    },
+    "empty": "Henüz Grok CLI hesabı yok",
+    "addAccount": "Grok CLI Hesabı Ekle",
+    "oauth": {
+      "desc": "xAI yetkilendirme sayfasını açın ve cihaz kodunu girin. Hesap daha sonra otomatik kaydedilir.",
+      "title": "Grok Cihaz OAuth'u",
+      "item1": "Yerel geri çağırma bağlantı noktasını kullanmadan resmi Grok CLI cihaz akışını kullanır.",
+      "item2": "Yetkilendirmeden sonra ayrı bir GROK_HOME kaydeder ve kimlik bilgilerini geçerli tutar.",
+      "item3": "Hesaplar varsayılan CLI'ı değiştirebilir veya birbirinden yalıtılmış örneklerde çalışabilir.",
+      "urlPlaceholder": "Grok OAuth yetkilendirme adresi",
+      "waiting": "Grok OAuth yetkilendirmesi bekleniyor...",
+      "openWindow": "Yetkilendirmeyi Aç",
+      "success": "Grok OAuth oturumu açıldı"
+    },
+    "import": {
+      "pasteTab": "JSON Yapıştır",
+      "pasteDesc": "Resmi Grok CLI auth.json dosyasını yapıştırın. Kimlik bilgileri yalnızca yerel arka uçta işlenir. Cockpit sadece oturumu geri yükleyemeyen gizlenmiş meta verileri dışa aktarır.",
+      "pastePlaceholder": "Grok hesap JSON'unu yapıştır",
+      "pasteAction": "JSON'u İçe Aktar",
+      "localDesc": "Mevcut hesabı varsayılan ~/.grok/auth.json dosyasından içe aktarın. Dosya seçerken resmi Grok CLI auth.json dosyasını kullanın.",
+      "localClient": "Yerel Grok CLI'dan İçe Aktar",
+      "apiKeyTab": "API Anahtarı",
+      "apiKeyDesc": "xAI API anahtarını yapıştırın (resmi XAI_API_KEY). Başlatmada enjekte edilir. OAuth için resmi auth.json da yapıştırılabilir.",
+      "apiKeyPlaceholder": "xai-… yapıştırın",
+      "apiKeyAction": "API Key ekle"
+    },
+    "instances": {
+      "unsupported": "Grok CLI çoklu örnekleri yalnızca macOS, Windows ve Linux'ta desteklenir.",
+      "launchDialogTitle": "Örneği Başlat",
+      "launchHint": "Komutu kopyalayıp elle çalıştırın veya doğrudan terminalde başlatın.",
+      "runInTerminal": "Terminalde Çalıştır",
+      "cliReady": "Algılandı",
+      "cliMissingShort": "Algılanmadı",
+      "cliPathInvalid": "Yapılandırılan Grok CLI yolu geçersiz: {{path}}",
+      "saveAndRetry": "Kaydet ve yeniden dene",
+      "installCommand": "Resmî kurulum komutu",
+      "installHint": "Aşağıdaki resmî komutu terminalde çalıştırın, kurulum tamamlandıktan sonra Yenile'ye tıklayın.",
+      "selectWorkingDir": "Grok CLI çalışma dizinini seç",
+      "workingDirAccountHint": "Çalışma dizini bu hesaba bağlıdır ve sonraki başlatmada geri yüklenir.",
+      "launchCommandPlaceholder": "Başlatma komutunu oluşturmak için dizin seçin veya onaylayın"
+    },
+    "switch": {
+      "success": "Hesap değiştirildi"
+    },
+    "usageNormal": "Sorunsuz",
+    "usageAbnormal": "Olağandışı",
+    "usageViewDetail": "Ayrıntıları gör",
+    "usageDetailTitle": "Kullanım ayrıntıları",
+    "usage": "Kullanım",
+    "quotaQuery": {
+      "failedRefreshCompact": "Kota sorgusu başarısız",
+      "empty": "Kota verisi yok",
+      "sectionTitle": "Kota"
+    },
+    "quota": {
+      "weekly": "Haftalık kullanım",
+      "onDemand": "İsteğe bağlı kullanım",
+      "balance": "Bakiye ve krediler",
+      "included": "Dahil kullanım",
+      "promotional": "Promosyon kotası",
+      "frequent": "Sık görevler",
+      "occasional": "Ara sıra görevler",
+      "resetAt": "{{label}} sıfırlanır: {{time}}",
+      "empty": "Kota yok",
+      "apiKeyUnsupported": "API Key hesaplarında plan kotası yok"
+    },
+    "quotaAlert": {
+      "hint": "Geçerli hesabın herhangi bir kota öğesi eşiğin altına düştüğünde yerel bildirim gönderilir ve uygulamada hızlı geçiş eylemi gösterilir.",
+      "thresholdDesc": "Herhangi bir kota öğesi bu yüzdenin altına düştüğünde uyarı ver",
+      "items": "Kota öğeleri",
+      "unknownItem": "Bilinmeyen kota öğesi"
+    }
   },
   "claude": {
     "import": {

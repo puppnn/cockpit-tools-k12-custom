@@ -47,6 +47,7 @@ async function saveGroupsToDisk(groups: CodexAccountGroup[]): Promise<void> {
     await invoke('save_codex_account_groups', { data: JSON.stringify(groups, null, 2) });
   } catch (e) {
     console.error('[CodexAccountGroups] Failed to save to disk:', e);
+    throw e;
   }
 }
 
@@ -58,8 +59,8 @@ async function loadGroups(): Promise<CodexAccountGroup[]> {
 
 async function saveGroups(groups: CodexAccountGroup[]): Promise<void> {
   const nextGroups = cloneGroups(groups);
-  cachedGroups = nextGroups;
   await saveGroupsToDisk(nextGroups);
+  cachedGroups = nextGroups;
 }
 
 // ─── 公开 API ───────────────────────────────────────

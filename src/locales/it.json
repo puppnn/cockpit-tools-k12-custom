@@ -6,12 +6,14 @@
     "saving": "Salvataggio...",
     "delete": "Elimina",
     "refresh": "Aggiorna",
+    "reauthorize": "Riautorizza",
     "loading": "Caricamento...",
     "success": "Successo",
     "failed": "Fallito",
     "enabled": "Abilitato",
     "disabled": "Disabilitato",
     "close": "Chiudi",
+    "back": "Indietro",
     "open": "Apri",
     "copy": "Copia",
     "copied": "Copiato",
@@ -124,6 +126,8 @@
         "failed": "Autorizzazione non riuscita",
         "hint": "Al termine dell'autorizzazione, questa finestra si aggiornerà automaticamente",
         "openBrowser": "Apri nel browser",
+        "normalWindow": "Finestra normale",
+        "incognitoWindow": "Finestra privata",
         "success": "Autorizzazione riuscita",
         "meta": "Scade tra: {{expires}}s; intervallo di polling: {{interval}}s",
         "preparing": "Preparazione del link di autorizzazione...",
@@ -174,7 +178,9 @@
         "resetDone": "Reimpostato",
         "hourly": "Quota di 5 ore",
         "weekly": "Quota settimanale",
-        "resetAt": "Reimpostazione: {{time}}"
+        "resetAt": "Reimpostazione: {{time}}",
+        "expiresAt": "Scade il: {{time}}",
+        "leftPercent": "{{value}}% rimanente"
       },
       "subtitle": "Gestisci i tuoi account GitHub Copilot",
       "time": {
@@ -759,9 +765,13 @@
       "codebuddyCnPathReset": "Ripristina predefinito",
       "codebuddyCnPathSelect": "Seleziona",
       "codebuddyCnSettingsTitle": "Impostazioni CodeBuddy CN",
+      "zcodeAppPath": "Percorso di avvio ZCode",
+      "zcodeAppPathDesc": "Lascia vuoto per usare il percorso predefinito",
       "qoderAppPath": "Percorso app Qoder",
       "qoderAppPathDesc": "Lasciare vuoto per usare il percorso predefinito",
       "qoderAppPathPlaceholder": "Percorso predefinito",
+      "zcodeAutoRefresh": "Aggiornamento automatico ZCode",
+      "zcodeAutoRefreshDesc": "Intervallo di aggiornamento quota in background",
       "qoderAutoRefresh": "Aggiornamento automatico quota Qoder",
       "qoderAutoRefreshDesc": "Frequenza di aggiornamento automatico in background",
       "qoderPathSelect": "Seleziona",
@@ -942,7 +952,7 @@
       "importModalDesc": "Scegli cosa importare. I vecchi backup account vengono gestiti come importazione solo account.",
       "selectionTitle": "Ambito dati",
       "accountsOptionTitle": "Dati account",
-      "accountsOptionDesc": "Include i backup degli account delle piattaforme e mantiene la compatibilità con il vecchio JSON degli account.",
+      "accountsOptionDesc": "Include backup ripristinabili degli account e mantiene la compatibilità con il vecchio JSON. Le credenziali di Grok CLI sono escluse; importa separatamente il file auth.json ufficiale.",
       "configOptionTitle": "Dati di configurazione",
       "configOptionDesc": "Include impostazioni app, gruppi, istanze, attività di wakeup e configurazione dei provider di modelli.",
       "exportConfirm": "Esporta dati",
@@ -1954,6 +1964,9 @@
       "customRoutingEdit": "Modifica routing personalizzato",
       "customRoutingTitle": "Routing personalizzato",
       "customRoutingDesc": "Imposta priorità e peso per account per controllare l’ordine di scelta e la distribuzione del carico allo stesso livello.",
+      "customRoutingBackupTitle": "Account di riserva",
+      "customRoutingBackupDesc": "Viene usato solo quando tutti gli account normali non sono disponibili. Le nuove richieste tornano automaticamente quando un account normale viene ripristinato.",
+      "customRoutingBackupShort": "Riserva",
       "customRoutingPriorityTitle": "Priorità",
       "customRoutingPriorityDesc": "I valori più alti vengono scelti prima; gli account con priorità più bassa vengono provati solo se quelli superiori non sono disponibili.",
       "customRoutingWeightTitle": "Peso",
@@ -2108,7 +2121,8 @@
       "enterprise": "ENTERPRISE​"
     },
     "list": {
-      "showCodeReviewQuota": "Mostra quota Code Review"
+      "showCodeReviewQuota": "Mostra quota Code Review",
+      "showAdditionalQuota": "Quote per modello"
     },
     "time": {
       "today": "Oggi {{time}}",
@@ -2129,6 +2143,7 @@
       "hourlyReset": "Ora di reset 5 ore",
       "subscriptionExpiry": "Scadenza abbonamento",
       "custom": "Ordine personalizzato",
+      "customSettingsTooltip": "Configura ordine personalizzato",
       "customModalTitle": "Ordine account",
       "customModalDesc": "Trascina gli account o usa i pulsanti su/giù per modificare l’ordine.",
       "customDragHandle": "Trascina per ordinare",
@@ -2716,7 +2731,8 @@
         "modelCatalog": "Catalogo modelli",
         "visionCapability": "Input immagini",
         "visionModels": "Modelli visivi",
-        "visionRoutingModel": "Modello immagini"
+        "visionRoutingModel": "Modello immagini",
+        "supportsWebsockets": "Trasporto WebSocket"
       },
       "validation": {
         "nameRequired": "Il nome del provider è obbligatorio.",
@@ -2952,6 +2968,12 @@
         "customMoveUp": "Sposta su",
         "customMoveDown": "Sposta giù",
         "customReset": "Reimposta ordine"
+      },
+      "websockets": {
+        "title": "Consenti a Codex di usare Responses tramite WebSocket",
+        "help": "Attiva solo se il provider supporta esplicitamente Responses tramite WebSocket; verifica il trasporto nei log di Codex o del servizio proxy.",
+        "enabled": "Attivato",
+        "disabled": "Disattivato"
       }
     },
     "quickSwitch": {
@@ -3167,6 +3189,15 @@
         "optionsTitle": "Opzioni routing",
         "sessionAffinity": "Affinità sessione",
         "sessionAffinityTtl": "TTL affinità",
+        "newSessionPriority": "Priorità alle nuove sessioni",
+        "newSessionPriorityTitle": "Solo le sessioni non ancora associate a un account usano questo gruppo; le sessioni esistenti mantengono il proprio account",
+        "newSessionPriorityAccounts": "Account preferiti",
+        "newSessionPriorityAccountsTitle": "Se il gruppo preferito non è disponibile, viene usato il criterio di routing attuale",
+        "selectPriorityAccounts": "Seleziona account",
+        "selectedPriorityAccounts": "Selezionati",
+        "noPriorityAccounts": "Nessun account disponibile",
+        "newSessionPriorityRequiresAffinity": "Attiva l'affinità di sessione prima di attivare il routing prioritario per le nuove sessioni",
+        "newSessionPriorityAccountsRequired": "Seleziona almeno un account preferito per le nuove sessioni",
         "maxRetryCredentials": "Account retry",
         "maxRetryInterval": "Attesa retry",
         "disableCooling": "Disattiva cooldown",
@@ -3262,6 +3293,15 @@
       "renameSuccess": "Rinominato",
       "renameFailed": "Rinomina non riuscita"
     },
+    "importApiService": {
+      "toggle": "Aggiungi al servizio API",
+      "description": "Aggiunge gli account importati idonei al pool del servizio API.",
+      "syncFailed": "Gli account sono stati importati, ma non aggiunti al servizio API: {{error}}",
+      "guideTitle": "Account aggiunti al servizio API",
+      "guideDescription": "{{count}} account sono stati aggiunti al servizio API. Seleziona “Avvia servizio API” per passare al servizio e usarli.",
+      "later": "Più tardi",
+      "startAction": "Avvia servizio API"
+    },
     "batchImport": {
       "title": "Importazione batch Codex",
       "resultSubtitle": "Risultato importazione",
@@ -3300,7 +3340,8 @@
       "hiddenTask": "Importazione batch Codex",
       "taskRunning": "Elaborazione {{current}} / {{total}}",
       "taskPreview": "{{total}} anteprime pronte",
-      "reopen": "Vedi attività"
+      "reopen": "Vedi attività",
+      "dismissTask": "Ignora"
     },
     "autoRepairMode": {
       "label": "Logica autoriparazione",
@@ -3336,6 +3377,17 @@
       "started": "Avviata eliminazione di {{count}} account Codex",
       "pollFailed": "Impossibile aggiornare l’avanzamento eliminazione: {{error}}",
       "actionFailed": "Azione di eliminazione batch non riuscita: {{error}}"
+    },
+    "filters": {
+      "allPlans": "Tutti ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "Filtri: {{visible}}/{{total}} account",
+      "clearAll": "Azzera",
+      "chipGroup": "Gruppo",
+      "chipTags": "Tag",
+      "chipSearch": "Cerca",
+      "chipPlan": "Piano",
+      "chipFolder": "Cartella"
     }
   },
   "githubCopilot": {
@@ -3573,6 +3625,14 @@
       "syncWslDesc": "Sovrascrive automaticamente la configurazione .gemini in WSL quando cambi account"
     },
     "geminiRefreshInterval": "Aggiornamento automatico quota",
+    "grok": {
+      "title": "Impostazioni Grok CLI",
+      "appPath": "Percorso Grok CLI",
+      "cliPath": "Percorso CLI",
+      "cliDetected": "Rilevato: {{version}} · {{path}}",
+      "cliMissing": "Grok CLI non trovato. Indica un percorso."
+    },
+    "grokRefreshInterval": "Aggiornamento automatico quota",
     "codebuddy": {
       "title": "Impostazioni CodeBuddy",
       "appPath": "Percorso CodeBuddy"
@@ -3598,6 +3658,10 @@
     "workbuddy": {
       "title": "Impostazioni WorkBuddy",
       "appPath": "Percorso WorkBuddy"
+    },
+    "zcode": {
+      "title": "Impostazioni ZCode",
+      "appPath": "Percorso ZCode"
     },
     "zed": {
       "title": "Impostazioni Zed",
@@ -4590,6 +4654,62 @@
       "recentDates": "Recenti: "
     }
   },
+  "zcode": {
+    "search": "Cerca account ZCode...",
+    "flowNotice": {
+      "title": "Guida agli account ZCode",
+      "desc": "Cockpit legge e riscrive le credenziali locali cifrate di ZCode per il cambio account reale e l'associazione delle istanze.",
+      "permission": "Ambito locale: ~/.zcode/v2/credentials.json e directory delle istanze gestite.",
+      "network": "Ambito di rete: API OAuth, utente, abbonamento e quota. Gli account non vengono caricati su un servizio Cockpit."
+    },
+    "empty": "Nessun account ZCode",
+    "addAccount": "Aggiungi account ZCode",
+    "oauth": {
+      "desc": "Chiudi ZCode e accedi nella finestra di autorizzazione di Cockpit; Cockpit riceverà direttamente il callback.",
+      "title": "OAuth ZCode",
+      "item1": "Accesso ufficiale con Z.ai e BigModel.",
+      "item2": "Salva l'account e aggiorna piano e quote dei modelli.",
+      "item3": "Usa gli account per cambiare client e associare più istanze.",
+      "urlPlaceholder": "URL OAuth ZCode",
+      "waiting": "In attesa del callback OAuth ZCode...",
+      "openWindow": "Apri finestra di autorizzazione",
+      "provider": "Servizio di accesso",
+      "success": "Accesso OAuth ZCode riuscito"
+    },
+    "token": {
+      "desc": "Incolla il JSON di un account ZCode esportato da Cockpit."
+    },
+    "apiKey": {
+      "tab": "Chiave API",
+      "desc": "Aggiungi una chiave API ufficiale Z.ai o BigModel. Il cambio account e le istanze gestite la scrivono nel proprio config.json.",
+      "placeholder": "Incolla la chiave API",
+      "add": "Aggiungi chiave API",
+      "provider": "Servizio chiave API"
+    },
+    "import": {
+      "localDesc": "Importa credenziali locali cifrate di ZCode o un file JSON.",
+      "localClient": "Importa da ZCode locale"
+    },
+    "usageNormal": "Normale",
+    "usageAbnormal": "Errore",
+    "usageViewDetail": "Dettagli",
+    "usageDetailTitle": "Dettagli utilizzo",
+    "usage": "Utilizzo",
+    "quota": {
+      "models": "Quota modelli",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "Aggiornato: {{time}}",
+      "expireAt": "Scade: {{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Query quota non riuscita",
+      "empty": "Nessun dato quota",
+      "sectionTitle": "Disponibilità"
+    },
+    "instances": {
+      "unsupported": "Le istanze multiple di ZCode sono disponibili solo su macOS, Windows e Linux."
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Aggiungi account Zed"
@@ -4694,6 +4814,7 @@
     "errors": {
       "refreshFailed": "Aggiornamento non riuscito: {{error}}",
       "switchFailed": "Cambio non riuscito: {{error}}",
+      "stopInstanceBeforeSwitch": "Arresta l'istanza prima di cambiare account",
       "pinFailed": "Impossibile aggiornare lo stato di fissaggio: {{error}}",
       "closeFailed": "Chiusura non riuscita: {{error}}"
     },
@@ -4956,6 +5077,86 @@
     },
     "copyKey": "Copy Key​",
     "clearKey": "Clear input​"
+  },
+  "grok": {
+    "search": "Cerca account Grok CLI...",
+    "flowNotice": {
+      "title": "Gestione account Grok CLI",
+      "desc": "Cockpit gestisce gli account nel formato ufficiale delle credenziali Grok CLI per cambiare realmente l'account predefinito e associare istanze isolate.",
+      "permission": "Ambito locale: legge il file ~/.grok/auth.json predefinito e gestisce directory separate per account Grok e GROK_HOME nei dati locali di Cockpit.",
+      "network": "Ambito di rete: autorizzazione OAuth, rinnovo delle credenziali e query di utilizzo. Le credenziali non vengono caricate sui servizi Cockpit."
+    },
+    "empty": "Nessun account Grok CLI",
+    "addAccount": "Aggiungi account Grok CLI",
+    "oauth": {
+      "desc": "Apri la pagina di autorizzazione xAI e inserisci il codice del dispositivo. L'account verrà salvato automaticamente.",
+      "title": "OAuth dispositivo Grok",
+      "item1": "Usa il flusso dispositivo ufficiale di Grok CLI senza occupare una porta di callback locale.",
+      "item2": "Salva un GROK_HOME separato dopo l'autorizzazione e mantiene valide le credenziali.",
+      "item3": "Gli account possono cambiare la CLI predefinita o funzionare in istanze isolate tra loro.",
+      "urlPlaceholder": "Indirizzo di autorizzazione OAuth Grok",
+      "waiting": "In attesa dell'autorizzazione OAuth Grok...",
+      "openWindow": "Apri autorizzazione",
+      "success": "Accesso OAuth Grok riuscito"
+    },
+    "import": {
+      "pasteTab": "Incolla JSON",
+      "pasteDesc": "Incolla il file auth.json ufficiale di Grok CLI. Le credenziali sono elaborate solo dal backend locale. Cockpit esporta esclusivamente metadati oscurati, che non possono ripristinare l'accesso.",
+      "pastePlaceholder": "Incolla JSON account Grok",
+      "pasteAction": "Importa JSON",
+      "localDesc": "Importa l'account corrente dal file ~/.grok/auth.json predefinito. Quando scegli un file, usa il file auth.json ufficiale di Grok CLI.",
+      "localClient": "Importa da Grok CLI locale",
+      "apiKeyTab": "Chiave API",
+      "apiKeyDesc": "Incolla una API key xAI (XAI_API_KEY ufficiale). Viene iniettata all’avvio. Puoi anche incollare auth.json ufficiale per OAuth.",
+      "apiKeyPlaceholder": "incolla xai-…",
+      "apiKeyAction": "Aggiungi API Key"
+    },
+    "instances": {
+      "unsupported": "Le istanze multiple di Grok CLI sono supportate solo su macOS, Windows e Linux.",
+      "launchDialogTitle": "Avvia istanza",
+      "launchHint": "Copia il comando per eseguirlo manualmente oppure avvialo direttamente in un terminale.",
+      "runInTerminal": "Esegui nel terminale",
+      "cliReady": "Rilevato",
+      "cliMissingShort": "Non rilevato",
+      "cliPathInvalid": "Il percorso Grok CLI configurato non è valido: {{path}}",
+      "saveAndRetry": "Salva e riprova",
+      "installCommand": "Comando di installazione ufficiale",
+      "installHint": "Esegui il seguente comando ufficiale nel terminale, quindi aggiorna al termine dell’installazione.",
+      "selectWorkingDir": "Seleziona directory di lavoro Grok CLI",
+      "workingDirAccountHint": "La directory di lavoro è associata a questo account e verrà ripristinata al prossimo avvio.",
+      "launchCommandPlaceholder": "Scegli o conferma una directory per generare il comando di avvio"
+    },
+    "switch": {
+      "success": "Account cambiato"
+    },
+    "usageNormal": "Regolare",
+    "usageAbnormal": "Anomalo",
+    "usageViewDetail": "Vedi dettagli",
+    "usageDetailTitle": "Dettagli utilizzo",
+    "usage": "Utilizzo",
+    "quotaQuery": {
+      "failedRefreshCompact": "Query quota non riuscita",
+      "empty": "Nessun dato sulla quota",
+      "sectionTitle": "Limiti"
+    },
+    "quota": {
+      "weekly": "Utilizzo settimanale",
+      "onDemand": "Utilizzo a consumo",
+      "balance": "Saldo e crediti",
+      "included": "Utilizzo incluso",
+      "promotional": "Credito promozionale",
+      "frequent": "Attività frequenti",
+      "occasional": "Attività occasionali",
+      "resetAt": "{{label}} reset: {{time}}",
+      "empty": "Nessuna quota",
+      "apiKeyUnsupported": "Nessuna quota piano per account API Key"
+    },
+    "quotaAlert": {
+      "hint": "Quando una voce di quota dell’account corrente scende sotto la soglia, invia una notifica nativa e mostra un’azione di cambio rapido nell’app.",
+      "thresholdDesc": "Attiva un avviso quando una voce di quota scende sotto questa percentuale",
+      "items": "Voci di quota",
+      "unknownItem": "Voce di quota sconosciuta"
+    }
   },
   "claude": {
     "import": {

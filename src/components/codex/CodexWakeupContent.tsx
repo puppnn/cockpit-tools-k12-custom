@@ -36,9 +36,15 @@ import {
   CodexAccount,
   getCodexEffectiveQuotaPercentages,
   getCodexAuthMetadata,
+  getCodexPlanFilterKey,
   isCodexApiKeyAccount,
   isCodexTeamLikePlan,
 } from '../../types/codex';
+import {
+  buildCodexPlanFilterOptions,
+  createCodexPlanFilterCounts,
+  incrementCodexPlanFilterCount,
+} from '../../utils/codexAccountOverview';
 import { buildCodexAccountPresentation } from '../../presentation/platformAccountPresentation';
 import {
   CodexWakeupBatchResult,
@@ -340,16 +346,6 @@ function toggleStringSelection(values: string[], target: string) {
 
 function normalizeWakeupTag(value: string) {
   return value.trim().toLowerCase();
-}
-
-function resolveWakeupPlanBucket(planClass?: string) {
-  const upper = (planClass || '').trim().toUpperCase();
-  if (!upper || upper === 'FREE') return 'FREE';
-  if (upper.includes('ENTERPRISE')) return 'ENTERPRISE';
-  if (upper.includes('TEAM') || upper.includes('BUSINESS') || upper.includes('EDU')) return 'TEAM';
-  if (upper.includes('PLUS')) return 'PLUS';
-  if (upper.includes('PRO')) return 'PRO';
-  return 'OTHER';
 }
 
 function resolveWakeupQuotaBadges(
@@ -976,7 +972,7 @@ export function CodexWakeupContent({
         contextText: string;
         planLabel: string;
         planClass: string;
-        planBucket: string;
+        planKey: string;
         quotaBadges: WakeupQuotaBadge[];
       }
     >();
@@ -987,7 +983,7 @@ export function CodexWakeupContent({
         contextText: resolveAccountContextText(account, t),
         planLabel: presentation.planLabel,
         planClass: presentation.planClass || 'unknown',
-        planBucket: resolveWakeupPlanBucket(presentation.planClass),
+        planKey: getCodexPlanFilterKey(account),
         quotaBadges: resolveWakeupQuotaBadges(presentation),
       });
     });
@@ -1004,36 +1000,20 @@ export function CodexWakeupContent({
     return Array.from(uniqueTags).sort((left, right) => left.localeCompare(right));
   }, [oauthAccounts]);
   const wakeupTierCounts = useMemo(() => {
-    const counts = {
-      all: oauthAccounts.length,
-      FREE: 0,
-      PLUS: 0,
-      PRO: 0,
-      TEAM: 0,
-      ENTERPRISE: 0,
-      OTHER: 0,
-    };
+    const counts = createCodexPlanFilterCounts(oauthAccounts.length);
     oauthAccounts.forEach((account) => {
-      const bucket = wakeupAccountMetaMap.get(account.id)?.planBucket || 'FREE';
-      if (bucket in counts) {
-        counts[bucket as keyof typeof counts] += 1;
-      }
+      incrementCodexPlanFilterCount(counts, getCodexPlanFilterKey(account));
     });
     return counts;
-  }, [oauthAccounts, wakeupAccountMetaMap]);
-  const wakeupTierFilterOptions = useMemo<MultiSelectFilterOption[]>(() => {
-    const options: MultiSelectFilterOption[] = [
-      { value: 'FREE', label: `FREE (${wakeupTierCounts.FREE})` },
-      { value: 'PLUS', label: `PLUS (${wakeupTierCounts.PLUS})` },
-      { value: 'PRO', label: `PRO (${wakeupTierCounts.PRO})` },
-      { value: 'TEAM', label: `TEAM (${wakeupTierCounts.TEAM})` },
-      { value: 'ENTERPRISE', label: `ENTERPRISE (${wakeupTierCounts.ENTERPRISE})` },
-    ];
-    if (wakeupTierCounts.OTHER > 0) {
-      options.push({ value: 'OTHER', label: `OTHER (${wakeupTierCounts.OTHER})` });
-    }
-    return options;
-  }, [wakeupTierCounts]);
+  }, [oauthAccounts]);
+  const wakeupTierFilterOptions = useMemo<MultiSelectFilterOption[]>(
+    () =>
+      buildCodexPlanFilterOptions(wakeupTierCounts, {
+        includeError: false,
+        pendingLabel: t('codex.pendingAuth.badge', '待授权'),
+      }),
+    [t, wakeupTierCounts],
+  );
   const [modelSelectionMemory, setModelSelectionMemory] = useState<WakeupModelSelectionMemory | null>(() =>
     readWakeupModelSelectionMemory(),
   );
@@ -1647,7 +1627,10 @@ export function CodexWakeupContent({
         if (query && !email.includes(query)) {
           return false;
         }
-        if (selectedPlanTypes.size > 0 && !selectedPlanTypes.has(meta?.planBucket || 'FREE')) {
+        if (
+          selectedPlanTypes.size > 0 &&
+          !selectedPlanTypes.has(meta?.planKey || getCodexPlanFilterKey(account))
+        ) {
           return false;
         }
         if (selectedTags.size > 0) {
@@ -1752,18 +1735,8 @@ export function CodexWakeupContent({
     if (config.codex_auto_refresh_minutes === QUOTA_RESET_MIN_REFRESH_MINUTES) {
       return false;
     }
-    await invoke('save_general_config', {
-      language: config.language,
-      theme: config.theme,
-      autoRefreshMinutes: config.auto_refresh_minutes,
+    await invoke('save_refresh_interval_config', {
       codexAutoRefreshMinutes: QUOTA_RESET_MIN_REFRESH_MINUTES,
-      closeBehavior: config.close_behavior || 'ask',
-      opencodeAppPath: config.opencode_app_path ?? '',
-      antigravityAppPath: config.antigravity_app_path ?? '',
-      codexAppPath: config.codex_app_path ?? '',
-      vscodeAppPath: config.vscode_app_path ?? '',
-      opencodeSyncOnSwitch: config.opencode_sync_on_switch ?? false,
-      codexLaunchOnSwitch: config.codex_launch_on_switch ?? true,
     });
     window.dispatchEvent(new Event('config-updated'));
     return true;
@@ -1808,7 +1781,7 @@ export function CodexWakeupContent({
         contextText: resolveAccountContextText(account, t),
         planLabel: presentation.planLabel,
         planClass: presentation.planClass || 'unknown',
-        planBucket: resolveWakeupPlanBucket(presentation.planClass),
+        planKey: getCodexPlanFilterKey(account),
         quotaBadges: resolveWakeupQuotaBadges(presentation),
       };
       const maskedEmail = maskAccountText(meta.email);

@@ -36,6 +36,65 @@
   background: color-mix(in srgb, var(--bg-card) 88%, transparent);
 }
 
+.codex-overview-filter-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-tertiary) 90%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.codex-overview-filter-banner.is-active {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-card));
+  color: var(--text-primary);
+}
+
+.codex-overview-filter-banner-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.codex-overview-filter-banner-count {
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.codex-overview-filter-banner-text {
+  font-weight: 600;
+}
+
+.codex-overview-filter-banner-chips {
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.codex-overview-filter-clear-btn {
+  flex-shrink: 0;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .codex-overview-filter-banner.is-active {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
+}
+
 .codex-overview-select-all {
   display: inline-flex;
   align-items: center;
@@ -357,10 +416,42 @@
   filter: brightness(0.96);
 }
 
+.codex-import-api-service-guide-anchor {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.codex-import-api-service-anchor-guide {
+  right: 0;
+  bottom: calc(100% + 12px);
+  left: auto;
+  top: auto;
+  width: min(270px, calc(100vw - 48px));
+}
+
+.codex-import-api-service-anchor-guide::before {
+  right: 10px;
+  bottom: -7px;
+  left: auto;
+  top: auto;
+  transform: rotate(225deg);
+}
+
 @media (max-width: 640px) {
   .codex-local-access-gateway-guide {
     left: -4px;
     width: min(272px, calc(100vw - 32px));
+  }
+
+  .codex-import-api-service-anchor-guide {
+    right: -4px;
+    left: auto;
+    width: min(260px, calc(100vw - 32px));
+  }
+
+  .codex-import-api-service-anchor-guide::before {
+    right: 14px;
   }
 }
 
@@ -948,6 +1039,11 @@
   margin-top: 0;
 }
 
+.codex-account-card .codex-local-access-footer.has-import-guide,
+.codex-account-card .codex-local-access-footer.has-import-guide .card-actions {
+  overflow: visible;
+}
+
 .codex-local-access-card .quota-error-inline {
   width: 100%;
 }
@@ -1385,6 +1481,14 @@
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.codex-batch-import-task__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .codex-api-switch-notice-repair-status svg {
@@ -4735,6 +4839,28 @@
   gap: 16px;
 }
 
+.codex-add-modal .codex-add-target-group-hint {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary) 9%, var(--bg-secondary));
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.codex-add-modal .codex-add-target-group-hint span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .codex-reauth-note-summary {
   display: flex;
   align-items: center;
@@ -7255,6 +7381,21 @@
 
 .codex-provider-modal .modal-body {
   max-height: min(70vh, 720px);
+}
+
+.codex-provider-save-button .codex-provider-save-button-label {
+  display: grid;
+  place-items: center;
+}
+
+.codex-provider-save-button .codex-provider-save-button-label > span {
+  grid-area: 1 / 1;
+}
+
+.codex-provider-save-button
+  .codex-provider-save-button-label
+  > span[aria-hidden="true"] {
+  visibility: hidden;
 }
 
 .codex-provider-label-with-help {

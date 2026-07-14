@@ -10,7 +10,7 @@ import { splitValidityFilterValues } from "./accountValidityFilter";
 import { compareCurrentAccountFirst } from "./currentAccountSort";
 import { normalizeAccountsOverviewScope } from "./accountsOverviewFilterPersistence";
 
-const CODEX_PRIMARY_PLAN_FILTER_KEYS = [
+export const CODEX_PRIMARY_PLAN_FILTER_KEYS = [
   "FREE",
   "PLUS",
   "PRO",
@@ -55,6 +55,24 @@ export function normalizeCodexPlanFilterValue(value: string): string {
   return value.trim().toUpperCase();
 }
 
+export function sortCodexPlanFilterKeys(values: string[]): string[] {
+  const uniqueKeys = Array.from(
+    new Set(values.map(normalizeCodexPlanFilterValue).filter(Boolean)),
+  );
+  const primaryOrder = new Map<string, number>(
+    CODEX_PRIMARY_PLAN_FILTER_KEYS.map((key, index) => [key, index]),
+  );
+  return uniqueKeys.sort((left, right) => {
+    const leftOrder = primaryOrder.get(left);
+    const rightOrder = primaryOrder.get(right);
+    if (leftOrder !== undefined || rightOrder !== undefined) {
+      return (leftOrder ?? Number.MAX_SAFE_INTEGER) -
+        (rightOrder ?? Number.MAX_SAFE_INTEGER);
+    }
+    return left.localeCompare(right);
+  });
+}
+
 export function createCodexPlanFilterCounts(
   total: number,
 ): CodexPlanFilterCounts {
@@ -86,6 +104,8 @@ export function buildCodexPlanFilterOptions(
   counts: CodexPlanFilterCounts,
   options?: {
     includeValid?: boolean;
+    includePending?: boolean;
+    includeError?: boolean;
     pendingLabel?: string;
     validOption?: CodexOverviewFilterOption;
   },
@@ -118,17 +138,21 @@ export function buildCodexPlanFilterOptions(
       });
     });
 
-  result.push({
-    value: "PENDING",
-    label: `${options?.pendingLabel ?? "待授权"} (${getCodexPlanFilterCount(
-      counts,
-      "PENDING",
-    )})`,
-  });
-  result.push({
-    value: "ERROR",
-    label: `ERROR (${counts.ERROR})`,
-  });
+  if (options?.includePending ?? true) {
+    result.push({
+      value: "PENDING",
+      label: `${options?.pendingLabel ?? "待授权"} (${getCodexPlanFilterCount(
+        counts,
+        "PENDING",
+      )})`,
+    });
+  }
+  if (options?.includeError ?? true) {
+    result.push({
+      value: "ERROR",
+      label: `ERROR (${counts.ERROR})`,
+    });
+  }
   if (options?.includeValid && options.validOption) {
     result.push(options.validOption);
   }

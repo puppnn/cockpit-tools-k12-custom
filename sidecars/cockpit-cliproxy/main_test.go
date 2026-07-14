@@ -996,6 +996,131 @@ func TestQuotaReserveSelectorFiltersCachedSessionAffinityAuth(t *testing.T) {
 	}
 }
 
+func TestBackupAccountSelectorOnlyAffectsNewSessions(t *testing.T) {
+	regularAccount := &accountSpec{ID: "regular", AuthID: "regular.json"}
+	backupAccount := &accountSpec{ID: "backup", AuthID: "backup.json"}
+	m := &manifest{
+		Accounts:        []accountSpec{*regularAccount, *backupAccount},
+		RoutingStrategy: "custom",
+		CustomRoutingRules: []customRoutingRule{
+			{AccountID: "regular", Priority: 0, Weight: 1},
+			{AccountID: "backup", Priority: 100, Weight: 1, IsBackup: true},
+		},
+		accountByID: map[string]*accountSpec{
+			"regular": regularAccount,
+			"backup":  backupAccount,
+		},
+		accountByAuthID: map[string]*accountSpec{
+			"regular.json": regularAccount,
+			"backup.json":  backupAccount,
+		},
+		originalIndexByID: map[string]int{"regular": 0, "backup": 1},
+	}
+	cfg := &config.Config{}
+	cfg.Routing.SessionAffinity = true
+	cfg.Routing.SessionAffinityTTL = time.Minute.String()
+	selector := buildCoreAuthSelector(cfg, &cockpitSelector{manifest: m}, m, nil)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		defer stoppable.Stop()
+	}
+
+	regularAuth := &coreauth.Auth{
+		ID:             "regular.json",
+		Unavailable:    true,
+		NextRetryAfter: time.Now().Add(time.Minute),
+	}
+	backupAuth := &coreauth.Auth{ID: "backup.json"}
+	auths := []*coreauth.Auth{regularAuth, backupAuth}
+	opts := cliproxyexecutor.Options{
+		OriginalRequest: []byte(`{"metadata":{"user_id":"user_xxx_account__session_43d54db9-d7ba-4b2f-b09a-47f238dc78ac"}}`),
+	}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+	if err != nil || selected == nil || selected.ID != "backup.json" {
+		t.Fatalf("expected backup while regular is unavailable, got auth=%#v err=%v", selected, err)
+	}
+
+	regularAuth.Unavailable = false
+	regularAuth.NextRetryAfter = time.Time{}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+	if err != nil || selected == nil || selected.ID != "backup.json" {
+		t.Fatalf("expected existing session to keep backup affinity, got auth=%#v err=%v", selected, err)
+	}
+
+	newSessionOpts := cliproxyexecutor.Options{
+		OriginalRequest: []byte(`{"metadata":{"user_id":"user_xxx_account__session_7d26642b-b430-455b-bf57-28d4d0d785be"}}`),
+	}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", newSessionOpts, auths)
+	if err != nil || selected == nil || selected.ID != "regular.json" {
+		t.Fatalf("expected new session to use recovered regular auth, got auth=%#v err=%v", selected, err)
+	}
+}
+
+func TestBackupAccountSelectorPreservesConfirmedK12Binding(t *testing.T) {
+	regularAccount := &accountSpec{ID: "regular-k12", AuthID: "regular-k12.json", PlanType: "K12"}
+	backupAccount := &accountSpec{ID: "backup-k12", AuthID: "backup-k12.json", PlanType: "K12"}
+	m := &manifest{
+		APIKeys:         []apiKeySpec{{ID: "local", Key: "local-api-key", Enabled: true}},
+		Accounts:        []accountSpec{*regularAccount, *backupAccount},
+		RoutingStrategy: "custom",
+		CustomRoutingRules: []customRoutingRule{
+			{AccountID: regularAccount.ID, Priority: 0, Weight: 1},
+			{AccountID: backupAccount.ID, Priority: 100, Weight: 1, IsBackup: true},
+		},
+		accountByID: map[string]*accountSpec{
+			regularAccount.ID: regularAccount,
+			backupAccount.ID:  backupAccount,
+		},
+		accountByAuthID: map[string]*accountSpec{
+			regularAccount.AuthID: regularAccount,
+			backupAccount.AuthID:  backupAccount,
+		},
+		originalIndexByID: map[string]int{regularAccount.ID: 0, backupAccount.ID: 1},
+	}
+	selector := buildCoreAuthSelector(&config.Config{}, &cockpitSelector{manifest: m}, m, nil)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		defer stoppable.Stop()
+	}
+
+	regularAuth := &coreauth.Auth{
+		ID:             regularAccount.AuthID,
+		Provider:       "codex",
+		Unavailable:    true,
+		NextRetryAfter: time.Now().Add(time.Minute),
+	}
+	backupAuth := &coreauth.Auth{ID: backupAccount.AuthID, Provider: "codex"}
+	auths := []*coreauth.Auth{regularAuth, backupAuth}
+	opts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"backup-k12-existing","input":[]}`)}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+	if err != nil || selected == nil || selected.ID != backupAuth.ID {
+		t.Fatalf("expected backup K12 while regular is unavailable, got auth=%#v err=%v", selected, err)
+	}
+	observer, ok := selector.(coreauth.SelectionResultSelector)
+	if !ok {
+		t.Fatal("selector should expose K12 result notifications")
+	}
+	observer.OnSelectionResult(context.Background(), coreauth.Result{
+		AuthID:   backupAuth.ID,
+		Provider: "codex",
+		Model:    "gpt-5.4",
+		Success:  true,
+	}, opts)
+
+	regularAuth.Unavailable = false
+	regularAuth.NextRetryAfter = time.Time{}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+	if err != nil || selected == nil || selected.ID != backupAuth.ID {
+		t.Fatalf("expected confirmed K12 session to keep backup binding, got auth=%#v err=%v", selected, err)
+	}
+
+	newSessionOpts := cliproxyexecutor.Options{OriginalRequest: []byte(`{"prompt_cache_key":"backup-k12-new","input":[]}`)}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", newSessionOpts, auths)
+	if err != nil || selected == nil || selected.ID != regularAuth.ID {
+		t.Fatalf("expected new K12 session to use recovered regular account, got auth=%#v err=%v", selected, err)
+	}
+}
+
 func int64PointerForTest(value int64) *int64 {
 	return &value
 }
@@ -1031,7 +1156,7 @@ func TestSidecarRuntimeRegistersConfigCodexAPIKeyAuths(t *testing.T) {
 		accountByAPIKey: map[string]*accountSpec{"sk-upstream": account},
 		ModelIDs:        []string{"gpt-5.4"},
 	}
-	manager := buildCoreAuthManager(cfg, &cockpitSelector{manifest: m}, &authHook{manifest: m}, m, nil)
+	manager := buildCoreAuthManager(cfg, &cockpitSelector{manifest: m}, &authHook{manifest: m}, m, nil, newRequestUsageTracker())
 
 	runtime, err := newSidecarRuntime(context.Background(), configPath, cfg, m, manager)
 	if err != nil {
@@ -1124,7 +1249,7 @@ func TestManifestRegisteredModelsPreserveReasoningEffortThroughThinkingPipeline(
 		Provider: "codex",
 		Status:   coreauth.StatusActive,
 	}
-	manager := buildCoreAuthManager(&config.Config{}, &cockpitSelector{}, nil, nil, nil)
+	manager := buildCoreAuthManager(&config.Config{}, &cockpitSelector{}, nil, nil, nil, nil)
 	registered, err := manager.Register(context.Background(), auth)
 	if err != nil {
 		t.Fatalf("register auth: %v", err)
@@ -1285,6 +1410,10 @@ func TestWriteExecutorErrorThrottlesRetryableDownstreamError(t *testing.T) {
 
 func TestRequestUsageTrackerFinalizesWithLastSuccessfulAttempt(t *testing.T) {
 	tracker := newRequestUsageTracker()
+	tracker.recordSelectedAccount("req-1", &accountSpec{
+		ID:    "account-ok",
+		Email: "ok@example.com",
+	}, "auth-ok")
 	tracker.record(usagePayload{
 		Type:          "usage",
 		RequestID:     "req-1",
@@ -1333,6 +1462,211 @@ func TestRequestUsageTrackerFinalizesWithLastSuccessfulAttempt(t *testing.T) {
 	}
 	if payload.LatencyMS != 446_000 || payload.APIKeyID != "key_1" {
 		t.Fatalf("final request metadata was not applied: %#v", payload)
+	}
+}
+
+func TestRequestUsageTrackerFinalizesWithSelectedAccount(t *testing.T) {
+	tracker := newRequestUsageTracker()
+	tracker.recordSelectedAccount("req-selected", &accountSpec{
+		ID:    "account-selected",
+		Email: "selected@example.com",
+	}, "auth-selected")
+
+	payload, ok := tracker.finalize("req-selected", usageFinalizeInput{
+		spec:          &apiKeySpec{ID: "key_1", Label: "Default"},
+		requestKind:   "text",
+		model:         "gpt-5.5",
+		status:        http.StatusOK,
+		latencyMS:     100,
+		completedAtMS: 123,
+	})
+
+	if !ok {
+		t.Fatal("expected finalized usage payload")
+	}
+	if payload.AccountID != "account-selected" || payload.AccountEmail != "selected@example.com" || payload.AuthID != "auth-selected" {
+		t.Fatalf("expected selected account metadata, got %#v", payload)
+	}
+}
+
+func TestRequestUsageTrackerSelectedAccountOverridesUsageAccount(t *testing.T) {
+	tracker := newRequestUsageTracker()
+	tracker.recordSelectedAccount("req-usage", &accountSpec{
+		ID:    "account-selected",
+		Email: "selected@example.com",
+	}, "auth-selected")
+	tracker.record(usagePayload{
+		Type:         "usage",
+		RequestID:    "req-usage",
+		AccountID:    "account-usage",
+		AccountEmail: "usage@example.com",
+		AuthID:       "auth-usage",
+		Success:      true,
+	})
+
+	payload, ok := tracker.finalize("req-usage", usageFinalizeInput{
+		status:        http.StatusOK,
+		latencyMS:     100,
+		completedAtMS: 123,
+	})
+
+	if !ok {
+		t.Fatal("expected finalized usage payload")
+	}
+	if payload.AccountID != "account-selected" || payload.AccountEmail != "selected@example.com" || payload.AuthID != "auth-selected" {
+		t.Fatalf("selected account metadata should win, got %#v", payload)
+	}
+}
+
+type countingSelector struct {
+	auth  *coreauth.Auth
+	count int
+}
+
+func (s *countingSelector) Pick(context.Context, string, string, cliproxyexecutor.Options, []*coreauth.Auth) (*coreauth.Auth, error) {
+	s.count++
+	return s.auth, nil
+}
+
+type selectorLifecycleProbe struct {
+	auth        *coreauth.Auth
+	result      coreauth.Result
+	resultCalls int
+	syncedAuths int
+	stopped     bool
+}
+
+func (s *selectorLifecycleProbe) Pick(context.Context, string, string, cliproxyexecutor.Options, []*coreauth.Auth) (*coreauth.Auth, error) {
+	return s.auth, nil
+}
+
+func (s *selectorLifecycleProbe) PickBeforeAvailability(context.Context, string, string, cliproxyexecutor.Options, []*coreauth.Auth) (*coreauth.Auth, bool, error) {
+	return s.auth, true, nil
+}
+
+func (s *selectorLifecycleProbe) OnSelectionResult(_ context.Context, result coreauth.Result, _ cliproxyexecutor.Options) coreauth.SelectionResultDirective {
+	s.result = result
+	s.resultCalls++
+	return coreauth.SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: true}
+}
+
+func (s *selectorLifecycleProbe) SyncAuths(auths []*coreauth.Auth) {
+	s.syncedAuths = len(auths)
+}
+
+func (s *selectorLifecycleProbe) Stop() {
+	s.stopped = true
+}
+
+func TestSelectorWrappersForwardExtendedLifecycle(t *testing.T) {
+	auth := &coreauth.Auth{ID: "auth-1", Provider: "codex"}
+	probe := &selectorLifecycleProbe{auth: auth}
+	selector := coreauth.Selector(&recordingSelector{
+		inner: &quotaReserveSelector{
+			fallback: &backupAccountSelector{fallback: probe},
+		},
+	})
+
+	preSelector, ok := selector.(coreauth.PreAvailabilitySelector)
+	if !ok {
+		t.Fatal("recording selector should expose pre-availability selection")
+	}
+	selected, handled, err := preSelector.PickBeforeAvailability(context.Background(), "codex", "gpt-5.5", cliproxyexecutor.Options{}, []*coreauth.Auth{auth})
+	if err != nil || !handled || selected != auth {
+		t.Fatalf("pre-availability forwarding = auth=%#v handled=%t err=%v", selected, handled, err)
+	}
+
+	result := coreauth.Result{AuthID: auth.ID, Provider: "codex", Model: "gpt-5.5", Success: true}
+	observer, ok := selector.(coreauth.SelectionResultSelector)
+	if !ok {
+		t.Fatal("recording selector should expose result notifications")
+	}
+	directive := observer.OnSelectionResult(context.Background(), result, cliproxyexecutor.Options{})
+	if probe.resultCalls != 1 || probe.result.AuthID != auth.ID || !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt {
+		t.Fatalf("result forwarding failed: probe=%#v directive=%#v", probe, directive)
+	}
+
+	snapshot, ok := selector.(coreauth.AuthSnapshotSelector)
+	if !ok {
+		t.Fatal("recording selector should expose auth snapshots")
+	}
+	snapshot.SyncAuths([]*coreauth.Auth{auth})
+	if probe.syncedAuths != 1 {
+		t.Fatalf("auth snapshot forwarding count = %d", probe.syncedAuths)
+	}
+
+	stoppable, ok := selector.(coreauth.StoppableSelector)
+	if !ok {
+		t.Fatal("recording selector should be stoppable")
+	}
+	stoppable.Stop()
+	if !probe.stopped {
+		t.Fatal("stop was not forwarded through selector wrappers")
+	}
+}
+
+func TestRecordingSelectorRecordsSuccessfulSessionAffinityCacheHit(t *testing.T) {
+	account := &accountSpec{ID: "account-selected", Email: "selected@example.com"}
+	otherAccount := &accountSpec{ID: "account-other", Email: "other@example.com"}
+	m := &manifest{
+		accountByAuthID: map[string]*accountSpec{"auth-selected": account, "auth-other": otherAccount},
+		accountByID:     map[string]*accountSpec{"account-selected": account, "account-other": otherAccount},
+		accountByAPIKey: map[string]*accountSpec{},
+	}
+	auth := &coreauth.Auth{ID: "auth-selected", Provider: "codex", Status: coreauth.StatusActive}
+	fallback := &countingSelector{auth: auth}
+	affinity := coreauth.NewSessionAffinitySelectorWithConfig(coreauth.SessionAffinityConfig{
+		Fallback: fallback,
+		TTL:      time.Hour,
+	})
+	tracker := newRequestUsageTracker()
+	selector := &recordingSelector{inner: affinity, manifest: m, tracker: tracker}
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "session-selected")
+	opts := cliproxyexecutor.Options{Headers: headers}
+
+	ctx1 := internallogging.WithRequestID(context.Background(), "req-first")
+	if _, err := selector.Pick(ctx1, "codex", "gpt-5.5", opts, []*coreauth.Auth{auth}); err != nil {
+		t.Fatalf("first pick: %v", err)
+	}
+	ctx2 := internallogging.WithRequestID(context.Background(), "req-cache")
+	if _, err := selector.Pick(ctx2, "codex", "gpt-5.5", opts, []*coreauth.Auth{auth}); err != nil {
+		t.Fatalf("cache pick: %v", err)
+	}
+	selector.OnSelectionResult(ctx2, coreauth.Result{
+		AuthID:   auth.ID,
+		Provider: "codex",
+		Model:    "gpt-5.5",
+		Success:  true,
+	}, opts)
+	selector.OnSelectionResult(ctx2, coreauth.Result{
+		AuthID:   "auth-other",
+		Provider: "codex",
+		Model:    "gpt-5.5",
+		Success:  false,
+	}, opts)
+	canceledCtx, cancel := context.WithCancel(ctx2)
+	cancel()
+	selector.OnSelectionResult(canceledCtx, coreauth.Result{
+		AuthID:   "auth-other",
+		Provider: "codex",
+		Model:    "gpt-5.5",
+		Success:  true,
+	}, opts)
+	if fallback.count != 1 {
+		t.Fatalf("expected second pick to use affinity cache, fallback count=%d", fallback.count)
+	}
+
+	payload, ok := tracker.finalize("req-cache", usageFinalizeInput{
+		status:        http.StatusOK,
+		latencyMS:     100,
+		completedAtMS: 123,
+	})
+	if !ok {
+		t.Fatal("expected finalized usage payload")
+	}
+	if payload.AccountID != "account-selected" || payload.AccountEmail != "selected@example.com" || payload.AuthID != "auth-selected" {
+		t.Fatalf("expected cache hit selected account metadata, got %#v", payload)
 	}
 }
 
@@ -1584,6 +1918,14 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 			},
 		}},
 		ModelIDs: []string{"deepseek-chat"},
+		ModelAliases: []modelAliasSpec{
+			{SourceModel: "deepseek-v4-flash", Alias: "gpt-5.5"},
+			{SourceModel: "deepseek-v4-pro", Alias: "gpt-5.4"},
+		},
+		aliasToSource: map[string]string{
+			"gpt-5.5": "deepseek-v4-flash",
+			"gpt-5.4": "deepseek-v4-pro",
+		},
 		apiKeyByValue: map[string]*apiKeySpec{
 			"client-key": {
 				ID:      "provider_gateway_account_1",
@@ -1607,7 +1949,7 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 		policy:   &requestPolicy{manifest: m},
 	}).router()
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"deepseek-v4-flash","input":"hello","stream":false}`))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":false}`))
 	req.Header.Set("Authorization", "Bearer client-key")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1628,7 +1970,7 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 	if !strings.Contains(upstreamBody, `"messages"`) || !strings.Contains(upstreamBody, `"stream":false`) {
 		t.Fatalf("request should be converted to chat completions: %s", upstreamBody)
 	}
-	if !strings.Contains(upstreamBody, `"model":"deepseek-v4-flash"`) || strings.Contains(upstreamBody, `"model":"gpt-5.5"`) {
+	if !strings.Contains(upstreamBody, `"model":"deepseek-v4-pro"`) || strings.Contains(upstreamBody, `"model":"gpt-5.4"`) {
 		t.Fatalf("request should use provider upstream model: %s", upstreamBody)
 	}
 	if !strings.Contains(w.Body.String(), `"object":"response"`) || !strings.Contains(w.Body.String(), `"output_text"`) {
@@ -1642,8 +1984,8 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 	if modelW.Code != http.StatusOK {
 		t.Fatalf("unexpected models status: %d body=%s", modelW.Code, modelW.Body.String())
 	}
-	if !strings.Contains(modelW.Body.String(), "deepseek-v4-flash") || !strings.Contains(modelW.Body.String(), "deepseek-v4-pro") || strings.Contains(modelW.Body.String(), "gpt-5.5") {
-		t.Fatalf("provider gateway should expose DeepSeek models only: %s", modelW.Body.String())
+	if !strings.Contains(modelW.Body.String(), "gpt-5.5") || !strings.Contains(modelW.Body.String(), "gpt-5.4") || strings.Contains(modelW.Body.String(), "deepseek-v4-pro") {
+		t.Fatalf("provider gateway should expose client model slots only: %s", modelW.Body.String())
 	}
 }
 

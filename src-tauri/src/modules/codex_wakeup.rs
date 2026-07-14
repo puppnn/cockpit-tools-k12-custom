@@ -901,6 +901,56 @@ fn append_home_cli_dirs(dirs: &mut Vec<PathBuf>) {
     ] {
         push_unique_dir(dirs, dir);
     }
+    append_version_manager_cli_dirs(dirs, &home);
+}
+
+/// Discover CLI bins managed by nvm / fnm / asdf, which GUI apps often miss
+/// because they inherit a minimal PATH without login-shell hooks.
+fn append_version_manager_cli_dirs(dirs: &mut Vec<PathBuf>, home: &Path) {
+    if let Some(nvm_bin) = std::env::var_os("NVM_BIN") {
+        push_unique_dir(dirs, PathBuf::from(nvm_bin));
+    }
+    if let Some(nvm_dir) = std::env::var_os("NVM_DIR") {
+        append_node_version_bin_dirs(dirs, PathBuf::from(nvm_dir).join("versions/node"));
+    } else {
+        append_node_version_bin_dirs(dirs, home.join(".nvm/versions/node"));
+    }
+
+    if let Some(fnm_multishell) = std::env::var_os("FNM_MULTISHELL_PATH") {
+        push_unique_dir(dirs, PathBuf::from(fnm_multishell));
+    }
+    if let Some(fnm_dir) = std::env::var_os("FNM_DIR") {
+        append_node_version_bin_dirs(dirs, PathBuf::from(fnm_dir).join("node-versions"));
+    } else {
+        append_node_version_bin_dirs(dirs, home.join(".local/share/fnm/node-versions"));
+        append_node_version_bin_dirs(dirs, home.join(".fnm/node-versions"));
+    }
+
+    let asdf_data = std::env::var_os("ASDF_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".asdf"));
+    append_node_version_bin_dirs(dirs, asdf_data.join("installs/nodejs"));
+    push_unique_dir(dirs, asdf_data.join("shims"));
+}
+
+fn append_node_version_bin_dirs(dirs: &mut Vec<PathBuf>, versions_root: PathBuf) {
+    let Ok(entries) = std::fs::read_dir(&versions_root) else {
+        return;
+    };
+    let mut version_dirs: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    // Prefer newer versions when multiple nvm installs exist.
+    version_dirs.sort();
+    version_dirs.reverse();
+    for version_dir in version_dirs {
+        // nvm: ~/.nvm/versions/node/v20.x.y/bin
+        push_unique_dir(dirs, version_dir.join("bin"));
+        // fnm: ~/.fnm/node-versions/v20.x.y/installation/bin
+        push_unique_dir(dirs, version_dir.join("installation/bin"));
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -2533,10 +2583,13 @@ pub fn get_task(task_id: &str) -> Result<Option<CodexWakeupTask>, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_model_preset_migrations, default_model_presets, CodexWakeupModelPreset,
-        CodexWakeupState, GPT_5_5_MODEL_PRESET_MIGRATION_ID, GPT_5_6_MODEL_PRESETS_MIGRATION_ID,
-        PRUNE_LEGACY_MODEL_PRESETS_MIGRATION_ID, REASONING_EFFORT_MEDIUM,
+        append_version_manager_cli_dirs, apply_model_preset_migrations, default_model_presets,
+        CodexWakeupModelPreset, CodexWakeupState, GPT_5_5_MODEL_PRESET_MIGRATION_ID,
+        GPT_5_6_MODEL_PRESETS_MIGRATION_ID, PRUNE_LEGACY_MODEL_PRESETS_MIGRATION_ID,
+        REASONING_EFFORT_MEDIUM,
     };
+    use std::fs;
+    use std::path::PathBuf;
 
     fn model_preset(id: &str, name: &str, model: &str) -> CodexWakeupModelPreset {
         CodexWakeupModelPreset {
@@ -2641,5 +2694,32 @@ mod tests {
             ]
         );
         assert!(!apply_model_preset_migrations(&mut state));
+    }
+
+    #[test]
+    fn version_manager_cli_dirs_include_nvm_node_bins() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-wakeup-nvm-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let nvm_bin = root.join(".nvm/versions/node/v20.19.2/bin");
+        fs::create_dir_all(&nvm_bin).expect("create nvm bin");
+        fs::write(nvm_bin.join("codex"), "#!/bin/sh\n").expect("write codex");
+        fs::write(nvm_bin.join("node"), "#!/bin/sh\n").expect("write node");
+
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        append_version_manager_cli_dirs(&mut dirs, &root);
+
+        assert!(
+            dirs.iter().any(|dir| dir == &nvm_bin),
+            "expected nvm bin dir in search paths: {:?}",
+            dirs
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }

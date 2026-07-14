@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useAccountStore } from '../stores/useAccountStore';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import { useClaudeAccountStore } from '../stores/useClaudeAccountStore';
@@ -8,10 +9,12 @@ import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
 import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
+import { useGrokAccountStore } from '../stores/useGrokAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
 import { useWorkbuddyAccountStore } from '../stores/useWorkbuddyAccountStore';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
+import { useZcodeAccountStore } from '../stores/useZcodeAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
 import { useZedAccountStore } from '../stores/useZedAccountStore';
 import { getGitHubCopilotAccountDisplayEmail } from '../types/githubCopilot';
@@ -19,10 +22,12 @@ import { getWindsurfAccountDisplayEmail } from '../types/windsurf';
 import { getKiroAccountDisplayEmail } from '../types/kiro';
 import { getCursorAccountDisplayEmail } from '../types/cursor';
 import { getGeminiAccountDisplayEmail } from '../types/gemini';
+import { getGrokAccountDisplayEmail } from '../types/grok';
 import { getClaudeAccountDisplayEmail } from '../types/claude';
 import { getCodebuddyAccountDisplayEmail } from '../types/codebuddy';
 import { getWorkbuddyAccountDisplayEmail } from '../types/workbuddy';
 import { getQoderAccountDisplayEmail } from '../types/qoder';
+import { getZcodeAccountDisplayEmail } from '../types/zcode';
 import {
   getTraeAccountDisplayEmail,
   getTraeAccountPlatformId,
@@ -39,6 +44,7 @@ import {
   type AutoRefreshSchedulerHandle,
   type AutoRefreshSchedulerTask,
 } from '../utils/autoRefreshScheduler';
+import { CURRENT_ACCOUNT_CHANGED_EVENT } from '../utils/accountSyncEvents';
 import { refreshCodexApiKeyUsageForAccounts } from '../services/codexApiKeyUsageRefreshService';
 
 interface GeneralConfig {
@@ -54,11 +60,13 @@ interface GeneralConfig {
   kiro_auto_refresh_minutes: number;
   cursor_auto_refresh_minutes: number;
   gemini_auto_refresh_minutes: number;
+  grok_auto_refresh_minutes: number;
   gemini_sync_wsl: boolean;
   codebuddy_auto_refresh_minutes: number;
   codebuddy_cn_auto_refresh_minutes: number;
   workbuddy_auto_refresh_minutes: number;
   qoder_auto_refresh_minutes: number;
+  zcode_auto_refresh_minutes: number;
   trae_auto_refresh_minutes: number;
   trae_solo_auto_refresh_minutes: number;
   trae_cn_auto_refresh_minutes: number;
@@ -78,6 +86,7 @@ interface GeneralConfig {
   codebuddy_app_path?: string;
   codebuddy_cn_app_path?: string;
   qoder_app_path?: string;
+  zcode_app_path?: string;
   trae_app_path?: string;
   zed_app_path?: string;
   opencode_sync_on_switch?: boolean;
@@ -87,6 +96,8 @@ interface GeneralConfig {
   cursor_quota_alert_threshold?: number;
   gemini_quota_alert_enabled?: boolean;
   gemini_quota_alert_threshold?: number;
+  grok_quota_alert_enabled?: boolean;
+  grok_quota_alert_threshold?: number;
 }
 
 interface PlatformRefreshDescriptor {
@@ -149,7 +160,7 @@ function getCurrentAccountEmails(): Record<CurrentAccountRefreshPlatform, string
     const state = store.getState();
     const account = state.accounts.find((a) => a.id === state.currentAccountId);
     if (!account) return null;
-    return account.email ?? getDisplayEmail(account);
+    return getDisplayEmail(account);
   };
   const getTraeProviderEmail = (
     platform: keyof typeof TRAE_CURRENT_ACCOUNT_ID_KEYS,
@@ -182,10 +193,12 @@ function getCurrentAccountEmails(): Record<CurrentAccountRefreshPlatform, string
     kiro: getProviderEmail(useKiroAccountStore, getKiroAccountDisplayEmail),
     cursor: getProviderEmail(useCursorAccountStore, getCursorAccountDisplayEmail),
     gemini: getProviderEmail(useGeminiAccountStore, getGeminiAccountDisplayEmail),
+    grok: getProviderEmail(useGrokAccountStore, getGrokAccountDisplayEmail),
     codebuddy: getProviderEmail(useCodebuddyAccountStore, getCodebuddyAccountDisplayEmail),
     codebuddy_cn: getProviderEmail(useCodebuddyCnAccountStore, getCodebuddyAccountDisplayEmail),
     workbuddy: getProviderEmail(useWorkbuddyAccountStore, getWorkbuddyAccountDisplayEmail),
     qoder: getProviderEmail(useQoderAccountStore, getQoderAccountDisplayEmail),
+    zcode: getProviderEmail(useZcodeAccountStore, getZcodeAccountDisplayEmail),
     trae: getTraeProviderEmail('trae'),
     trae_solo: getTraeProviderEmail('trae_solo'),
     trae_cn: getTraeProviderEmail('trae_cn'),
@@ -220,6 +233,9 @@ export function useAutoRefresh() {
   const refreshAllGeminiTokens = useGeminiAccountStore((state) => state.refreshAllTokens);
   const fetchCurrentGeminiAccountId = useGeminiAccountStore((state) => state.fetchCurrentAccountId);
   const refreshGeminiToken = useGeminiAccountStore((state) => state.refreshToken);
+  const refreshAllGrokTokens = useGrokAccountStore((state) => state.refreshAllTokens);
+  const fetchCurrentGrokAccountId = useGrokAccountStore((state) => state.fetchCurrentAccountId);
+  const refreshGrokToken = useGrokAccountStore((state) => state.refreshToken);
   const refreshAllCodebuddyTokens = useCodebuddyAccountStore((state) => state.refreshAllTokens);
   const fetchCurrentCodebuddyAccountId = useCodebuddyAccountStore((state) => state.fetchCurrentAccountId);
   const refreshCodebuddyToken = useCodebuddyAccountStore((state) => state.refreshToken);
@@ -232,6 +248,9 @@ export function useAutoRefresh() {
   const refreshAllQoderTokens = useQoderAccountStore((state) => state.refreshAllTokens);
   const fetchCurrentQoderAccountId = useQoderAccountStore((state) => state.fetchCurrentAccountId);
   const refreshQoderToken = useQoderAccountStore((state) => state.refreshToken);
+  const refreshAllZcodeTokens = useZcodeAccountStore((state) => state.refreshAllTokens);
+  const fetchCurrentZcodeAccountId = useZcodeAccountStore((state) => state.fetchCurrentAccountId);
+  const refreshZcodeToken = useZcodeAccountStore((state) => state.refreshToken);
   const fetchTraeAccounts = useTraeAccountStore((state) => state.fetchAccounts);
   const refreshTraeToken = useTraeAccountStore((state) => state.refreshToken);
   const refreshAllZedTokens = useZedAccountStore((state) => state.refreshAllTokens);
@@ -254,6 +273,8 @@ export function useAutoRefresh() {
   const cursorCurrentRefreshingRef = useRef(false);
   const geminiRefreshingRef = useRef(false);
   const geminiCurrentRefreshingRef = useRef(false);
+  const grokRefreshingRef = useRef(false);
+  const grokCurrentRefreshingRef = useRef(false);
   const codebuddyRefreshingRef = useRef(false);
   const codebuddyCurrentRefreshingRef = useRef(false);
   const codebuddyCnRefreshingRef = useRef(false);
@@ -262,6 +283,8 @@ export function useAutoRefresh() {
   const workbuddyCurrentRefreshingRef = useRef(false);
   const qoderRefreshingRef = useRef(false);
   const qoderCurrentRefreshingRef = useRef(false);
+  const zcodeRefreshingRef = useRef(false);
+  const zcodeCurrentRefreshingRef = useRef(false);
   const traeRefreshingRef = useRef(false);
   const traeCurrentRefreshingRef = useRef(false);
   const traeSoloRefreshingRef = useRef(false);
@@ -368,47 +391,11 @@ export function useAutoRefresh() {
                     `[AutoRefresh] 检测到活跃的配额重置任务，自动修正刷新间隔: ${config.auto_refresh_minutes} -> 2`,
                   );
                   const saveConfigStartedAt = performance.now();
-                  await invoke('save_general_config', {
-                    language: config.language,
-                    theme: config.theme,
+                  await invoke('save_refresh_interval_config', {
                     autoRefreshMinutes: 2,
-                    codexAutoRefreshMinutes: config.codex_auto_refresh_minutes,
-                    claudeAutoRefreshMinutes: config.claude_auto_refresh_minutes,
-                    ghcpAutoRefreshMinutes: config.ghcp_auto_refresh_minutes,
-                    windsurfAutoRefreshMinutes: config.windsurf_auto_refresh_minutes,
-                    kiroAutoRefreshMinutes: config.kiro_auto_refresh_minutes,
-                    cursorAutoRefreshMinutes: config.cursor_auto_refresh_minutes,
-                    geminiAutoRefreshMinutes: config.gemini_auto_refresh_minutes,
-                    codebuddyAutoRefreshMinutes: config.codebuddy_auto_refresh_minutes,
-                    codebuddyCnAutoRefreshMinutes: config.codebuddy_cn_auto_refresh_minutes,
-                    workbuddyAutoRefreshMinutes: config.workbuddy_auto_refresh_minutes,
-                    qoderAutoRefreshMinutes: config.qoder_auto_refresh_minutes,
-                    traeAutoRefreshMinutes: config.trae_auto_refresh_minutes,
-                    zedAutoRefreshMinutes: config.zed_auto_refresh_minutes,
-                    closeBehavior: config.close_behavior || 'ask',
-                    opencodeAppPath: config.opencode_app_path ?? '',
-                    antigravityAppPath: config.antigravity_app_path ?? '',
-                    codexAppPath: config.codex_app_path ?? '',
-                    vscodeAppPath: config.vscode_app_path ?? '',
-                    windsurfAppPath: config.windsurf_app_path ?? '',
-                    kiroAppPath: config.kiro_app_path ?? '',
-                    cursorAppPath: config.cursor_app_path ?? '',
-                    codebuddyAppPath: config.codebuddy_app_path ?? '',
-                    codebuddyCnAppPath: config.codebuddy_cn_app_path ?? '',
-                    qoderAppPath: config.qoder_app_path ?? '',
-                    traeAppPath: config.trae_app_path ?? '',
-                    zedAppPath: config.zed_app_path ?? '',
-                    opencodeSyncOnSwitch: config.opencode_sync_on_switch ?? false,
-                    opencodeAuthOverwriteOnSwitch:
-                      config.opencode_auth_overwrite_on_switch ?? false,
-                    codexLaunchOnSwitch: config.codex_launch_on_switch ?? true,
-                    cursorQuotaAlertEnabled: config.cursor_quota_alert_enabled ?? false,
-                    cursorQuotaAlertThreshold: config.cursor_quota_alert_threshold ?? 20,
-                    geminiQuotaAlertEnabled: config.gemini_quota_alert_enabled ?? false,
-                    geminiQuotaAlertThreshold: config.gemini_quota_alert_threshold ?? 20,
                   });
                   console.log(
-                    `[StartupPerf][AutoRefresh] save_general_config completed in ${(performance.now() - saveConfigStartedAt).toFixed(2)}ms`,
+                    `[StartupPerf][AutoRefresh] save_refresh_interval_config completed in ${(performance.now() - saveConfigStartedAt).toFixed(2)}ms`,
                   );
                   config.auto_refresh_minutes = 2;
                 }
@@ -588,6 +575,20 @@ export function useAutoRefresh() {
               },
             },
             {
+              key: 'grok',
+              label: 'Grok',
+              intervalMinutes: config.grok_auto_refresh_minutes,
+              currentMinutes: resolveCurrentMinutes('grok', currentAccountEmails.grok, currentRefreshMinutesMap),
+              fullRefreshingRef: grokRefreshingRef,
+              currentRefreshingRef: grokCurrentRefreshingRef,
+              runFullRefresh: async () => {
+                await refreshAllGrokTokens();
+              },
+              runCurrentRefresh: async () => {
+                await runProviderCurrentRefresh(fetchCurrentGrokAccountId, refreshGrokToken);
+              },
+            },
+            {
               key: 'codebuddy',
               label: 'CodeBuddy',
               intervalMinutes: config.codebuddy_auto_refresh_minutes,
@@ -650,6 +651,20 @@ export function useAutoRefresh() {
               },
               runCurrentRefresh: async () => {
                 await runProviderCurrentRefresh(fetchCurrentQoderAccountId, refreshQoderToken);
+              },
+            },
+            {
+              key: 'zcode',
+              label: 'ZCode',
+              intervalMinutes: config.zcode_auto_refresh_minutes,
+              currentMinutes: resolveCurrentMinutes('zcode', currentAccountEmails.zcode, currentRefreshMinutesMap),
+              fullRefreshingRef: zcodeRefreshingRef,
+              currentRefreshingRef: zcodeCurrentRefreshingRef,
+              runFullRefresh: async () => {
+                await refreshAllZcodeTokens();
+              },
+              runCurrentRefresh: async () => {
+                await runProviderCurrentRefresh(fetchCurrentZcodeAccountId, refreshZcodeToken);
               },
             },
             {
@@ -817,9 +832,11 @@ export function useAutoRefresh() {
     fetchCurrentCodexAccount,
     fetchCurrentCursorAccountId,
     fetchCurrentGeminiAccountId,
+    fetchCurrentGrokAccountId,
     fetchCurrentGhcpAccountId,
     fetchCurrentKiroAccountId,
     fetchCurrentQoderAccountId,
+    fetchCurrentZcodeAccountId,
     fetchTraeAccounts,
     fetchCurrentWindsurfAccountId,
     fetchCurrentWorkbuddyAccountId,
@@ -831,10 +848,12 @@ export function useAutoRefresh() {
     refreshAllClaudeQuotas,
     refreshAllCursorTokens,
     refreshAllGeminiTokens,
+    refreshAllGrokTokens,
     refreshAllGhcpTokens,
     refreshAllKiroTokens,
     refreshAllQuotas,
     refreshAllQoderTokens,
+    refreshAllZcodeTokens,
     refreshAllWindsurfTokens,
     refreshAllWorkbuddyTokens,
     refreshAllZedTokens,
@@ -843,9 +862,11 @@ export function useAutoRefresh() {
     refreshClaudeQuota,
     refreshCursorToken,
     refreshGeminiToken,
+    refreshGrokToken,
     refreshGhcpToken,
     refreshKiroToken,
     refreshQoderToken,
+    refreshZcodeToken,
     refreshTraeToken,
     refreshWindsurfToken,
     refreshWorkbuddyToken,
@@ -855,6 +876,8 @@ export function useAutoRefresh() {
 
   useEffect(() => {
     destroyedRef.current = false;
+    let disposed = false;
+    let unlistenCurrentAccount: UnlistenFn | undefined;
     let startupTimer = window.setTimeout(() => {
       startupTimer = 0;
       console.log(
@@ -873,14 +896,23 @@ export function useAutoRefresh() {
     };
 
     window.addEventListener('config-updated', handleConfigUpdate);
+    void listen(CURRENT_ACCOUNT_CHANGED_EVENT, handleConfigUpdate).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        unlistenCurrentAccount = unlisten;
+      }
+    });
 
     return () => {
+      disposed = true;
       destroyedRef.current = true;
       setupPendingRef.current = false;
       if (startupTimer) {
         window.clearTimeout(startupTimer);
       }
       stopScheduler();
+      unlistenCurrentAccount?.();
       window.removeEventListener('config-updated', handleConfigUpdate);
     };
   }, [setupAutoRefresh, stopScheduler]);

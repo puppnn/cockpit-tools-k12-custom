@@ -4,6 +4,7 @@ import type {
   CodexLocalAccessChatResult,
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessAccountModelRule,
+  CodexLocalAccessAppendAccountsResult,
   CodexLocalAccessClientBaseUrlHost,
   CodexLocalAccessGatewayMode,
   CodexLocalAccessImageGenerationMode,
@@ -33,6 +34,12 @@ export async function saveCodexLocalAccessAccounts(
     accountIds,
     restrictFreeAccounts,
   });
+}
+
+export async function appendCodexLocalAccessAccounts(
+  accountIds: string[],
+): Promise<CodexLocalAccessAppendAccountsResult> {
+  return await invoke("codex_local_access_append_accounts", { accountIds });
 }
 
 export async function removeCodexLocalAccessAccount(

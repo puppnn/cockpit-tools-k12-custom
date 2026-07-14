@@ -9,6 +9,7 @@ import type { GitHubCopilotAccount } from "../types/githubCopilot";
 import type { WindsurfAccount } from "../types/windsurf";
 import type { CursorAccount } from "../types/cursor";
 import type { GeminiAccount } from "../types/gemini";
+import type { GrokAccount } from "../types/grok";
 import type { KiroAccount, KiroAccountStatus } from "../types/kiro";
 import type { QoderAccount, QoderSubscriptionInfo } from "../types/qoder";
 import type { TraeAccount } from "../types/trae";
@@ -17,6 +18,7 @@ import type {
   WorkbuddyOfficialQuotaResource,
 } from "../types/workbuddy";
 import type { ZedAccount } from "../types/zed";
+import type { ZcodeAccount } from "../types/zcode";
 import {
   formatResetTimeDisplay,
   getAntigravityTierBadge,
@@ -85,6 +87,13 @@ import {
   getGeminiTierQuotaSummary,
 } from "../types/gemini";
 import {
+  formatGrokQuotaUsedTotal,
+  getGrokAccountDisplayEmail,
+  getGrokPlanBadge,
+  getGrokQuotaClass,
+  getGrokQuotaSummaryItems,
+} from "../types/grok";
+import {
   formatKiroResetTime,
   getKiroAccountDisplayEmail,
   getKiroAccountDisplayUserId,
@@ -122,6 +131,12 @@ import {
   getZedPlanBadge,
   getZedUsage,
 } from "../types/zed";
+import {
+  getZcodeAccountDisplayEmail,
+  getZcodePlanBadge,
+  getZcodeQuotaGroups,
+  getZcodeUsage,
+} from "../types/zcode";
 import type { DisplayGroup } from "../services/groupService";
 
 type Translate = {
@@ -1192,6 +1207,63 @@ export function buildWorkbuddyAccountPresentation(
   };
 }
 
+export function buildZcodeAccountPresentation(
+  account: ZcodeAccount,
+  t: Translate,
+): UnifiedAccountPresentation {
+  const planLabel = getZcodePlanBadge(account);
+  const usage = getZcodeUsage(account);
+  const quotaItems: UnifiedQuotaMetric[] = [];
+
+  getZcodeQuotaGroups(account, t).forEach((group) => {
+    group.items.forEach((resource, index) => {
+      if (resource.total <= 0 && resource.remain <= 0 && resource.used <= 0) {
+        return;
+      }
+      const remainPercent =
+        resource.remainPercent ??
+        (resource.total > 0 ? (resource.remain / resource.total) * 100 : null);
+      quotaItems.push({
+        key: `${group.key}_${resource.packageCode || index}`,
+        label: resource.packageName || group.label,
+        percentage: clampPercent(resource.usedPercent),
+        progressPercent: clampPercent(resource.usedPercent),
+        quotaClass: getRemainingQuotaClass(remainPercent ?? 0),
+        valueText: t("zcode.quota.usedOfTotal", {
+          used: formatQuotaNumber(resource.used),
+          total: formatQuotaNumber(resource.total),
+          defaultValue: "{{used}} / {{total}}",
+        }),
+        resetText: resolveResourceTimeText(
+          resource,
+          t,
+          "zcode.quota.updatedAt",
+          "zcode.quota.expireAt",
+        ),
+        resetAt: resource.refreshAt ?? resource.expireAt,
+        used: resource.used,
+        total: resource.total,
+        left: resource.remain,
+        showProgress: true,
+      });
+    });
+  });
+
+  return {
+    id: account.id,
+    displayName: getZcodeAccountDisplayEmail(account),
+    planLabel,
+    planClass: resolveSimplePlanClass(planLabel),
+    quotaItems,
+    ...buildUsageStatusSubline(
+      usage.isNormal,
+      t,
+      "zcode.usageNormal",
+      "zcode.usageAbnormal",
+    ),
+  };
+}
+
 export function buildQoderAccountPresentation(
   account: QoderAccount,
   t: Translate,
@@ -1651,6 +1723,53 @@ export function buildGeminiAccountPresentation(
     planLabel,
     planClass: getGeminiPlanBadgeClass(undefined, account),
     isBanned: false,
+    quotaItems,
+  };
+}
+
+export function buildGrokAccountPresentation(
+  account: GrokAccount,
+  t: Translate,
+): UnifiedAccountPresentation {
+  const quotaItems: UnifiedQuotaMetric[] = getGrokQuotaSummaryItems(account, t).map(
+    (item) => {
+      const usedPercent = clampPercent(item.percentage);
+      const remaining = clampPercent(100 - usedPercent);
+      const amountText = formatGrokQuotaUsedTotal(item.used, item.total);
+      const left =
+        item.used != null && item.total != null
+          ? Math.max(0, item.total - item.used)
+          : null;
+      const valueText = amountText
+        ? `${amountText} · ${Math.round(usedPercent)}%`
+        : t("common.shared.quota.leftPercent", "{{value}}% left", {
+            value: Math.round(remaining),
+          });
+      return {
+        key: item.key,
+        label: item.label,
+        percentage: remaining,
+        progressPercent: usedPercent,
+        // Match overview card coloring (used% based), not remaining-only class.
+        quotaClass: getGrokQuotaClass(usedPercent),
+        valueText,
+        resetAt: item.resetAtMs,
+        resetText: formatMetricResetText(item.resetAtMs, t),
+        used: item.used ?? usedPercent,
+        total: item.total ?? 100,
+        left: left ?? remaining,
+        showProgress: true,
+      };
+    },
+  );
+
+  const planBadge = getGrokPlanBadge(account);
+  return {
+    id: account.id,
+    displayName: getGrokAccountDisplayEmail(account),
+    planLabel: planBadge || t("common.none", "暂无"),
+    // Missing tier (暂无) uses Free styling, not red unknown.
+    planClass: planBadge ? "plan-badge-default" : "free",
     quotaItems,
   };
 }

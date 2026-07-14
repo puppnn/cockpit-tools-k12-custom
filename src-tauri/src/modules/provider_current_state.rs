@@ -32,11 +32,13 @@ fn normalize_platform(platform: &str) -> Result<&'static str, String> {
         "kiro" => Ok("kiro"),
         "cursor" => Ok("cursor"),
         "gemini" => Ok("gemini"),
+        "grok" => Ok("grok"),
         "claude_desktop_account" => Ok("claude_desktop_account"),
         "claude_code_account" => Ok("claude_code_account"),
         "codebuddy" => Ok("codebuddy"),
         "codebuddy_cn" | "codebuddy-cn" => Ok("codebuddy_cn"),
         "qoder" => Ok("qoder"),
+        "zcode" => Ok("zcode"),
         "trae" => Ok("trae"),
         "trae_solo" | "trae-solo" => Ok("trae_solo"),
         "trae_cn" | "trae-cn" => Ok("trae_cn"),
@@ -192,6 +194,12 @@ mod tests {
         assert_eq!(
             get_current_account_id("trae_solo_cn").expect("get trae solo cn canonical"),
             Some("solo-cn-account".to_string())
+        );
+
+        set_current_account_id("grok", Some("grok-account")).expect("set grok current");
+        assert_eq!(
+            get_current_account_id("grok").expect("get grok canonical"),
+            Some("grok-account".to_string())
         );
     }
 

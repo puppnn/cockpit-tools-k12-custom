@@ -2331,8 +2331,25 @@
 
 /* 添加弹窗 */
 .ghcp-add-modal {
-  max-width: 580px;
-  width: 100%;
+  display: flex;
+  flex-direction: column;
+  width: min(620px, calc(100vw - 48px));
+  max-width: 620px;
+  max-height: min(820px, calc(100dvh - 48px));
+  overflow: hidden;
+}
+
+.account-add-modal-overlay {
+  padding: 24px;
+}
+
+.ghcp-add-modal > .modal-header {
+  min-height: 72px;
+  padding: 18px 24px;
+}
+
+.ghcp-add-modal > .modal-header h2 {
+  font-size: 18px;
 }
 
 .claude-add-modal {
@@ -2570,16 +2587,37 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
+  padding: 20px 24px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.ghcp-add-modal .modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ghcp-add-modal .modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ghcp-add-modal .modal-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
 }
 
 .ghcp-add-modal .modal-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   padding: 4px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  margin: 20px 28px 0;
+  margin: 16px 24px 0;
+  flex: 0 0 auto;
 }
 
 .ghcp-add-modal .modal-tab {
@@ -2686,7 +2724,8 @@
 .ghcp-add-modal .add-section {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  min-width: 0;
 }
 
 .ghcp-add-modal .add-method-card {
@@ -2726,15 +2765,88 @@
 }
 
 .ghcp-add-modal .section-desc {
+  margin: 0;
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
+.ghcp-add-modal .oauth-feature-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+}
+
+.ghcp-add-modal .oauth-feature-card .feature-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ghcp-add-modal .oauth-feature-card .feature-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.zcode-accounts-page-add-modal .zcode-oauth-provider-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+}
+
+.zcode-accounts-page-add-modal .zcode-oauth-provider-control .btn {
+  min-width: 0;
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary);
+}
+
+.zcode-accounts-page-add-modal .zcode-oauth-provider-control .btn:hover {
+  border-color: transparent;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.zcode-accounts-page-add-modal .zcode-oauth-provider-control .btn.active {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  background: var(--bg-card);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.zcode-accounts-page-add-modal .zcode-oauth-window-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .zcode-accounts-page-add-modal .zcode-oauth-window-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ghcp-add-modal .oauth-url-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .ghcp-add-modal .oauth-url-label {
@@ -2745,6 +2857,7 @@
 .ghcp-add-modal .oauth-url-box {
   display: flex;
   gap: 8px;
+  min-width: 0;
 }
 
 .ghcp-add-modal .oauth-manual-input input {
@@ -2753,6 +2866,7 @@
 
 .ghcp-add-modal .oauth-url-box input {
   flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -2800,6 +2914,12 @@
 }
 
 .ghcp-add-modal .oauth-hint {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
@@ -2815,6 +2935,29 @@
 }
 
 @media (max-width: 640px) {
+  .account-add-modal-overlay {
+    align-items: flex-end;
+    padding: 12px;
+  }
+
+  .ghcp-add-modal {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+  }
+
+  .ghcp-add-modal > .modal-header {
+    min-height: 64px;
+    padding: 14px 16px;
+  }
+
+  .ghcp-add-modal .modal-tabs {
+    margin: 12px 16px 0;
+  }
+
+  .ghcp-add-modal .modal-body {
+    padding: 16px;
+  }
+
   .ghcp-add-modal .add-method-card {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -2852,6 +2995,26 @@
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.ghcp-add-modal .token-secret-field {
+  position: relative;
+}
+
+.ghcp-add-modal .token-secret-field .token-input {
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  padding-right: 48px;
+}
+
+.ghcp-add-modal .token-secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
 }
 
 .ghcp-add-modal .token-format-collapse {

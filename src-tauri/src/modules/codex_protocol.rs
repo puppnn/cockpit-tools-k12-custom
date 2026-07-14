@@ -329,7 +329,9 @@ fn normalize_responses_input_item(item: &mut Value) -> bool {
         return false;
     };
 
-    let mut changed = false;
+    // Provider adapters use this extension to reconstruct namespaced tool calls,
+    // but the official Codex Responses endpoint rejects it on replayed input items.
+    let mut changed = obj.remove("namespace").is_some();
     let role = obj
         .get("role")
         .and_then(Value::as_str)
@@ -600,6 +602,39 @@ mod tests {
         assert_eq!(
             body.pointer("/tools/0/type").and_then(Value::as_str),
             Some("web_search")
+        );
+    }
+
+    #[test]
+    fn removes_provider_namespace_from_replayed_input_items() {
+        let mut body = json!({
+            "model": "gpt-5.4",
+            "input": [{
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "lookup",
+                "namespace": "mcp__example",
+                "arguments": "{}"
+            }],
+            "tools": [{
+                "type": "namespace",
+                "name": "mcp__example"
+            }]
+        });
+
+        assert!(normalize_responses_body_for_codex(&mut body));
+        assert!(body.pointer("/input/0/namespace").is_none());
+        assert_eq!(
+            body.pointer("/input/0/name").and_then(Value::as_str),
+            Some("lookup")
+        );
+        assert_eq!(
+            body.pointer("/input/0/call_id").and_then(Value::as_str),
+            Some("call_1")
+        );
+        assert_eq!(
+            body.pointer("/tools/0/type").and_then(Value::as_str),
+            Some("namespace")
         );
     }
 

@@ -3,20 +3,10 @@ import {
   getCodexEffectiveQuotaPercentages,
   getCodexPlanFilterKey,
 } from '../types/codex';
-
-export const CODEX_QUOTA_POOL_PLAN_KEYS = [
-  'FREE',
-  'API_KEY',
-  'PLUS',
-  'PRO',
-  'TEAM',
-  'ENTERPRISE',
-] as const;
-
-export type CodexQuotaPoolPlanKey = (typeof CODEX_QUOTA_POOL_PLAN_KEYS)[number];
+import { sortCodexPlanFilterKeys } from './codexAccountOverview';
 
 export interface CodexQuotaPoolItem {
-  key: CodexQuotaPoolPlanKey | 'ALL';
+  key: string;
   count: number;
   hourly: number;
   weekly: number;
@@ -24,7 +14,7 @@ export interface CodexQuotaPoolItem {
 
 export interface CodexQuotaPoolSummary {
   all: CodexQuotaPoolItem;
-  byPlan: Record<CodexQuotaPoolPlanKey, CodexQuotaPoolItem>;
+  byPlan: Record<string, CodexQuotaPoolItem>;
   visiblePlans: CodexQuotaPoolItem[];
 }
 
@@ -39,33 +29,22 @@ function addAccountToQuotaPool(target: CodexQuotaPoolItem, account: CodexAccount
   target.weekly += percentages.weekly ?? 0;
 }
 
-function isQuotaPoolPlanKey(value: string): value is CodexQuotaPoolPlanKey {
-  return CODEX_QUOTA_POOL_PLAN_KEYS.includes(value as CodexQuotaPoolPlanKey);
-}
-
 export function summarizeCodexQuotaPool(accounts: CodexAccount[]): CodexQuotaPoolSummary {
-  const byPlan = CODEX_QUOTA_POOL_PLAN_KEYS.reduce(
-    (next, key) => {
-      next[key] = createQuotaPoolItem(key);
-      return next;
-    },
-    {} as Record<CodexQuotaPoolPlanKey, CodexQuotaPoolItem>,
-  );
+  const byPlan: Record<string, CodexQuotaPoolItem> = {};
   const all = createQuotaPoolItem('ALL');
 
   accounts.forEach((account) => {
     addAccountToQuotaPool(all, account);
     const planKey = getCodexPlanFilterKey(account);
-    if (isQuotaPoolPlanKey(planKey)) {
-      addAccountToQuotaPool(byPlan[planKey], account);
-    }
+    byPlan[planKey] ??= createQuotaPoolItem(planKey);
+    addAccountToQuotaPool(byPlan[planKey], account);
   });
 
   return {
     all,
     byPlan,
-    visiblePlans: CODEX_QUOTA_POOL_PLAN_KEYS.map((key) => byPlan[key]).filter(
-      (item) => item.count > 0,
+    visiblePlans: sortCodexPlanFilterKeys(Object.keys(byPlan)).map(
+      (key) => byPlan[key],
     ),
   };
 }

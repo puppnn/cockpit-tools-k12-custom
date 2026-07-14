@@ -11,8 +11,8 @@ use tokio::sync::Notify;
 
 use crate::modules::{
     codebuddy_account, codebuddy_cn_account, codex_account, config, cursor_account, gemini_account,
-    github_copilot_account, kiro_account, kiro_instance, logger, process, trae_account,
-    windsurf_account, windsurf_instance, workbuddy_account,
+    github_copilot_account, grok_account, kiro_account, kiro_instance, logger, process,
+    trae_account, windsurf_account, windsurf_instance, workbuddy_account,
 };
 
 const TOKEN_KEEPER_TICK_SECONDS: u64 = 60;
@@ -76,6 +76,7 @@ async fn run_refresh_cycle(app_handle: &AppHandle) {
     refreshed_any |= refresh_platform_if_due("codex", refresh_due_codex_accounts).await;
     refreshed_any |= refresh_platform_if_due("cursor", refresh_due_cursor_accounts).await;
     refreshed_any |= refresh_platform_if_due("gemini", refresh_due_gemini_accounts).await;
+    refreshed_any |= refresh_platform_if_due("grok", refresh_due_grok_accounts).await;
     refreshed_any |=
         refresh_platform_if_due("github_copilot", refresh_due_github_copilot_accounts).await;
     refreshed_any |= refresh_platform_if_due("windsurf", refresh_due_windsurf_accounts).await;
@@ -378,6 +379,56 @@ async fn refresh_due_gemini_accounts() -> bool {
         }
     }
 
+    refreshed_any
+}
+
+async fn refresh_due_grok_accounts() -> bool {
+    let accounts = match grok_account::list_accounts_checked() {
+        Ok(accounts) => accounts,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[TokenKeeper][Grok] 读取账号列表失败，跳过本轮保活: {}",
+                error
+            ));
+            return false;
+        }
+    };
+
+    let mut refreshed_any = false;
+    let mut attempted_refreshes = 0usize;
+    for account in accounts {
+        if reached_platform_refresh_limit(attempted_refreshes) {
+            break;
+        }
+        if account.status.as_deref() == Some("reauth_required")
+            || !expires_at_seconds_due(account.expires_at)
+        {
+            continue;
+        }
+
+        let key = format!("grok:{}", account.id);
+        if !allow_attempt(&key) {
+            continue;
+        }
+        attempted_refreshes += 1;
+        match grok_account::force_refresh_account(&account.id).await {
+            Ok(updated) => {
+                clear_attempt_backoff(&key);
+                refreshed_any = true;
+                logger::log_info(&format!(
+                    "[TokenKeeper][Grok] Token 保活成功: account_id={}, email={}",
+                    updated.id, updated.email
+                ));
+            }
+            Err(error) => {
+                mark_attempt_failure(&key);
+                logger::log_warn(&format!(
+                    "[TokenKeeper][Grok] Token 保活失败，进入退避: account_id={}, error={}",
+                    account.id, error
+                ));
+            }
+        }
+    }
     refreshed_any
 }
 

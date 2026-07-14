@@ -36,6 +36,7 @@ import { useWindsurfAccountStore } from './stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from './stores/useKiroAccountStore';
 import { useCursorAccountStore } from './stores/useCursorAccountStore';
 import { useGeminiAccountStore } from './stores/useGeminiAccountStore';
+import { useGrokAccountStore } from './stores/useGrokAccountStore';
 import { useCodebuddyAccountStore } from './stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from './stores/useCodebuddyCnAccountStore';
 import { useQoderAccountStore } from './stores/useQoderAccountStore';
@@ -103,6 +104,9 @@ const CursorAccountsPage = lazy(() =>
 const GeminiAccountsPage = lazy(() =>
   import('./pages/GeminiAccountsPage').then((module) => ({ default: module.GeminiAccountsPage })),
 );
+const GrokAccountsPage = lazy(() =>
+  import('./pages/GrokAccountsPage').then((module) => ({ default: module.GrokAccountsPage })),
+);
 const CodebuddyAccountsPage = lazy(() =>
   import('./pages/CodebuddyAccountsPage').then((module) => ({ default: module.CodebuddyAccountsPage })),
 );
@@ -111,6 +115,9 @@ const CodebuddyCnAccountsPage = lazy(() =>
 );
 const QoderAccountsPage = lazy(() =>
   import('./pages/QoderAccountsPage').then((module) => ({ default: module.QoderAccountsPage })),
+);
+const ZcodeAccountsPage = lazy(() =>
+  import('./pages/ZcodeAccountsPage').then((module) => ({ default: module.ZcodeAccountsPage })),
 );
 const TraeAccountsPage = lazy(() =>
   import('./pages/TraeAccountsPage').then((module) => ({ default: module.TraeAccountsPage })),
@@ -179,9 +186,11 @@ const RENDERABLE_PAGE_VALUES: readonly Page[] = [
   'kiro',
   'cursor',
   'gemini',
+  'grok',
   'codebuddy',
   'codebuddy-cn',
   'qoder',
+  'zcode',
   'trae',
   'trae-solo',
   'trae-cn',
@@ -214,9 +223,11 @@ const TOP_PROMO_PAGE_PLATFORM_TARGETS: Partial<Record<Page, readonly string[]>> 
   kiro: ['kiro'],
   cursor: ['cursor'],
   gemini: ['gemini'],
+  grok: ['grok'],
   codebuddy: ['codebuddy'],
   'codebuddy-cn': ['codebuddy-cn'],
   qoder: ['qoder'],
+  zcode: ['zcode'],
   trae: ['trae', 'trae-suite'],
   'trae-solo': ['trae-solo', 'trae-suite'],
   'trae-cn': ['trae-cn', 'trae-suite'],
@@ -458,6 +469,7 @@ type QuotaAlertPlatform =
   | 'kiro'
   | 'cursor'
   | 'gemini'
+  | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'
@@ -559,6 +571,8 @@ function normalizeQuotaAlertPlatform(platform: string | undefined): QuotaAlertPl
       return 'cursor';
     case 'gemini':
       return 'gemini';
+    case 'grok':
+      return 'grok';
     case 'codebuddy':
       return 'codebuddy';
     case 'codebuddy_cn':
@@ -599,6 +613,8 @@ function getQuotaAlertPlatformLabel(
       return 'Cursor';
     case 'gemini':
       return 'Gemini Cli';
+    case 'grok':
+      return 'Grok CLI';
     case 'codebuddy':
       return 'CodeBuddy';
     case 'codebuddy_cn':
@@ -630,6 +646,8 @@ function getQuotaAlertTargetPage(platform: QuotaAlertPlatform): Page {
       return 'cursor';
     case 'gemini':
       return 'gemini';
+    case 'grok':
+      return 'grok';
     case 'codebuddy':
       return 'codebuddy';
     case 'codebuddy_cn':
@@ -663,6 +681,8 @@ function getQuotaAlertQuickSettingsType(platform: QuotaAlertPlatform): QuickSett
       return 'cursor';
     case 'gemini':
       return 'gemini';
+    case 'grok':
+      return 'grok';
     case 'codebuddy':
       return 'codebuddy';
     case 'codebuddy_cn':
@@ -1874,17 +1894,7 @@ function MainApp() {
     }
     setUpdateSkipError('');
     try {
-      const settings = await invoke<{
-        auto_check?: boolean;
-        check_interval_hours?: number;
-        auto_install?: boolean;
-        last_run_version?: string;
-        remind_on_update?: boolean;
-        skipped_version?: string;
-      }>('get_update_settings');
-      await invoke('save_update_settings', {
-        settings: { ...settings, skipped_version: targetVersion },
-      });
+      await invoke('patch_update_settings', { skippedVersion: targetVersion });
       const pendingUpdate = pendingSilentUpdateRef.current;
       if (pendingUpdate && pendingUpdate.version === targetVersion) {
         await closeUpdaterHandle(pendingUpdate);
@@ -2601,9 +2611,11 @@ function MainApp() {
       const platform = normalizeQuotaAlertPlatform(payload.platform);
       const platformLabel = getQuotaAlertPlatformLabel(platform, t);
       const hasRecommendation = Boolean(payload.recommended_account_id && payload.recommended_email);
-      const modelsText = payload.low_models.length > 0
+      const lowQuotaItemsText = payload.low_models.length > 0
         ? payload.low_models.join(', ')
-        : t('quotaAlert.modal.unknownModel', '未知模型');
+        : platform === 'grok'
+          ? t('grok.quotaAlert.unknownItem', '未知配额项')
+          : t('quotaAlert.modal.unknownModel', '未知模型');
 
       showModal({
         title: t('quotaAlert.modal.title', '配额预警'),
@@ -2631,8 +2643,12 @@ function MainApp() {
               <strong>{payload.lowest_percentage}%</strong>
             </div>
             <div className="quota-alert-modal-row quota-alert-modal-row--stack">
-              <span>{t('quotaAlert.modal.models', '触发模型')}</span>
-              <strong>{modelsText}</strong>
+              <span>
+                {platform === 'grok'
+                  ? t('grok.quotaAlert.items', '触发配额项')
+                  : t('quotaAlert.modal.models', '触发模型')}
+              </span>
+              <strong>{lowQuotaItemsText}</strong>
             </div>
             <div className="quota-alert-modal-row">
               <span>{t('quotaAlert.modal.recommended', '建议切换')}</span>
@@ -2689,6 +2705,9 @@ function MainApp() {
                     } else if (platform === 'gemini') {
                       await useGeminiAccountStore.getState().switchAccount(targetAccountId);
                       setPage('gemini');
+                    } else if (platform === 'grok') {
+                      await useGrokAccountStore.getState().switchAccount(targetAccountId);
+                      setPage('grok');
                     } else if (platform === 'codebuddy') {
                       await useCodebuddyAccountStore.getState().switchAccount(targetAccountId);
                       setPage('codebuddy');
@@ -2912,6 +2931,10 @@ function MainApp() {
         errorMessage: 'Failed to refresh Gemini:',
       },
       {
+        command: 'refresh_all_grok_accounts',
+        errorMessage: 'Failed to refresh Grok:',
+      },
+      {
         command: 'refresh_all_codebuddy_tokens',
         errorMessage: 'Failed to refresh CodeBuddy:',
       },
@@ -2922,6 +2945,10 @@ function MainApp() {
       {
         command: 'refresh_all_qoder_tokens',
         errorMessage: 'Failed to refresh Qoder:',
+      },
+      {
+        command: 'refresh_all_zcode_accounts',
+        errorMessage: 'Failed to refresh ZCode:',
       },
       {
         command: 'refresh_all_trae_tokens',
@@ -3364,6 +3391,7 @@ function MainApp() {
             case 'kiro':
             case 'cursor':
             case 'gemini':
+            case 'grok':
             case 'codebuddy':
             case 'codebuddy-cn':
             case 'qoder':
@@ -3894,9 +3922,11 @@ function MainApp() {
           {page === 'kiro' && <KiroAccountsPage />}
           {page === 'cursor' && <CursorAccountsPage />}
           {page === 'gemini' && <GeminiAccountsPage />}
+          {page === 'grok' && <GrokAccountsPage />}
           {page === 'codebuddy' && <CodebuddyAccountsPage />}
           {page === 'codebuddy-cn' && <CodebuddyCnAccountsPage />}
           {page === 'qoder' && <QoderAccountsPage />}
+          {page === 'zcode' && <ZcodeAccountsPage />}
           {page === 'trae' && <TraeAccountsPage platformId="trae" />}
           {page === 'trae-solo' && <TraeAccountsPage platformId="trae_solo" />}
           {page === 'trae-cn' && <TraeAccountsPage platformId="trae_cn" />}

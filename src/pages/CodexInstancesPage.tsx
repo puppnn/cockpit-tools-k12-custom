@@ -21,7 +21,9 @@ import {
 } from "../presentation/platformAccountPresentation";
 import * as codexInstanceService from "../services/codexInstanceService";
 import {
+  CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT,
   CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT,
+  isCodexAdditionalQuotaVisibleByDefault,
   isCodexCodeReviewQuotaVisibleByDefault,
 } from "../utils/codexPreferences";
 import {
@@ -70,6 +72,9 @@ export function CodexInstancesContent({
   const [showCodeReviewQuota, setShowCodeReviewQuota] = useState<boolean>(
     isCodexCodeReviewQuotaVisibleByDefault,
   );
+  const [showAdditionalQuota, setShowAdditionalQuota] = useState<boolean>(
+    isCodexAdditionalQuotaVisibleByDefault,
+  );
   const [launchModal, setLaunchModal] = useState<CodexLaunchModalState | null>(
     null,
   );
@@ -90,29 +95,39 @@ export function CodexInstancesContent({
     const syncCodeReviewVisibility = () => {
       setShowCodeReviewQuota(isCodexCodeReviewQuotaVisibleByDefault());
     };
+    const syncAdditionalQuotaVisibility = () => {
+      setShowAdditionalQuota(isCodexAdditionalQuotaVisibleByDefault());
+    };
 
     window.addEventListener(
       CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT,
       syncCodeReviewVisibility as EventListener,
+    );
+    window.addEventListener(
+      CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT,
+      syncAdditionalQuotaVisibility as EventListener,
     );
     return () => {
       window.removeEventListener(
         CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT,
         syncCodeReviewVisibility as EventListener,
       );
+      window.removeEventListener(
+        CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT,
+        syncAdditionalQuotaVisibility as EventListener,
+      );
     };
   }, []);
 
   const resolvePresentation = (account: CodexAccount) => {
     const presentation = buildCodexAccountPresentation(account, t);
-    if (showCodeReviewQuota) {
-      return presentation;
-    }
     return {
       ...presentation,
-      quotaItems: presentation.quotaItems.filter(
-        (item) => item.key !== "code_review",
-      ),
+      quotaItems: presentation.quotaItems.filter((item) => {
+        if (!showCodeReviewQuota && item.key === "code_review") return false;
+        if (!showAdditionalQuota && item.key.startsWith("additional:")) return false;
+        return true;
+      }),
     };
   };
 

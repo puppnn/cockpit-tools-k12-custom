@@ -10,6 +10,7 @@ import * as geminiService from './geminiService';
 import * as codebuddyService from './codebuddyService';
 import * as codebuddyCnService from './codebuddyCnService';
 import * as qoderService from './qoderService';
+import * as zcodeService from './zcodeService';
 import * as traeService from './traeService';
 import * as workbuddyService from './workbuddyService';
 import * as zedService from './zedService';
@@ -35,7 +36,9 @@ interface TransferAdapter {
   importFromJson: (jsonContent: string) => Promise<unknown[]>;
 }
 
-const PLATFORM_ADAPTERS: Record<PlatformId, TransferAdapter> = {
+// Grok exports are intentionally metadata-only and cannot restore a login, so
+// it is excluded from the generic credential backup/import pipeline.
+const PLATFORM_ADAPTERS: Partial<Record<PlatformId, TransferAdapter>> = {
   antigravity: {
     listAccounts: accountService.listAccounts,
     exportAccounts: accountService.exportAccounts,
@@ -100,6 +103,11 @@ const PLATFORM_ADAPTERS: Record<PlatformId, TransferAdapter> = {
     listAccounts: qoderService.listQoderAccounts,
     exportAccounts: qoderService.exportQoderAccounts,
     importFromJson: qoderService.importQoderFromJson,
+  },
+  zcode: {
+    listAccounts: zcodeService.listZcodeAccounts,
+    exportAccounts: zcodeService.exportZcodeAccounts,
+    importFromJson: zcodeService.importZcodeFromJson,
   },
   trae: {
     listAccounts: traeService.listTraeAccounts,
@@ -263,6 +271,12 @@ function estimatePayloadCount(payload: AccountTransferPlatformPayload): number {
 
 async function exportPlatformPayload(platform: PlatformId): Promise<AccountTransferPlatformPayload> {
   const adapter = PLATFORM_ADAPTERS[platform];
+  if (!adapter) {
+    return {
+      account_count: 0,
+      exported_data: [],
+    };
+  }
   const accounts = await adapter.listAccounts();
   const accountIds = normalizeAccountIds(accounts);
 
@@ -397,6 +411,16 @@ export async function importAllAccountsFromTransferJson(
     const data = payload.exported_data;
     const detailIndex = progressDetails.findIndex((item) => item.platform === platform);
     const detail = progressDetails[detailIndex];
+
+    if (!adapter) {
+      progressDetails[detailIndex] = {
+        ...detail,
+        status: 'skipped',
+        imported_count: 0,
+      };
+      emitProgress(null);
+      continue;
+    }
 
     const isEmptyPayload =
       data == null || (Array.isArray(data) && data.length === 0);

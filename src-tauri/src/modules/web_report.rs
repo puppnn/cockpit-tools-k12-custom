@@ -118,6 +118,10 @@ fn build_service_refresh_policies(cfg: &super::config::UserConfig) -> Vec<Servic
             interval_minutes: cfg.gemini_auto_refresh_minutes,
         },
         ServiceRefreshPolicy {
+            key: "grok",
+            interval_minutes: cfg.grok_auto_refresh_minutes,
+        },
+        ServiceRefreshPolicy {
             key: "codebuddy",
             interval_minutes: cfg.codebuddy_auto_refresh_minutes,
         },
@@ -183,6 +187,9 @@ async fn run_refresh_for_service(policy: ServiceRefreshPolicy) -> Result<(), Str
             .await
             .map(|_| ()),
         "gemini" => super::gemini_account::refresh_all_tokens()
+            .await
+            .map(|_| ()),
+        "grok" => super::grok_account::refresh_all_accounts()
             .await
             .map(|_| ()),
         "codebuddy" => super::codebuddy_account::refresh_all_tokens()

@@ -40,6 +40,7 @@ export interface CodexModelProvider {
   website?: string;
   apiKeyUrl?: string;
   wireApi?: CodexProviderWireApi | null;
+  supportsWebsockets: boolean;
   enableModePreference?: CodexProviderEnableModePreference;
   boundOauthAccountId?: string | null;
   boundOauthUseLocalGateway?: boolean;
@@ -64,6 +65,7 @@ interface UpsertFromCredentialInput {
   website?: string | null;
   apiKeyUrl?: string | null;
   wireApi?: CodexProviderWireApi | null;
+  supportsWebsockets?: boolean;
   integrationType?: 'sub2api' | 'new_api' | null;
 }
 
@@ -89,6 +91,18 @@ function sanitizeApiKey(value: string): string {
 
 function normalizeWireApi(value: unknown): CodexProviderWireApi | undefined {
   return value === 'responses' || value === 'chat_completions' ? value : undefined;
+}
+
+function normalizeSupportsWebsockets(
+  value: unknown,
+  wireApi?: CodexProviderWireApi,
+  baseUrl?: string,
+): boolean {
+  return (
+    wireApi === 'responses' &&
+    value === true &&
+    resolveCodexApiProviderPresetId(baseUrl ?? '') !== 'openai_official'
+  );
 }
 
 function normalizeEnableModePreference(
@@ -262,6 +276,7 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
       (item as { boundOauthAccountId?: unknown }).boundOauthAccountId,
     );
     const hasBoundOauthUseLocalGateway = hasOwnProperty(item, 'boundOauthUseLocalGateway');
+    const wireApi = normalizeWireApi((item as { wireApi?: unknown }).wireApi);
     providers.push({
       id: String((item as { id?: unknown }).id ?? createProviderId()),
       name,
@@ -282,7 +297,12 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
       ),
       website: sanitizeName(String((item as { website?: unknown }).website ?? '')) || undefined,
       apiKeyUrl: sanitizeName(String((item as { apiKeyUrl?: unknown }).apiKeyUrl ?? '')) || undefined,
-      wireApi: normalizeWireApi((item as { wireApi?: unknown }).wireApi),
+      wireApi,
+      supportsWebsockets: normalizeSupportsWebsockets(
+        (item as { supportsWebsockets?: unknown }).supportsWebsockets,
+        wireApi,
+        baseUrl,
+      ),
       enableModePreference: normalizeEnableModePreference(
         (item as { enableModePreference?: unknown }).enableModePreference,
       ),
@@ -311,15 +331,25 @@ function hasLegacyBoundOauthProvider(raw: unknown): boolean {
   });
 }
 
+function hasLegacySupportsWebsocketsProvider(raw: unknown): boolean {
+  if (!Array.isArray(raw)) return false;
+  return raw.some((item) => {
+    if (!item || typeof item !== 'object') return false;
+    return !hasOwnProperty(item, 'supportsWebsockets');
+  });
+}
+
 async function loadProvidersFromDisk(): Promise<{
   providers: CodexModelProvider[];
   migratedBoundOauthUseLocalGateway: boolean;
+  migratedSupportsWebsockets: boolean;
 }> {
   const raw = await invoke<string>('load_codex_model_providers');
   const parsed = JSON.parse(raw);
   return {
     providers: toValidProviderList(parsed),
     migratedBoundOauthUseLocalGateway: hasLegacyBoundOauthProvider(parsed),
+    migratedSupportsWebsockets: hasLegacySupportsWebsocketsProvider(parsed),
   };
 }
 
@@ -334,6 +364,7 @@ async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
   const loadResult = await loadProvidersFromDisk().catch(() => ({
     providers: [],
     migratedBoundOauthUseLocalGateway: false,
+    migratedSupportsWebsockets: false,
   }));
   const loadedProviders = loadResult.providers;
   let loaded = loadedProviders.filter((provider) => {
@@ -348,7 +379,8 @@ async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
   if (
     loaded.length !== loadedProviders.length ||
     migration.changed ||
-    loadResult.migratedBoundOauthUseLocalGateway
+    loadResult.migratedBoundOauthUseLocalGateway ||
+    loadResult.migratedSupportsWebsockets
   ) {
     await saveProvidersToDisk(loaded).catch(() => { });
   }
@@ -428,6 +460,7 @@ export async function createCodexModelProvider(input: {
   website?: string;
   apiKeyUrl?: string;
   wireApi?: CodexProviderWireApi;
+  supportsWebsockets?: boolean;
   enableModePreference?: CodexProviderEnableModePreference;
   integrationType?: 'sub2api' | 'new_api';
   boundOauthAccountId?: string | null;
@@ -445,6 +478,7 @@ export async function createCodexModelProvider(input: {
     throw new Error('PROVIDER_BASE_URL_EXISTS');
   }
   const now = Date.now();
+  const wireApi = normalizeWireApi(input.wireApi);
   const provider: CodexModelProvider = {
     id: createProviderId(),
     name,
@@ -460,7 +494,8 @@ export async function createCodexModelProvider(input: {
     boundInstanceId: normalizeBoundInstanceId(input.boundInstanceId),
     website: sanitizeName(input.website ?? '') || undefined,
     apiKeyUrl: sanitizeName(input.apiKeyUrl ?? '') || undefined,
-    wireApi: normalizeWireApi(input.wireApi),
+    wireApi,
+    supportsWebsockets: normalizeSupportsWebsockets(input.supportsWebsockets, wireApi, baseUrl),
     enableModePreference: normalizeEnableModePreference(input.enableModePreference),
     boundOauthAccountId: normalizeBoundOauthAccountId(input.boundOauthAccountId),
     boundOauthUseLocalGateway:
@@ -492,6 +527,7 @@ export async function updateCodexModelProvider(
     website?: string;
     apiKeyUrl?: string;
     wireApi?: CodexProviderWireApi | null;
+    supportsWebsockets?: boolean;
     enableModePreference?: CodexProviderEnableModePreference | null;
     integrationType?: 'sub2api' | 'new_api' | null;
     boundOauthAccountId?: string | null;
@@ -562,6 +598,13 @@ export async function updateCodexModelProvider(
   if (patch.wireApi !== undefined) {
     provider.wireApi =
       patch.wireApi === null ? undefined : normalizeWireApi(patch.wireApi);
+  }
+  if (patch.supportsWebsockets !== undefined || patch.wireApi !== undefined) {
+    provider.supportsWebsockets = normalizeSupportsWebsockets(
+      patch.supportsWebsockets ?? provider.supportsWebsockets,
+      provider.wireApi ?? undefined,
+      provider.baseUrl,
+    );
   }
   if (patch.enableModePreference !== undefined) {
     provider.enableModePreference =
@@ -736,6 +779,7 @@ export async function upsertCodexModelProviderFromCredential(
 
   if (!provider) {
     const now = Date.now();
+    const wireApi = normalizeWireApi(input.wireApi);
     provider = {
       id: createProviderId(),
       name:
@@ -752,7 +796,8 @@ export async function upsertCodexModelProviderFromCredential(
       integrationType: normalizeIntegrationType(input.integrationType),
       website: sanitizeName(input.website ?? '') || undefined,
       apiKeyUrl: sanitizeName(input.apiKeyUrl ?? '') || undefined,
-      wireApi: normalizeWireApi(input.wireApi),
+      wireApi,
+      supportsWebsockets: normalizeSupportsWebsockets(input.supportsWebsockets, wireApi, apiBaseUrl),
       enableModePreference: 'auto',
       boundOauthAccountId: undefined,
       boundOauthUseLocalGateway: false,
@@ -793,6 +838,13 @@ export async function upsertCodexModelProviderFromCredential(
   }
   if (input.wireApi !== undefined) {
     provider.wireApi = normalizeWireApi(input.wireApi);
+  }
+  if (input.supportsWebsockets !== undefined || input.wireApi !== undefined) {
+    provider.supportsWebsockets = normalizeSupportsWebsockets(
+      input.supportsWebsockets ?? provider.supportsWebsockets,
+      provider.wireApi ?? undefined,
+      provider.baseUrl,
+    );
   }
   if (input.integrationType !== undefined) {
     provider.integrationType = normalizeIntegrationType(input.integrationType);

@@ -173,6 +173,35 @@ fn apply_macos_activation_policy(app: &tauri::AppHandle) {
     info!("[Window] 已应用 macOS Dock 图标策略: {}", policy_label);
 }
 
+fn handle_zcode_oauth_deep_links(args: &[String]) -> bool {
+    let callbacks: Vec<String> = args
+        .iter()
+        .filter(|value| value.trim().to_ascii_lowercase().starts_with("zcode://"))
+        .cloned()
+        .collect();
+    if callbacks.is_empty() {
+        return false;
+    }
+    for callback in callbacks {
+        tauri::async_runtime::spawn(async move {
+            modules::zcode_oauth::handle_deep_link(&callback).await;
+        });
+    }
+    true
+}
+
+fn summarize_deep_link_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .map(|value| {
+            if value.trim().to_ascii_lowercase().starts_with("zcode://") {
+                "zcode://<oauth-callback>".to_string()
+            } else {
+                value.clone()
+            }
+        })
+        .collect()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logger::init_logger();
@@ -201,11 +230,13 @@ pub fn run() {
                 "[SingleInstance] 收到唤起请求: arg_count={}",
                 args.len()
             ));
-            let handled = modules::external_import::handle_external_import_args(
-                app,
-                &args,
-                "single-instance",
-            );
+            let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
+            let handled = zcode_oauth_handled
+                || modules::external_import::handle_external_import_args(
+                    app,
+                    &args,
+                    "single-instance",
+                );
             logger::log_info(&format!(
                 "[SingleInstance] 外部导入处理结果: handled={}",
                 handled
@@ -282,11 +313,10 @@ pub fn run() {
                         "[SyncSettings] 启动时合并语言设置: {} -> {}",
                         current_config.language, merged_language
                     );
-                    let new_config = modules::config::UserConfig {
-                        language: merged_language,
-                        ..current_config
-                    };
-                    if let Err(e) = modules::config::save_user_config(&new_config) {
+                    if let Err(e) = modules::config::patch_user_config(|config| {
+                        config.language = merged_language;
+                        Ok(())
+                    }) {
                         logger::log_error(&format!("[SyncSettings] 保存合并后的配置失败: {}", e));
                     }
                 }
@@ -304,20 +334,6 @@ pub fn run() {
 
             tauri::async_runtime::spawn(async {
                 modules::codex_local_access::restore_local_access_gateway().await;
-            });
-
-            std::thread::spawn(|| {
-                match modules::codex_account::refresh_managed_api_key_model_catalogs_on_startup() {
-                    Ok(refreshed) if refreshed > 0 => info!(
-                        "[Codex Model Catalog] 启动时已刷新受管 API Key 模型目录: count={}",
-                        refreshed
-                    ),
-                    Ok(_) => {}
-                    Err(error) => logger::log_warn(&format!(
-                        "[Codex Model Catalog] 启动时刷新受管 API Key 模型目录失败: {}",
-                        error
-                    )),
-                }
             });
 
             {
@@ -356,13 +372,15 @@ pub fn run() {
                     logger::log_info(&format!(
                         "[DeepLink] 收到 on_open_url 事件: url_count={}, urls={:?}",
                         args.len(),
-                        args
+                        summarize_deep_link_args(&args)
                     ));
-                    let handled = modules::external_import::handle_external_import_args(
-                        &app_handle,
-                        &args,
-                        "deep-link-open-url",
-                    );
+                    let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
+                    let handled = zcode_oauth_handled
+                        || modules::external_import::handle_external_import_args(
+                            &app_handle,
+                            &args,
+                            "deep-link-open-url",
+                        );
                     logger::log_info(&format!(
                         "[DeepLink] on_open_url 外部导入处理结果: handled={}",
                         handled
@@ -376,13 +394,15 @@ pub fn run() {
                     logger::log_info(&format!(
                         "[DeepLink] 启动时 get_current 命中: url_count={}, urls={:?}",
                         args.len(),
-                        args
+                        summarize_deep_link_args(&args)
                     ));
-                    let handled = modules::external_import::handle_external_import_args(
-                        &app.handle(),
-                        &args,
-                        "deep-link-current",
-                    );
+                    let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
+                    let handled = zcode_oauth_handled
+                        || modules::external_import::handle_external_import_args(
+                            &app.handle(),
+                            &args,
+                            "deep-link-current",
+                        );
                     logger::log_info(&format!(
                         "[DeepLink] get_current 外部导入处理结果: handled={}",
                         handled
@@ -582,7 +602,8 @@ pub fn run() {
             commands::system::diagnostics_capture_event,
             commands::system::get_general_config,
             commands::system::get_available_terminals,
-            commands::system::save_general_config,
+            commands::system::patch_general_config,
+            commands::system::save_refresh_interval_config,
             commands::system::save_tray_platform_layout,
             commands::system::set_app_path,
             commands::system::set_claude_app_scan_roots,
@@ -634,7 +655,7 @@ pub fn run() {
             commands::update::should_check_updates,
             commands::update::update_last_check_time,
             commands::update::get_update_settings,
-            commands::update::save_update_settings,
+            commands::update::patch_update_settings,
             commands::update::save_pending_update_notes,
             commands::update::check_version_jump,
             commands::update::get_release_history,
@@ -699,6 +720,7 @@ pub fn run() {
             commands::codex::refresh_all_codex_quotas,
             commands::codex::refresh_current_codex_quota,
             commands::codex::codex_oauth_login_start,
+            commands::codex::codex_oauth_open_incognito_window,
             commands::codex::codex_oauth_login_completed,
             commands::codex::codex_oauth_submit_callback_url,
             commands::codex::codex_oauth_login_cancel,
@@ -735,6 +757,7 @@ pub fn run() {
             commands::codex::codex_query_model_provider_usage,
             commands::codex::codex_local_access_get_state,
             commands::codex::codex_local_access_save_accounts,
+            commands::codex::codex_local_access_append_accounts,
             commands::codex::codex_local_access_remove_account,
             commands::codex::codex_local_access_rotate_api_key,
             commands::codex::codex_local_access_update_bound_oauth_account,
@@ -949,6 +972,35 @@ pub fn run() {
             commands::zed::zed_stop_default_session,
             commands::zed::zed_restart_default_session,
             commands::zed::zed_focus_default_session,
+            // ZCode Commands
+            commands::zcode::list_zcode_accounts,
+            commands::zcode::delete_zcode_account,
+            commands::zcode::delete_zcode_accounts,
+            commands::zcode::import_zcode_from_json,
+            commands::zcode::import_zcode_from_local,
+            commands::zcode::import_zcode_api_key,
+            commands::zcode::export_zcode_accounts,
+            commands::zcode::zcode_oauth_login_start,
+            commands::zcode::zcode_oauth_login_complete,
+            commands::zcode::zcode_oauth_submit_callback_url,
+            commands::zcode::zcode_oauth_open_window,
+            commands::zcode::zcode_oauth_login_cancel,
+            commands::zcode::refresh_zcode_account,
+            commands::zcode::refresh_all_zcode_accounts,
+            commands::zcode::inject_zcode_account,
+            commands::zcode::update_zcode_account_tags,
+            commands::zcode::get_zcode_current_account_id,
+            commands::zcode::get_zcode_accounts_index_path,
+            // ZCode Instance Commands
+            commands::zcode_instance::zcode_get_instance_defaults,
+            commands::zcode_instance::zcode_list_instances,
+            commands::zcode_instance::zcode_create_instance,
+            commands::zcode_instance::zcode_update_instance,
+            commands::zcode_instance::zcode_delete_instance,
+            commands::zcode_instance::zcode_start_instance,
+            commands::zcode_instance::zcode_stop_instance,
+            commands::zcode_instance::zcode_open_instance_window,
+            commands::zcode_instance::zcode_close_all_instances,
             // Qoder Instance Commands
             commands::qoder_instance::qoder_get_instance_defaults,
             commands::qoder_instance::qoder_list_instances,
@@ -1020,6 +1072,40 @@ pub fn run() {
             commands::gemini::update_gemini_account_tags,
             commands::gemini::get_gemini_accounts_index_path,
             commands::gemini::inject_gemini_account,
+            // Grok Commands
+            commands::grok::grok_get_cli_status,
+            commands::grok::grok_execute_cli_install_command,
+            commands::grok::grok_update_cli_runtime_config,
+            commands::grok::list_grok_accounts,
+            commands::grok::delete_grok_account,
+            commands::grok::delete_grok_accounts,
+            commands::grok::import_grok_from_json,
+            commands::grok::add_grok_account_with_api_key,
+            commands::grok::import_grok_from_local,
+            commands::grok::export_grok_accounts,
+            commands::grok::grok_oauth_login_start,
+            commands::grok::grok_oauth_login_complete,
+            commands::grok::grok_oauth_login_cancel,
+            commands::grok::refresh_grok_account,
+            commands::grok::force_refresh_grok_account,
+            commands::grok::refresh_all_grok_accounts,
+            commands::grok::switch_grok_account,
+            commands::grok::update_grok_account_tags,
+            commands::grok::update_grok_account_working_dir,
+            commands::grok::get_grok_current_account_id,
+            commands::grok::get_grok_accounts_index_path,
+            // Grok Instance Commands
+            commands::grok_instance::grok_get_instance_defaults,
+            commands::grok_instance::grok_list_instances,
+            commands::grok_instance::grok_create_instance,
+            commands::grok_instance::grok_update_instance,
+            commands::grok_instance::grok_delete_instance,
+            commands::grok_instance::grok_start_instance,
+            commands::grok_instance::grok_stop_instance,
+            commands::grok_instance::grok_close_all_instances,
+            commands::grok_instance::grok_open_instance_window,
+            commands::grok_instance::grok_get_instance_launch_command,
+            commands::grok_instance::grok_execute_instance_launch_command,
             // Gemini Instance Commands
             commands::gemini_instance::gemini_get_instance_defaults,
             commands::gemini_instance::gemini_list_instances,
@@ -1140,13 +1226,15 @@ pub fn run() {
                     logger::log_info(&format!(
                         "[RunEvent] 收到 Opened 事件: url_count={}, urls={:?}",
                         args.len(),
-                        args
+                        summarize_deep_link_args(&args)
                     ));
-                    let handled = modules::external_import::handle_external_import_args(
-                        app_handle,
-                        &args,
-                        "run-event-opened",
-                    );
+                    let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
+                    let handled = zcode_oauth_handled
+                        || modules::external_import::handle_external_import_args(
+                            app_handle,
+                            &args,
+                            "run-event-opened",
+                        );
                     logger::log_info(&format!(
                         "[RunEvent] Opened 外部导入处理结果: handled={}",
                         handled

@@ -19,7 +19,7 @@ interface DosageNotifyUsageStatusProps {
   accountText: string;
   confirmText: string;
   closeText: string;
-  classPrefix: 'codebuddy' | 'workbuddy';
+  classPrefix: string;
 }
 
 function resolveDosageNotifyDetailText(usage: DosageNotifyUsage, locale: string, fallbackText: string): string {

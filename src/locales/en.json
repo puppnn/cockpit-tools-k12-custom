@@ -6,12 +6,14 @@
     "saving": "Saving...",
     "delete": "Delete",
     "refresh": "Refresh",
+    "reauthorize": "Reauthorize",
     "loading": "Loading...",
     "success": "Success",
     "failed": "Failed",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "close": "Close",
+    "back": "Back",
     "open": "Open",
     "copy": "Copy",
     "copied": "Copied",
@@ -131,6 +133,8 @@
         "failed": "Authorization failed",
         "hint": "Once authorized, this window will update automatically",
         "openBrowser": "Open in Browser",
+        "normalWindow": "Standard Window",
+        "incognitoWindow": "Incognito Window",
         "success": "Authorization successful",
         "meta": "Expires in: {{expires}}s; Poll interval: {{interval}}s",
         "preparing": "Preparing authorization info...",
@@ -181,7 +185,9 @@
         "resetDone": "Reset",
         "hourly": "Inline Suggestions",
         "weekly": "Chat messages",
-        "resetAt": "Reset: {{time}}"
+        "resetAt": "Reset: {{time}}",
+        "expiresAt": "Expires at: {{time}}",
+        "leftPercent": "{{value}}% left"
       },
       "subtitle": "Monitor quota status for all accounts in real time.",
       "time": {
@@ -260,6 +266,7 @@
     "errors": {
       "refreshFailed": "Refresh failed: {{error}}",
       "switchFailed": "Switch failed: {{error}}",
+      "stopInstanceBeforeSwitch": "Stop the instance before switching accounts",
       "pinFailed": "Failed to update pin state: {{error}}",
       "closeFailed": "Close failed: {{error}}"
     },
@@ -840,7 +847,7 @@
       "importModalDesc": "Choose what to import. Legacy account backups are handled as account-only imports.",
       "selectionTitle": "Data Scope",
       "accountsOptionTitle": "Account Data",
-      "accountsOptionDesc": "Includes platform account backups and keeps legacy account JSON compatible.",
+      "accountsOptionDesc": "Includes restorable platform account backups and keeps legacy account JSON compatible. Grok CLI credentials are excluded; import the official auth.json separately.",
       "configOptionTitle": "Config Data",
       "configOptionDesc": "Includes app settings, groups, instances, wakeup tasks, and model provider config.",
       "exportConfirm": "Export Data",
@@ -1130,9 +1137,13 @@
       "codebuddyCnPathReset": "Reset to Default",
       "codebuddyCnPathSelect": "Select",
       "codebuddyCnSettingsTitle": "CodeBuddy CN Settings",
+      "zcodeAppPath": "ZCode Launch Path",
+      "zcodeAppPathDesc": "Leave blank to use the default path",
       "qoderAppPath": "Qoder App Path",
       "qoderAppPathDesc": "Leave blank to use the default path",
       "qoderAppPathPlaceholder": "Default path",
+      "zcodeAutoRefresh": "ZCode Auto Refresh",
+      "zcodeAutoRefreshDesc": "Background quota refresh interval",
       "qoderAutoRefresh": "Qoder Auto Refresh",
       "qoderAutoRefreshDesc": "Background auto-refresh frequency",
       "qoderPathSelect": "Select",
@@ -2275,7 +2286,10 @@
       },
       "customRoutingEdit": "Edit Custom Routing",
       "customRoutingTitle": "Custom Routing",
-      "customRoutingDesc": "Set priority and weight per account to control account selection order and same-priority load distribution.",
+      "customRoutingDesc": "Set priority, weight, and backup roles to control account selection and load distribution.",
+      "customRoutingBackupTitle": "Backup Account",
+      "customRoutingBackupDesc": "Used only when all regular accounts are unavailable. New requests switch back when a regular account recovers.",
+      "customRoutingBackupShort": "Backup",
       "customRoutingPriorityTitle": "Priority",
       "customRoutingPriorityDesc": "Higher values are selected first; lower-priority accounts are tried only when higher-priority accounts are unavailable.",
       "customRoutingWeightTitle": "Weight",
@@ -2495,7 +2509,8 @@
         "newApiKey": "New API Key",
         "visionCapability": "Image Input",
         "visionModels": "Vision Models",
-        "visionRoutingModel": "Image Route Model"
+        "visionRoutingModel": "Image Route Model",
+        "supportsWebsockets": "WebSocket Transport"
       },
       "validation": {
         "nameRequired": "Provider name is required.",
@@ -2727,6 +2742,12 @@
         "customMoveUp": "Move up",
         "customMoveDown": "Move down",
         "customReset": "Reset custom order"
+      },
+      "websockets": {
+        "title": "Allow Codex to use Responses over WebSocket",
+        "help": "Enable only when the provider explicitly supports Responses over WebSocket; confirm the transport in Codex or proxy service logs.",
+        "enabled": "Enabled",
+        "disabled": "Disabled"
       }
     },
     "quickSwitch": {
@@ -2807,7 +2828,8 @@
       "enterprise": "ENTERPRISE"
     },
     "list": {
-      "showCodeReviewQuota": "Show Code Review quota"
+      "showCodeReviewQuota": "Show Code Review quota",
+      "showAdditionalQuota": "Show model-specific quota"
     },
     "time": {
       "today": "Today {{time}}",
@@ -2850,6 +2872,7 @@
       "hourlyReset": "5-hour reset time",
       "subscriptionExpiry": "Subscription term",
       "custom": "Custom order",
+      "customSettingsTooltip": "Configure custom order",
       "customModalTitle": "Custom account order",
       "customModalDesc": "Drag accounts or use the up and down buttons to adjust the display order.",
       "customDragHandle": "Drag to sort",
@@ -3481,6 +3504,15 @@
       "renameSuccess": "Renamed",
       "renameFailed": "Rename failed"
     },
+    "importApiService": {
+      "toggle": "Add to API service",
+      "description": "Add eligible imported accounts to the API service account pool.",
+      "syncFailed": "Accounts were imported, but adding them to the API service failed: {{error}}",
+      "guideTitle": "Accounts added to API service",
+      "guideDescription": "{{count}} account(s) were added to the API service. Select “Start API Service” to switch and use them.",
+      "later": "Later",
+      "startAction": "Start API Service"
+    },
     "batchImport": {
       "title": "Codex Batch Import",
       "resultSubtitle": "Import result",
@@ -3519,7 +3551,8 @@
       "hiddenTask": "Codex batch import task",
       "taskRunning": "Processing {{current}} / {{total}}",
       "taskPreview": "{{total}} preview item(s) ready",
-      "reopen": "View task"
+      "reopen": "View task",
+      "dismissTask": "Dismiss"
     },
     "autoRepairMode": {
       "label": "Auto Repair Logic",
@@ -3543,6 +3576,17 @@
       "started": "Started deleting {{count}} Codex account(s)",
       "pollFailed": "Failed to refresh batch delete progress: {{error}}",
       "actionFailed": "Batch delete action failed: {{error}}"
+    },
+    "filters": {
+      "allPlans": "All plans ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "Filters show {{visible}}/{{total}} accounts",
+      "clearAll": "Clear filters",
+      "chipGroup": "Group",
+      "chipTags": "Tags",
+      "chipSearch": "Search",
+      "chipPlan": "Plan",
+      "chipFolder": "Folder"
     }
   },
   "codebuddy": {
@@ -3889,6 +3933,14 @@
       "syncWslDesc": "Automatically overwrite the .gemini configuration in WSL when switching accounts"
     },
     "geminiRefreshInterval": "Quota Auto Refresh",
+    "grok": {
+      "title": "Grok CLI Settings",
+      "appPath": "Grok CLI Path",
+      "cliPath": "CLI Path",
+      "cliDetected": "Detected {{version}} · {{path}}",
+      "cliMissing": "Grok CLI not found. Enter a custom path."
+    },
+    "grokRefreshInterval": "Quota Auto Refresh",
     "error": {
       "loadFailed": "Failed to load config: {{error}}",
       "saveFailed": "Failed to save config: {{error}}",
@@ -3899,6 +3951,10 @@
     "qoder": {
       "title": "Qoder Settings",
       "appPath": "Qoder Path"
+    },
+    "zcode": {
+      "title": "ZCode Settings",
+      "appPath": "ZCode Path"
     },
     "zed": {
       "title": "Zed Settings",
@@ -4592,6 +4648,62 @@
       "desc": "Click \"Add Account\" to use auth login, local import, or JSON import."
     }
   },
+  "zcode": {
+    "search": "Search ZCode accounts...",
+    "flowNotice": {
+      "title": "ZCode account guide",
+      "desc": "Cockpit reads and writes ZCode's encrypted local credentials for real account switching and instance binding.",
+      "permission": "Local scope: ~/.zcode/v2/credentials.json and managed instance directories.",
+      "network": "Network scope: OAuth, user info, subscription, and quota APIs. Accounts are not uploaded to a Cockpit service."
+    },
+    "empty": "No ZCode accounts",
+    "addAccount": "Add ZCode Account",
+    "oauth": {
+      "desc": "Close ZCode, then sign in through the Cockpit authorization window. Cockpit will capture the callback directly.",
+      "title": "ZCode OAuth",
+      "item1": "Official Z.ai and BigModel sign-in.",
+      "item2": "Saves the account and refreshes plan and model quotas after authorization.",
+      "item3": "Use accounts for default-client switching and multi-instance binding.",
+      "urlPlaceholder": "ZCode OAuth URL",
+      "waiting": "Waiting for ZCode OAuth callback...",
+      "openWindow": "Open authorization window",
+      "provider": "Sign-in service",
+      "success": "ZCode OAuth sign-in successful"
+    },
+    "token": {
+      "desc": "Paste a ZCode account JSON exported by Cockpit."
+    },
+    "apiKey": {
+      "tab": "API Key",
+      "desc": "Add an official Z.ai or BigModel API Key. Account switching and managed instances write it to their own config.json.",
+      "placeholder": "Paste API Key",
+      "add": "Add API Key",
+      "provider": "API Key service"
+    },
+    "import": {
+      "localDesc": "Import from encrypted local ZCode credentials or a JSON file.",
+      "localClient": "Import from Local ZCode"
+    },
+    "usageNormal": "Normal",
+    "usageAbnormal": "Error",
+    "usageViewDetail": "Details",
+    "usageDetailTitle": "Usage Details",
+    "usage": "Usage",
+    "quota": {
+      "models": "Model Quota",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "Updated: {{time}}",
+      "expireAt": "Expires: {{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Quota query failed",
+      "empty": "No quota data",
+      "sectionTitle": "Quota"
+    },
+    "instances": {
+      "unsupported": "ZCode multi-instance is available only on macOS, Windows, and Linux."
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Add Zed Account"
@@ -4965,6 +5077,86 @@
     "importErrorMsg": "Import failed. Please ensure the file format is a valid exported JSON array.",
     "btnImportTitle": "Import Local JSON Backup",
     "btnExportTitle": "Export Saved as JSON"
+  },
+  "grok": {
+    "search": "Search Grok CLI accounts...",
+    "flowNotice": {
+      "title": "Grok CLI account guide",
+      "desc": "Cockpit manages accounts in the official Grok CLI credential format for real default-client switching and isolated instance binding.",
+      "permission": "Local scope: reads the default ~/.grok/auth.json and manages separate Grok account and GROK_HOME directories in Cockpit's local data.",
+      "network": "Network scope: OAuth authorization, credential refresh, and account usage queries. Credentials are not uploaded to Cockpit services."
+    },
+    "empty": "No Grok CLI accounts yet",
+    "addAccount": "Add Grok CLI Account",
+    "oauth": {
+      "desc": "Open the xAI authorization page and enter the device code. The account is saved automatically after authorization.",
+      "title": "Grok Device OAuth",
+      "item1": "Uses the official Grok CLI device flow without occupying a local callback port.",
+      "item2": "Saves a separate GROK_HOME after authorization and keeps credentials valid.",
+      "item3": "Accounts can switch the default CLI or run in mutually isolated instances.",
+      "urlPlaceholder": "Grok OAuth authorization URL",
+      "waiting": "Waiting for Grok OAuth authorization...",
+      "openWindow": "Open Authorization Page",
+      "success": "Grok OAuth sign-in succeeded"
+    },
+    "import": {
+      "pasteTab": "Paste JSON",
+      "pasteDesc": "Paste the official Grok CLI auth.json. Credentials are processed only by the local backend. Cockpit exports redacted metadata only and cannot restore a sign-in.",
+      "pastePlaceholder": "Paste Grok account JSON",
+      "pasteAction": "Import JSON",
+      "localDesc": "Import the current account from the default ~/.grok/auth.json. When choosing a file, use the official Grok CLI auth.json.",
+      "localClient": "Import from Local Grok CLI",
+      "apiKeyTab": "API Key",
+      "apiKeyDesc": "Paste an xAI API key (official XAI_API_KEY). It is injected at launch. You can also paste official auth.json for OAuth import.",
+      "apiKeyPlaceholder": "xai-...",
+      "apiKeyAction": "Add API Key"
+    },
+    "instances": {
+      "unsupported": "Grok CLI multi-instance is supported on macOS, Windows, and Linux only.",
+      "launchDialogTitle": "Launch Instance",
+      "launchHint": "Copy the command to run it manually, or execute it directly in a terminal.",
+      "runInTerminal": "Run in Terminal",
+      "cliReady": "Detected",
+      "cliMissingShort": "Not detected",
+      "cliPathInvalid": "The configured Grok CLI path is invalid: {{path}}",
+      "saveAndRetry": "Save and retry",
+      "installCommand": "Official install command",
+      "installHint": "Run the official command below in a terminal, then refresh after installation.",
+      "selectWorkingDir": "Select Grok CLI working directory",
+      "workingDirAccountHint": "Working directory is bound to this account and will be restored on next launch.",
+      "launchCommandPlaceholder": "Choose or confirm a working directory to generate the launch command"
+    },
+    "switch": {
+      "success": "Account switched"
+    },
+    "usageNormal": "Normal",
+    "usageAbnormal": "Abnormal",
+    "usageViewDetail": "View details",
+    "usageDetailTitle": "Usage Details",
+    "usage": "Usage",
+    "quotaQuery": {
+      "failedRefreshCompact": "Quota query failed",
+      "empty": "No quota data available",
+      "sectionTitle": "Quota"
+    },
+    "quota": {
+      "weekly": "Weekly usage",
+      "onDemand": "On-demand usage",
+      "balance": "Balance and credits",
+      "included": "Included usage",
+      "promotional": "Promotional quota",
+      "frequent": "Frequent tasks",
+      "occasional": "Occasional tasks",
+      "resetAt": "{{label}} resets: {{time}}",
+      "empty": "No quota",
+      "apiKeyUnsupported": "No plan quota for API key accounts"
+    },
+    "quotaAlert": {
+      "hint": "When any quota item for the current account falls below the threshold, send a native notification and show a quick-switch action in the app.",
+      "thresholdDesc": "Trigger an alert when any quota item falls below this percentage",
+      "items": "Quota items",
+      "unknownItem": "Unknown quota item"
+    }
   },
   "claude": {
     "import": {

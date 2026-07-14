@@ -2,9 +2,9 @@
 //! 管理应用配置，包括 WebSocket 端口等
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Map, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 /// 默认 WebSocket 端口
@@ -20,9 +20,13 @@ const SERVER_STATUS_FILE: &str = "server.json";
 
 /// 用户配置文件名
 const USER_CONFIG_FILE: &str = "config.json";
+const USER_CONFIG_LOCK_FILE: &str = "config.json.lock";
 
 /// 数据目录名
 const DATA_DIR: &str = ".antigravity_cockpit";
+const DEV_DATA_DIR: &str = ".antigravity_cockpit_dev";
+const DATA_DIR_ENV: &str = "COCKPIT_TOOLS_DATA_DIR";
+const PROFILE_ENV: &str = "COCKPIT_TOOLS_PROFILE";
 
 /// 服务状态（写入共享文件供其他客户端读取）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -391,6 +395,9 @@ pub struct UserConfig {
     /// WorkBuddy 配额预警阈值（百分比）
     #[serde(default = "default_workbuddy_quota_alert_threshold")]
     pub workbuddy_quota_alert_threshold: i32,
+    /// 保留宿主应用新增但 CLI 尚未建模的配置字段。
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// 窗口关闭行为
@@ -885,6 +892,7 @@ impl Default for UserConfig {
             trae_solo_cn_quota_alert_threshold: default_trae_quota_alert_threshold(),
             workbuddy_quota_alert_enabled: default_workbuddy_quota_alert_enabled(),
             workbuddy_quota_alert_threshold: default_workbuddy_quota_alert_threshold(),
+            extra: Map::new(),
         }
     }
 }
@@ -1015,16 +1023,26 @@ pub fn sync_global_proxy_env(config: &UserConfig) {
 
 /// 获取数据目录路径
 pub fn get_data_dir() -> Result<PathBuf, String> {
+    if let Ok(raw) = std::env::var(DATA_DIR_ENV) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
+        }
+    }
+
     let home = dirs::home_dir().ok_or("无法获取 Home 目录")?;
-    Ok(home.join(DATA_DIR))
+    let dir_name = std::env::var(PROFILE_ENV)
+        .map(|value| value.trim().eq_ignore_ascii_case("dev"))
+        .unwrap_or(false)
+        .then_some(DEV_DATA_DIR)
+        .unwrap_or(DATA_DIR);
+    Ok(home.join(dir_name))
 }
 
 /// 获取共享目录路径（供其他模块使用）
 /// 与 get_data_dir 相同，但不返回 Result
 pub fn get_shared_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(DATA_DIR))
-        .unwrap_or_else(|| PathBuf::from(DATA_DIR))
+    get_data_dir().unwrap_or_else(|_| PathBuf::from(DATA_DIR))
 }
 
 /// 获取服务状态文件路径
@@ -1646,8 +1664,7 @@ pub fn load_user_config() -> Result<UserConfig, String> {
     Ok(config)
 }
 
-/// 保存用户配置
-pub fn save_user_config(config: &UserConfig) -> Result<(), String> {
+fn persist_user_config(config: &UserConfig) -> Result<(), String> {
     let config_path = get_user_config_path()?;
     let data_dir = get_data_dir()?;
 
@@ -1662,18 +1679,86 @@ pub fn save_user_config(config: &UserConfig) -> Result<(), String> {
     crate::modules::atomic_write::write_string_atomic(&config_path, &json)
         .map_err(|e| format!("写入配置文件失败: {}", e))?;
 
-    // 更新运行时状态
-    if let Ok(mut state) = get_runtime_state().write() {
-        state.user_config = config.clone();
-    }
+    Ok(())
+}
 
+fn acquire_config_file_lock(path: &Path) -> Result<fs::File, String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| format!("创建配置目录失败: {}", error))?;
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+        .map_err(|error| format!("打开配置锁文件失败: {}", error))?;
+    file.lock()
+        .map_err(|error| format!("锁定配置文件失败: {}", error))?;
+    Ok(file)
+}
+
+fn finish_user_config_update(config: &UserConfig) {
     sync_global_proxy_env(config);
 
     crate::modules::logger::log_info(&format!(
         "[Config] 用户配置已保存: ws_enabled={}, ws_port={}, report_enabled={}, report_port={}",
         config.ws_enabled, config.ws_port, config.report_enabled, config.report_port
     ));
+}
 
+fn patch_runtime_state<F, L, P, C>(
+    state: &RwLock<RuntimeState>,
+    lock_path: &Path,
+    load_latest: L,
+    persist: P,
+    commit: C,
+    patch: F,
+) -> Result<UserConfig, String>
+where
+    F: FnOnce(&mut UserConfig) -> Result<(), String>,
+    L: FnOnce() -> Result<UserConfig, String>,
+    P: FnOnce(&UserConfig) -> Result<(), String>,
+    C: FnOnce(&UserConfig),
+{
+    let mut state = state
+        .write()
+        .map_err(|_| "用户配置状态锁已损坏".to_string())?;
+    let _file_lock_guard = acquire_config_file_lock(lock_path)?;
+    let mut next_config = load_latest()?;
+    patch(&mut next_config)?;
+    persist(&next_config)?;
+    state.user_config = next_config.clone();
+    commit(&next_config);
+    Ok(next_config)
+}
+
+/// 基于锁内重读到的最新磁盘配置修改并保存指定字段。
+pub fn patch_user_config<F>(patch: F) -> Result<UserConfig, String>
+where
+    F: FnOnce(&mut UserConfig) -> Result<(), String>,
+{
+    let lock_path = get_data_dir()?.join(USER_CONFIG_LOCK_FILE);
+    patch_runtime_state(
+        get_runtime_state(),
+        &lock_path,
+        load_user_config,
+        persist_user_config,
+        finish_user_config_update,
+        patch,
+    )
+}
+
+/// 保存完整用户配置。
+pub fn save_user_config(config: &UserConfig) -> Result<(), String> {
+    let replacement = config.clone();
+    let mut state = get_runtime_state()
+        .write()
+        .map_err(|_| "用户配置状态锁已损坏".to_string())?;
+    let lock_path = get_data_dir()?.join(USER_CONFIG_LOCK_FILE);
+    let _file_lock_guard = acquire_config_file_lock(&lock_path)?;
+    persist_user_config(&replacement)?;
+    state.user_config = replacement.clone();
+    finish_user_config_update(&replacement);
     Ok(())
 }
 
@@ -1744,7 +1829,40 @@ pub fn init_server_status(actual_port: u16) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::UserConfig;
+    use super::{patch_runtime_state, RuntimeState, UserConfig};
+    use std::fs;
+    use std::path::Path;
+    use std::sync::{Arc, Barrier, RwLock};
+    use std::thread;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("{}_{}_{}", prefix, std::process::id(), unique));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn make_runtime_state() -> RwLock<RuntimeState> {
+        RwLock::new(RuntimeState {
+            actual_port: None,
+            user_config: UserConfig::default(),
+        })
+    }
+
+    fn persist_test_config(path: &Path, config: &UserConfig) -> Result<(), String> {
+        let content = serde_json::to_string_pretty(config).map_err(|error| error.to_string())?;
+        crate::modules::atomic_write::write_string_atomic(path, &content)
+    }
+
+    fn load_test_config(path: &Path) -> Result<UserConfig, String> {
+        let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        serde_json::from_str(&content).map_err(|error| error.to_string())
+    }
 
     #[test]
     fn openclaw_auth_overwrite_default_is_disabled() {
@@ -1757,5 +1875,86 @@ mod tests {
         let cfg: UserConfig =
             serde_json::from_value(serde_json::json!({})).expect("反序列化默认配置应成功");
         assert!(!cfg.openclaw_auth_overwrite_on_switch);
+    }
+
+    #[test]
+    fn unknown_host_fields_survive_cli_config_round_trip() {
+        let cfg: UserConfig = serde_json::from_value(serde_json::json!({
+            "language": "zh-cn",
+            "diagnostics_error_reporting_enabled": false,
+            "grok_auto_refresh_minutes": 5,
+            "webdav_sync_remote_dir": "backups"
+        }))
+        .expect("CLI 应能读取宿主新增配置字段");
+
+        let serialized = serde_json::to_value(cfg).expect("CLI 配置应能重新序列化");
+        assert_eq!(serialized["diagnostics_error_reporting_enabled"], false);
+        assert_eq!(serialized["grok_auto_refresh_minutes"], 5);
+        assert_eq!(serialized["webdav_sync_remote_dir"], "backups");
+    }
+
+    #[test]
+    fn separate_cli_runtime_states_merge_through_shared_file_lock() {
+        let dir = make_temp_dir("core_config_cross_runtime_patch");
+        let path = Arc::new(dir.join("config.json"));
+        let lock_path = Arc::new(dir.join("config.json.lock"));
+        persist_test_config(path.as_path(), &UserConfig::default()).expect("seed config");
+
+        let language_state = Arc::new(make_runtime_state());
+        let theme_state = Arc::new(make_runtime_state());
+        let barrier = Arc::new(Barrier::new(3));
+
+        let language_thread = {
+            let path = Arc::clone(&path);
+            let lock_path = Arc::clone(&lock_path);
+            let state = Arc::clone(&language_state);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                patch_runtime_state(
+                    &state,
+                    lock_path.as_path(),
+                    || load_test_config(path.as_path()),
+                    |config| persist_test_config(path.as_path(), config),
+                    |_| {},
+                    |config| {
+                        config.language = "en-us".to_string();
+                        Ok(())
+                    },
+                )
+                .expect("patch language from first CLI runtime");
+            })
+        };
+        let theme_thread = {
+            let path = Arc::clone(&path);
+            let lock_path = Arc::clone(&lock_path);
+            let state = Arc::clone(&theme_state);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                patch_runtime_state(
+                    &state,
+                    lock_path.as_path(),
+                    || load_test_config(path.as_path()),
+                    |config| persist_test_config(path.as_path(), config),
+                    |_| {},
+                    |config| {
+                        config.theme = "light".to_string();
+                        Ok(())
+                    },
+                )
+                .expect("patch theme from second CLI runtime");
+            })
+        };
+
+        barrier.wait();
+        language_thread.join().expect("join language runtime");
+        theme_thread.join().expect("join theme runtime");
+
+        let disk = load_test_config(path.as_path()).expect("load merged config");
+        assert_eq!(disk.language, "en-us");
+        assert_eq!(disk.theme, "light");
+
+        fs::remove_dir_all(dir).expect("remove temp dir");
     }
 }

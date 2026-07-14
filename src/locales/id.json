@@ -6,12 +6,14 @@
     "saving": "Menyimpan...",
     "delete": "Hapus",
     "refresh": "Segarkan",
+    "reauthorize": "Otorisasi ulang",
     "loading": "Memuat...",
     "success": "Berhasil",
     "failed": "Gagal",
     "enabled": "Aktif",
     "disabled": "Nonaktif",
     "close": "Tutup",
+    "back": "Kembali",
     "open": "Buka",
     "copy": "Salin",
     "copied": "Disalin",
@@ -131,6 +133,8 @@
         "failed": "Otorisasi gagal",
         "hint": "Setelah diotorisasi, jendela ini akan diperbarui secara otomatis",
         "openBrowser": "Buka di Peramban",
+        "normalWindow": "Jendela biasa",
+        "incognitoWindow": "Jendela privat",
         "success": "Otorisasi berhasil",
         "meta": "Kedaluwarsa dalam: {{expires}} detik; Interval polling: {{interval}} detik",
         "preparing": "Menyiapkan informasi otorisasi...",
@@ -181,7 +185,9 @@
         "resetDone": "Direset",
         "hourly": "Saran Inline",
         "weekly": "Pesan obrolan",
-        "resetAt": "Atur ulang: {{time}}"
+        "resetAt": "Atur ulang: {{time}}",
+        "expiresAt": "Kedaluwarsa: {{time}}",
+        "leftPercent": "Tersisa {{value}}%"
       },
       "subtitle": "Pantau status kuota seluruh akun secara real-time.",
       "time": {
@@ -260,6 +266,7 @@
     "errors": {
       "refreshFailed": "Penyegaran gagal: {{error}}",
       "switchFailed": "Penggantian gagal: {{error}}",
+      "stopInstanceBeforeSwitch": "Hentikan instansi sebelum mengganti akun",
       "pinFailed": "Gagal memperbarui status sematan: {{error}}",
       "closeFailed": "Penutupan gagal: {{error}}"
     },
@@ -805,9 +812,13 @@
       "codebuddyCnPathReset": "Reset ke Default",
       "codebuddyCnPathSelect": "Pilih",
       "codebuddyCnSettingsTitle": "Pengaturan CodeBuddy CN",
+      "zcodeAppPath": "Jalur peluncuran ZCode",
+      "zcodeAppPathDesc": "Kosongkan untuk memakai jalur bawaan",
       "qoderAppPath": "Path Aplikasi Qoder",
       "qoderAppPathDesc": "Kosongkan untuk menggunakan path default",
       "qoderAppPathPlaceholder": "Path default",
+      "zcodeAutoRefresh": "Pembaruan Otomatis ZCode",
+      "zcodeAutoRefreshDesc": "Interval pembaruan kuota di latar belakang",
       "qoderAutoRefresh": "Auto Refresh Kuota Qoder",
       "qoderAutoRefreshDesc": "Frekuensi auto-refresh di latar belakang",
       "qoderPathSelect": "Pilih",
@@ -988,7 +999,7 @@
       "importModalDesc": "Pilih data yang ingin diimpor. Cadangan akun lama akan diproses sebagai impor akun saja.",
       "selectionTitle": "Cakupan data",
       "accountsOptionTitle": "Data akun",
-      "accountsOptionDesc": "Mencakup cadangan akun platform dan tetap kompatibel dengan JSON akun lama.",
+      "accountsOptionDesc": "Mencakup cadangan akun platform yang dapat dipulihkan dan tetap kompatibel dengan JSON akun lama. Kredensial Grok CLI tidak disertakan; impor auth.json resmi secara terpisah.",
       "configOptionTitle": "Data konfigurasi",
       "configOptionDesc": "Mencakup pengaturan aplikasi, grup, instance, tugas wakeup, dan konfigurasi penyedia model.",
       "exportConfirm": "Ekspor data",
@@ -2003,6 +2014,9 @@
       "customRoutingEdit": "Edit routing kustom",
       "customRoutingTitle": "Routing kustom",
       "customRoutingDesc": "Atur prioritas dan bobot per akun untuk mengontrol urutan pemilihan akun dan pembagian beban pada prioritas yang sama.",
+      "customRoutingBackupTitle": "Akun cadangan",
+      "customRoutingBackupDesc": "Hanya digunakan saat semua akun biasa tidak tersedia. Permintaan baru otomatis kembali saat akun biasa pulih.",
+      "customRoutingBackupShort": "Cadangan",
       "customRoutingPriorityTitle": "Prioritas",
       "customRoutingPriorityDesc": "Nilai lebih tinggi dipilih lebih dahulu; akun prioritas lebih rendah hanya dicoba saat prioritas tinggi tidak tersedia.",
       "customRoutingWeightTitle": "Bobot",
@@ -2282,7 +2296,8 @@
       "enterprise": "ENTERPRISE​"
     },
     "list": {
-      "showCodeReviewQuota": "Tampilkan kuota Code Review"
+      "showCodeReviewQuota": "Tampilkan kuota Code Review",
+      "showAdditionalQuota": "Kuota khusus model"
     },
     "time": {
       "today": "Hari ini {{time}}",
@@ -2303,6 +2318,7 @@
       "hourlyReset": "5-hour reset time​",
       "subscriptionExpiry": "Akhir langganan",
       "custom": "Urutan kustom",
+      "customSettingsTooltip": "Atur urutan kustom",
       "customModalTitle": "Urutan akun kustom",
       "customModalDesc": "Seret akun atau gunakan tombol naik/turun untuk mengatur urutan tampilan.",
       "customDragHandle": "Seret untuk urutkan",
@@ -2762,7 +2778,8 @@
         "modelCatalog": "Katalog Model",
         "visionCapability": "Input gambar",
         "visionModels": "Model visual",
-        "visionRoutingModel": "Model gambar"
+        "visionRoutingModel": "Model gambar",
+        "supportsWebsockets": "Transport WebSocket"
       },
       "validation": {
         "nameRequired": "Nama penyedia wajib diisi.",
@@ -2998,6 +3015,12 @@
         "customMoveUp": "Naikkan",
         "customMoveDown": "Turunkan",
         "customReset": "Reset urutan"
+      },
+      "websockets": {
+        "title": "Izinkan Codex menggunakan Responses melalui WebSocket",
+        "help": "Aktifkan hanya jika penyedia secara eksplisit mendukung Responses melalui WebSocket; pastikan transport melalui log Codex atau layanan proksi.",
+        "enabled": "Aktif",
+        "disabled": "Nonaktif"
       }
     },
     "quickSwitch": {
@@ -3213,6 +3236,15 @@
         "optionsTitle": "Opsi Routing",
         "sessionAffinity": "Afinitas Sesi",
         "sessionAffinityTtl": "TTL Afinitas",
+        "newSessionPriority": "Prioritaskan Sesi Baru",
+        "newSessionPriorityTitle": "Hanya sesi yang belum memiliki afinitas yang menggunakan kelompok ini; sesi yang ada tetap memakai akunnya",
+        "newSessionPriorityAccounts": "Akun Prioritas",
+        "newSessionPriorityAccountsTitle": "Jika kelompok prioritas tidak tersedia, kebijakan routing saat ini akan digunakan",
+        "selectPriorityAccounts": "Pilih akun",
+        "selectedPriorityAccounts": "Dipilih",
+        "noPriorityAccounts": "Tidak ada akun yang tersedia",
+        "newSessionPriorityRequiresAffinity": "Aktifkan Afinitas Sesi sebelum mengaktifkan routing prioritas untuk sesi baru",
+        "newSessionPriorityAccountsRequired": "Pilih setidaknya satu akun prioritas untuk sesi baru",
         "maxRetryCredentials": "Akun retry",
         "maxRetryInterval": "Tunggu retry",
         "disableCooling": "Matikan cooldown",
@@ -3308,6 +3340,15 @@
       "renameSuccess": "Berhasil diganti nama",
       "renameFailed": "Gagal mengganti nama"
     },
+    "importApiService": {
+      "toggle": "Tambahkan ke layanan API",
+      "description": "Menambahkan akun impor yang memenuhi syarat ke kumpulan akun layanan API.",
+      "syncFailed": "Akun telah diimpor, tetapi gagal ditambahkan ke layanan API: {{error}}",
+      "guideTitle": "Akun ditambahkan ke layanan API",
+      "guideDescription": "{{count}} akun telah ditambahkan ke layanan API. Pilih “Mulai Layanan API” untuk beralih dan menggunakannya.",
+      "later": "Nanti",
+      "startAction": "Mulai Layanan API"
+    },
     "batchImport": {
       "title": "Impor massal Codex",
       "resultSubtitle": "Hasil impor",
@@ -3346,7 +3387,8 @@
       "hiddenTask": "Tugas impor massal Codex",
       "taskRunning": "Memproses {{current}} / {{total}}",
       "taskPreview": "{{total}} pratinjau siap",
-      "reopen": "Lihat tugas"
+      "reopen": "Lihat tugas",
+      "dismissTask": "Buang"
     },
     "autoRepairMode": {
       "label": "Logika perbaikan otomatis",
@@ -3382,6 +3424,17 @@
       "started": "Mulai menghapus {{count}} akun Codex",
       "pollFailed": "Gagal memuat ulang progres hapus massal: {{error}}",
       "actionFailed": "Aksi hapus massal gagal: {{error}}"
+    },
+    "filters": {
+      "allPlans": "Semua ({{count}})",
+      "visibleOfTotal": "{{visible}} / {{total}}",
+      "activeBanner": "Filter: {{visible}}/{{total}}",
+      "clearAll": "Hapus filter",
+      "chipGroup": "Grup",
+      "chipTags": "Tag",
+      "chipSearch": "Cari",
+      "chipPlan": "Paket",
+      "chipFolder": "Direktori"
     }
   },
   "codebuddy": {
@@ -3723,6 +3776,14 @@
       "syncWslDesc": "Otomatis menimpa konfigurasi .gemini di WSL saat mengganti akun"
     },
     "geminiRefreshInterval": "Quota Auto Refresh​",
+    "grok": {
+      "title": "Pengaturan Grok CLI",
+      "appPath": "Lokasi Grok CLI",
+      "cliPath": "Lokasi CLI",
+      "cliDetected": "Terdeteksi: {{version}} · {{path}}",
+      "cliMissing": "Grok CLI tidak ditemukan. Masukkan lokasi khusus."
+    },
+    "grokRefreshInterval": "Segarkan kuota otomatis",
     "error": {
       "loadFailed": "Gagal memuat konfigurasi: {{error}}",
       "saveFailed": "Gagal menyimpan konfigurasi: {{error}}",
@@ -3733,6 +3794,10 @@
     "qoder": {
       "title": "Qoder Settings​",
       "appPath": "Qoder Path​"
+    },
+    "zcode": {
+      "title": "Pengaturan ZCode",
+      "appPath": "Jalur ZCode"
     },
     "zed": {
       "title": "Zed Settings​",
@@ -4431,6 +4496,62 @@
       "desc": "Klik \"Tambah Akun\" untuk menggunakan login auth, import lokal, atau import JSON."
     }
   },
+  "zcode": {
+    "search": "Cari akun ZCode...",
+    "flowNotice": {
+      "title": "Panduan akun ZCode",
+      "desc": "Cockpit membaca dan menulis ulang kredensial lokal terenkripsi ZCode untuk pergantian akun nyata dan pengikatan instans.",
+      "permission": "Cakupan lokal: ~/.zcode/v2/credentials.json dan direktori instans terkelola.",
+      "network": "Cakupan jaringan: API OAuth, pengguna, langganan, dan kuota. Akun tidak diunggah ke layanan Cockpit."
+    },
+    "empty": "Belum ada akun ZCode",
+    "addAccount": "Tambah Akun ZCode",
+    "oauth": {
+      "desc": "Tutup ZCode, lalu masuk melalui jendela otorisasi Cockpit; Cockpit akan menerima callback secara langsung.",
+      "title": "OAuth ZCode",
+      "item1": "Login resmi melalui Z.ai dan BigModel.",
+      "item2": "Menyimpan akun dan memperbarui paket serta kuota model.",
+      "item3": "Gunakan akun untuk berganti klien dan mengikat banyak instans.",
+      "urlPlaceholder": "URL OAuth ZCode",
+      "waiting": "Menunggu callback OAuth ZCode...",
+      "openWindow": "Buka jendela otorisasi",
+      "provider": "Layanan login",
+      "success": "Login OAuth ZCode berhasil"
+    },
+    "token": {
+      "desc": "Tempel JSON akun ZCode yang diekspor oleh Cockpit."
+    },
+    "apiKey": {
+      "tab": "Kunci API",
+      "desc": "Tambahkan Kunci API resmi Z.ai atau BigModel. Pergantian akun dan instans terkelola menuliskannya ke config.json masing-masing.",
+      "placeholder": "Tempel Kunci API",
+      "add": "Tambah Kunci API",
+      "provider": "Layanan Kunci API"
+    },
+    "import": {
+      "localDesc": "Impor kredensial lokal ZCode terenkripsi atau berkas JSON.",
+      "localClient": "Impor dari ZCode Lokal"
+    },
+    "usageNormal": "Baik",
+    "usageAbnormal": "Galat",
+    "usageViewDetail": "Detail",
+    "usageDetailTitle": "Detail Penggunaan",
+    "usage": "Penggunaan",
+    "quota": {
+      "models": "Kuota Model",
+      "usedOfTotal": "{{used}} / {{total}}",
+      "updatedAt": "Diperbarui: {{time}}",
+      "expireAt": "Berakhir: {{time}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Kueri kuota gagal",
+      "empty": "Belum ada data kuota",
+      "sectionTitle": "Kuota"
+    },
+    "instances": {
+      "unsupported": "Multi-instans ZCode hanya tersedia di macOS, Windows, dan Linux."
+    }
+  },
   "zed": {
     "addModal": {
       "title": "Tambah Akun Zed"
@@ -4956,6 +5077,86 @@
     },
     "copyKey": "Copy Key​",
     "clearKey": "Clear input​"
+  },
+  "grok": {
+    "search": "Cari akun Grok CLI...",
+    "flowNotice": {
+      "title": "Pengelolaan akun Grok CLI",
+      "desc": "Cockpit mengelola akun dengan format kredensial resmi Grok CLI untuk benar-benar mengganti akun bawaan dan mengikat instans yang terisolasi.",
+      "permission": "Cakupan lokal: membaca ~/.grok/auth.json bawaan serta mengelola direktori akun Grok dan GROK_HOME yang terpisah di data lokal Cockpit.",
+      "network": "Cakupan jaringan: otorisasi OAuth, penyegaran kredensial, dan kueri penggunaan akun. Kredensial tidak diunggah ke layanan Cockpit."
+    },
+    "empty": "Belum ada akun Grok CLI",
+    "addAccount": "Tambah akun Grok CLI",
+    "oauth": {
+      "desc": "Buka halaman otorisasi xAI dan masukkan kode perangkat. Akun akan disimpan otomatis setelahnya.",
+      "title": "OAuth perangkat Grok",
+      "item1": "Menggunakan alur perangkat resmi Grok CLI tanpa memakai port panggilan balik lokal.",
+      "item2": "Menyimpan GROK_HOME terpisah setelah otorisasi dan menjaga kredensial tetap berlaku.",
+      "item3": "Akun dapat mengganti CLI bawaan atau berjalan dalam instans yang saling terisolasi.",
+      "urlPlaceholder": "Alamat otorisasi OAuth Grok",
+      "waiting": "Menunggu otorisasi OAuth Grok...",
+      "openWindow": "Buka otorisasi",
+      "success": "Login OAuth Grok berhasil"
+    },
+    "import": {
+      "pasteTab": "Tempel JSON",
+      "pasteDesc": "Tempel auth.json resmi dari Grok CLI. Kredensial hanya diproses oleh backend lokal. Cockpit hanya mengekspor metadata yang disamarkan dan tidak dapat memulihkan login.",
+      "pastePlaceholder": "Tempel JSON akun Grok",
+      "pasteAction": "Impor JSON",
+      "localDesc": "Impor akun saat ini dari ~/.grok/auth.json bawaan. Saat memilih berkas, gunakan auth.json resmi dari Grok CLI.",
+      "localClient": "Impor dari Grok CLI lokal",
+      "apiKeyTab": "Kunci API",
+      "apiKeyDesc": "Tempel xAI API Key (XAI_API_KEY resmi). Diinjeksikan saat peluncuran. Bisa juga tempel auth.json resmi untuk OAuth.",
+      "apiKeyPlaceholder": "tempel xai-…",
+      "apiKeyAction": "Tambah API Key"
+    },
+    "instances": {
+      "unsupported": "Multi-instans Grok CLI hanya didukung di macOS, Windows, dan Linux.",
+      "launchDialogTitle": "Jalankan instans",
+      "launchHint": "Salin perintah untuk menjalankannya secara manual atau jalankan langsung di terminal.",
+      "runInTerminal": "Jalankan di terminal",
+      "cliReady": "Terdeteksi",
+      "cliMissingShort": "Tidak terdeteksi",
+      "cliPathInvalid": "Path Grok CLI yang dikonfigurasi tidak valid: {{path}}",
+      "saveAndRetry": "Simpan dan coba lagi",
+      "installCommand": "Perintah instalasi resmi",
+      "installHint": "Jalankan perintah resmi berikut di terminal, lalu klik Segarkan setelah instalasi selesai.",
+      "selectWorkingDir": "Pilih direktori kerja Grok CLI",
+      "workingDirAccountHint": "Direktori kerja terikat ke akun ini dan akan dipulihkan pada peluncuran berikutnya.",
+      "launchCommandPlaceholder": "Pilih atau konfirmasi direktori untuk membuat perintah peluncuran"
+    },
+    "switch": {
+      "success": "Akun diganti"
+    },
+    "usageNormal": "Baik",
+    "usageAbnormal": "Bermasalah",
+    "usageViewDetail": "Lihat detail",
+    "usageDetailTitle": "Detail penggunaan",
+    "usage": "Penggunaan",
+    "quotaQuery": {
+      "failedRefreshCompact": "Kueri kuota gagal",
+      "empty": "Data kuota tidak tersedia",
+      "sectionTitle": "Kuota"
+    },
+    "quota": {
+      "weekly": "Penggunaan mingguan",
+      "onDemand": "Penggunaan sesuai permintaan",
+      "balance": "Saldo dan kredit",
+      "included": "Penggunaan termasuk paket",
+      "promotional": "Kuota promosi",
+      "frequent": "Tugas sering",
+      "occasional": "Tugas sesekali",
+      "resetAt": "{{label}} direset: {{time}}",
+      "empty": "Tidak ada kuota",
+      "apiKeyUnsupported": "Akun API Key tidak punya kuota paket"
+    },
+    "quotaAlert": {
+      "hint": "Saat item kuota mana pun untuk akun saat ini berada di bawah ambang, kirim notifikasi sistem dan tampilkan tindakan ganti cepat di aplikasi.",
+      "thresholdDesc": "Picu peringatan saat item kuota mana pun berada di bawah persentase ini",
+      "items": "Item kuota",
+      "unknownItem": "Item kuota tidak dikenal"
+    }
   },
   "claude": {
     "import": {

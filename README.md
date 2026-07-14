@@ -2,25 +2,34 @@
 
 [English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
-[![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom/tree/codex/k12-session-quota-policy)
-[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.1.5-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.1.5)
+[![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.0-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.0)
 [![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
 > [!IMPORTANT]
-> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。下方的通用账号管理功能继承自上游；本 Fork 的定制功能不包含在上游官方 Release 中。
+> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.0**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
 
-一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Gemini Cli**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN** 和 **Zed**，并支持多账号多实例并行运行。
+一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Gemini Cli**、**Grok CLI**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN**、**Zed** 和 **ZCode**，并支持多账号多实例并行运行。
 
 
 > 本工具旨在帮助用户高效管理多个 AI IDE 账号，支持一键切换、配额监控、自动唤醒与应用多开并行运行，助您充分利用不同账号的资源。
 
-**功能**：一键切号 · 多账号管理 · 应用多开 · 配额监控 · 唤醒任务 · 插件联动 · GitHub Copilot 管理 · Windsurf 管理 · Kiro 管理 · Cursor 管理 · Gemini Cli 管理 · CodeBuddy 管理 · CodeBuddy CN 管理 · Qoder 管理 · Trae 套件管理 · Zed 管理
+**功能**：一键切号 · 多账号管理 · 应用多开 · 配额监控 · 唤醒任务 · 插件联动 · GitHub Copilot 管理 · Windsurf 管理 · Kiro 管理 · Cursor 管理 · Gemini Cli 管理 · Grok CLI 管理 · CodeBuddy 管理 · CodeBuddy CN 管理 · Qoder 管理 · Trae 套件管理 · Zed 管理 · ZCode 管理
 
 **语言**：支持 18 种语言
 
 🇺🇸 English · 🇨🇳 简体中文 · 繁體中文 · 🇯🇵 日本語 · 🇩🇪 Deutsch · 🇪🇸 Español · 🇫🇷 Français · 🇮🇹 Italiano · 🇰🇷 한국어 · 🇧🇷 Português · 🇷🇺 Русский · 🇹🇷 Türkçe · 🇵🇱 Polski · 🇨🇿 Čeština · 🇸🇦 العربية · 🇻🇳 Tiếng Việt · 🇮🇩 Bahasa Indonesia
 
 **上游支持平台**：macOS、Windows、Linux。
+
+---
+
+## 上游 v1.3.0 集成
+
+- **完整平台能力**：保留上游 v1.3.0 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
+- **新版 Codex 账号体验**：采用动态套餐筛选和额度摘要、模型专属附加额度显隐、清空筛选、改进后的账号展示名与导入流程。
+- **API 服务增强**：保留上游备用账号、导入后同步加入 API 服务账号池、请求日志账号展示和代理连接优化；本 Fork 的 K12 会话策略叠加在这些能力之上。
+- **配置兼容**：继续支持本 Fork 的 `weeklyPercent: null`、新会话优先账号池和 K12 持久会话状态，不会用上游默认值覆盖这些定制配置。
 
 ---
 
@@ -46,9 +55,9 @@
 
 ### 连续任务与故障切换
 
-- **429 自动换号**：K12 真正返回 429 时释放本次无效绑定，并在同一请求中尝试其他有额度账号，避免一个账号耗尽后让整个长任务直接停止。
+- **429 自动分流且保留亲和**：已确认 K12 真正返回 429 时，会在恢复窗口内临时分流到可用的 Plus / Team 等兜底账号，原 K12 会话绑定仍被保留，窗口结束后继续尝试原账号；新会话的失败可在同一请求中换号，且不会冷却整个 K12。
 - **402 新会话隔离**：K12 对新会话返回 402 后，该账号会跨请求、跨重启停止承接新会话，并让当前请求立即转向 Plus，避免每隔 30 分钟重复串行探测一批已拒绝账号。普通额度型 402 只释放失败会话，不影响同账号上的其他已确认会话；明确的 `deactivated_workspace` 会清理该账号的全部绑定并进入硬隔离。
-- **首包超时恢复**：流式请求迟迟没有首包时会释放无响应的 K12 绑定并重试；账号切换后重新计算首包等待时间，额外总宽限最多 60 秒。
+- **首包超时恢复**：流式请求迟迟没有有效首包时会触发受控重试或临时付费账号分流；已确认 K12 的原会话亲和不会仅因一次超时被永久迁移。账号切换后重新计算首包等待时间，额外总宽限最多 60 秒。
 - **故障相互隔离**：一个新会话的失败不会给整个 K12 设置全局冷却，也不会影响该账号上的其他已确认会话。
 - **硬失效清理**：账号被删除、禁用或凭据明确失效时会清除对应会话绑定，允许请求改用其他账号。
 
@@ -104,7 +113,7 @@
 
 全新的可视化仪表盘，为您提供一站式的状态概览：
 
-- **十五平台支持**：同时展示 Antigravity IDE、Codex、GitHub Copilot、Windsurf、Kiro、Cursor、Gemini Cli、CodeBuddy、CodeBuddy CN、Qoder、Trae、TRAE SOLO、Trae CN、TRAE SOLO CN 与 Zed 的账号状态
+- **十七平台支持**：同时展示 Antigravity IDE、Codex、GitHub Copilot、Windsurf、Kiro、Cursor、Gemini Cli、Grok CLI、CodeBuddy、CodeBuddy CN、Qoder、Trae、TRAE SOLO、Trae CN、TRAE SOLO CN、Zed 与 ZCode 的账号状态
 - **配额监控**：实时查看各模型剩余配额、重置时间
 - **快捷操作**：一键刷新、一键唤醒
 - **可视化进度**：直观的进度条展示配额消耗情况
@@ -219,14 +228,31 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 - **切号注入**：支持切号后注入 Gemini Cli 本地凭证（`~/.gemini`）
 - **平台限制**：Gemini Cli 暂不支持应用多开管理
 
-### 9. CodeBuddy 账号管理
+### 9. Grok CLI 账号管理
+
+- **OAuth 授权**：支持 xAI 官方 OIDC device flow，在浏览器完成验证后自动保存账号
+- **导入与脱敏导出**：可从默认 `~/.grok/auth.json` 或指定 JSON 导入官方凭据；账号页导出及通用账号备份均不含 access token/refresh token，不能用于恢复登录，迁移时需单独导入官方 `auth.json`
+- **真实切号**：将选中账号按 Grok CLI 官方 registry 格式写回默认 `~/.grok/auth.json`，并保留文件中其他 registry scope
+- **配额与套餐**：查询官方 billing/user/subscriptions 接口，展示周期、用量、产品配额和套餐原始值，并记录 Grok Code 访问能力
+- **Token 维护**：支持 access token 自动刷新、refresh token rotation 与配额预警
+
+#### 9.1 Grok CLI 多实例
+
+Grok CLI 默认实例直接沿用官方 `~/.grok` 目录，启动时不设置 `GROK_HOME`；只有受管实例才使用独立目录并为该实例设置独立 `GROK_HOME`。
+
+- **账号绑定**：默认实例可跟随当前账号，每个受管实例可绑定不同账号
+- **运行隔离**：受管实例的 `auth.json`、工作目录与启动参数互相独立
+- **终端启停**：支持生成或执行终端启动命令、停止实例与批量关闭
+- **目录保护**：非默认实例目录仅允许位于默认受管根目录；删除时移入回收站，历史配置中的外部目录只解除登记且不会被写入或删除
+
+### 10. CodeBuddy 账号管理
 
 - **账号导入**：支持 OAuth 授权、Token/JSON 导入
 - **配额视图**：支持配额查询、周期信息与加量包展示
 - **批量管理**：支持标签与批量操作
 - **切号注入**：支持切号后注入并启动 CodeBuddy
 
-#### 9.1 CodeBuddy 应用多开
+#### 10.1 CodeBuddy 应用多开
 
 支持 CodeBuddy 多实例管理，支持独立配置与生命周期控制。
 
@@ -234,14 +260,14 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 - **快速启停**：一键启动/停止/强制关闭实例
 - **窗口管理**：支持打开实例窗口与批量关闭
 
-### 10. CodeBuddy CN 账号管理
+### 11. CodeBuddy CN 账号管理
 
 - **账号导入**：支持 OAuth 授权、Token/JSON 导入与本机客户端导入
 - **配额视图**：展示套餐与用量状态，并支持跳转官方网页查看配额详情
 - **批量管理**：支持标签与批量操作
 - **切号注入**：支持切号后按客户端本地认证存储规则注入并启动 CodeBuddy CN
 
-#### 10.1 CodeBuddy CN 应用多开
+#### 11.1 CodeBuddy CN 应用多开
 
 支持 CodeBuddy CN 多实例管理，支持独立配置与生命周期控制。
 
@@ -249,14 +275,14 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 - **快速启停**：一键启动/停止/强制关闭实例
 - **窗口管理**：支持打开实例窗口与批量关闭
 
-### 11. Qoder 账号管理
+### 12. Qoder 账号管理
 
 - **账号导入**：支持本机导入与 JSON 导入
 - **配额视图**：展示 Credits 使用、剩余额度与套餐原始值
 - **批量管理**：支持标签、筛选、导出与批量删除/刷新
 - **切号注入**：支持切号后注入并启动 Qoder
 
-#### 11.1 Qoder 应用多开
+#### 12.1 Qoder 应用多开
 
 支持 Qoder 多实例管理，支持独立配置与生命周期控制。
 
@@ -264,7 +290,7 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 - **快速启停**：一键启动/停止/强制关闭实例
 - **窗口管理**：支持打开实例窗口与批量关闭
 
-### 12. Trae 账号管理
+### 13. Trae 账号管理
 
 - **账号导入**：支持本机导入与 JSON 导入
 - **配额视图**：展示套餐原始值、美元消耗/总额度与重置时间
@@ -272,7 +298,7 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 - **Trae 套件**：支持 Trae、TRAE SOLO、Trae CN、TRAE SOLO CN 默认客户端的本机导入与切号注入，默认归入 Trae 分组
 - **切号注入**：支持切号后按各客户端真实落盘规则写回并启动目标客户端
 
-#### 12.1 Trae 应用多开
+#### 13.1 Trae 应用多开
 
 支持原 Trae 客户端多实例管理，支持独立配置与生命周期控制。
 
@@ -280,17 +306,33 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 - **快速启停**：一键启动/停止/强制关闭实例
 - **窗口管理**：支持打开实例窗口与批量关闭
 
-### 13. Zed 账号管理
+### 14. Zed 账号管理
 
 - **账号导入**：支持官方 OAuth 授权、JSON 导入与本机当前登录状态导入
 - **配额视图**：展示订阅状态、Edit Predictions、Token Spend、Spend Limit 与账期结束时间
 - **批量管理**：支持标签、筛选、导出与批量删除/刷新
 - **切号注入**：支持切号后按 Zed 客户端真实落盘规则应用账号，并可按需重启官方客户端
 
-### 14. 通用设置
+### 15. ZCode 账号管理
+
+- **官方登录**：关闭 ZCode 后，可在 Cockpit 内置授权窗口完成 Z.ai 或 BigModel OAuth；窗口直接拦截 `zcode://` 官方回调并保存账号
+- **导入导出**：支持读取本机 `~/.zcode/v2/credentials.json` 加密凭据、JSON 导入导出与账号备份
+- **配额视图**：查询订阅套餐与按模型拆分的额度，并保留套餐原始值
+- **批量管理**：支持标签、搜索、套餐筛选、导出与批量删除/刷新
+- **真实切号**：按 ZCode 官方凭据格式加密并回写默认客户端登录数据
+
+#### 15.1 ZCode 应用多开
+
+支持 ZCode 多实例管理，每个受管实例使用独立的 Electron 用户数据、会话数据和 ZCode 数据目录。
+
+- **账号绑定**：每个实例可绑定不同账号，也可跟随当前账号
+- **独立运行**：实例凭据和业务数据互相隔离
+- **生命周期管理**：支持启动、停止、聚焦与批量关闭实例
+
+### 16. 通用设置
 
 - **个性化设置**：主题切换、语言设置、自动刷新间隔
-- **平台配置**：统一管理 CodeBuddy CN / Qoder / Trae 套件 / Zed 等平台的启动路径与配额预警
+- **平台配置**：统一管理 Grok CLI / CodeBuddy CN / Qoder / Trae 套件 / Zed / ZCode 等平台配置与配额预警
 
 > ![Settings](docs/images/settings_page.png)
 
@@ -305,7 +347,10 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
   - `~/.antigravity_cockpit`：Antigravity IDE 账号、配置、WebSocket 状态等
   - `~/.codex`：Codex 官方当前登录 `auth.json`
   - `~/.gemini`：Gemini Cli 本地会话文件（如 `oauth_creds.json`、`google_accounts.json`、`settings.json`）
-  - 系统本地应用数据目录下 `com.antigravity.cockpit-tools`：Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Gemini Cli / CodeBuddy / CodeBuddy CN / Qoder / Trae 套件 / Zed 多账号索引等
+  - `~/.grok`：Grok CLI 官方默认实例与当前登录 `auth.json`
+  - `~/.zcode/v2`：ZCode 官方当前登录加密凭据与配额缓存
+  - 系统本地应用数据目录下 `com.antigravity.cockpit-tools`：Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Gemini Cli / Grok CLI / CodeBuddy / CodeBuddy CN / Qoder / Trae 套件 / Zed / ZCode 多账号数据等；Grok CLI 的账号详情、受管 profile 与实例配置也保存在此
+- **Grok CLI 凭据不加密**：access token/refresh token 以明文 JSON 保存在本机，主要依赖操作系统账号隔离与本地文件权限保护；Unix 系统上凭据目录设为 `0700`、凭据文件设为 `0600`。脱敏导出不包含 token，不能作为登录备份
 - **WebSocket 默认仅本机访问**：监听 `127.0.0.1`，默认端口 `19528`，可在设置中关闭或改端口。
 - **什么时候会联网**：OAuth 登录、Token 刷新、配额查询、版本更新检查等官方接口请求。
 - **macOS 隐私权限弹窗说明**：在 Cockpit Tools 中启动 Codex/agent 后，如果 agent 执行的 shell 命令访问桌面、文稿、下载、照片等受保护目录，macOS 可能会把权限请求显示为“Cockpit Tools 想要访问……”。这是因为这些命令是 Cockpit Tools 启动的子进程，系统会把权限归因到宿主应用；这不等同于 Cockpit Tools 主程序主动扫描这些目录。是否允许取决于你是否信任当前 agent 任务和它将要执行的命令；不确定时可以选择拒绝，或先把项目放在普通工作目录中运行。
@@ -332,13 +377,14 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 | Kiro 自动刷新配额 | 后台定时更新 Kiro 配额 | 5~10 分钟 | 同上 |
 | Cursor 自动刷新配额 | 后台定时更新 Cursor 配额 | 5~10 分钟 | 同上 |
 | Gemini Cli 自动刷新配额 | 后台定时更新 Gemini Cli 配额 | 5~10 分钟 | 同上 |
+| Grok CLI 自动刷新配额 | 后台定时刷新 token 并更新配额 | 5~10 分钟 | 同上 |
 | CodeBuddy 自动刷新配额 | 后台定时更新 CodeBuddy 配额 | 5~10 分钟 | 同上 |
 | CodeBuddy CN 自动刷新配额 | 后台定时更新 CodeBuddy CN 配额 | 5~10 分钟 | 同上 |
 | Qoder 自动刷新配额 | 后台定时更新 Qoder 配额 | 5~10 分钟 | 同上 |
 | Trae 自动刷新配额 | 后台定时更新 Trae 套件账号配额 | 5~10 分钟 | 同上 |
 | Zed 自动刷新配额 | 后台定时更新 Zed 配额 | 5~10 分钟 | 同上 |
 | 数据目录 | 存账号与配置文件的位置 | 默认即可 | 仅用于排查、备份 |
-| Antigravity IDE/Codex/VS Code/Windsurf/Kiro/Cursor/Gemini Cli/CodeBuddy/CodeBuddy CN/Qoder/Trae/Zed/OpenCode 启动路径 | 指定应用可执行文件位置 | 留空（自动检测） | 自动检测失败、或你装在自定义路径时 |
+| Antigravity IDE/Codex/VS Code/Windsurf/Kiro/Cursor/Gemini Cli/Grok CLI/CodeBuddy/CodeBuddy CN/Qoder/Trae/Zed/OpenCode 启动路径 | 指定应用可执行文件位置 | 留空（自动检测） | 自动检测失败、或你装在自定义路径时 |
 | 切换 Codex 时自动重启 OpenCode | 切换 Codex 后自动同步 OpenCode 账号信息 | 使用 OpenCode 就开启；不用就关闭 | 频繁切号且需要 OpenCode 同步时开启 |
 
 补充说明：
@@ -472,11 +518,14 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 ## 致谢
 
 - Antigravity 账号切号逻辑参考：[Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)
-- Codex API 服务参考并集成：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
+- Codex API 服务集成 CLIProxyAPI，Grok CLI 账号与 OAuth 实现方向亦参考其开源实现：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)（MIT）
+- Grok 图标造型参考：[LobeHub/lobe-icons](https://github.com/lobehub/lobe-icons)（MIT）
+- Grok CLI 任务用量查询与兼容解析方向参考：[junhoyeo/tokscale](https://github.com/junhoyeo/tokscale)（MIT）
 - Codex API 服务协议兼容方向参考：[codex-proxy](https://github.com/icebear0828/codex-proxy)
 - Codex、Claude CLI 与 Claude Desktop Gateway 第三方供应商预设和模型映射方向参考：[CC Switch](https://github.com/farion1231/cc-switch)
 - Codex 模型目录与前端模型显示思路参考：[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)
 - Claude 可选登录 helper 运行时基于：[Electron](https://github.com/electron/electron)
+- 感谢 [@longwQaQ](https://github.com/longwQaQ) 贡献 Codex 模型供应商 Responses WebSocket 配置能力（[#1512](https://github.com/jlcodes99/cockpit-tools/pull/1512)）。
 
 感谢项目作者的开源贡献！如果这些项目对你有帮助，也请给他们点个 ⭐ Star 支持一下！
 

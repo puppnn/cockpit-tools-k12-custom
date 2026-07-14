@@ -1424,7 +1424,7 @@ func TestOpenAIResponsesSemanticStreamBootstrap(t *testing.T) {
 		{name: "created prelude", payload: `data: {"type":"response.created"}`, want: false},
 		{name: "empty completion", payload: `data: {"type":"response.completed","response":{"output":[]}}`, want: false},
 		{name: "text delta", payload: `data: {"type":"response.output_text.delta","delta":"hello"}`, want: true},
-		{name: "reasoning summary", payload: `data: {"type":"response.reasoning_summary_text.delta","delta":"checking"}`, want: true},
+		{name: "reasoning summary only", payload: `data: {"type":"response.reasoning_summary_text.delta","delta":"checking"}`, want: false},
 		{name: "function call", payload: `data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"lookup"}}`, want: true},
 		{name: "completed text", payload: `data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}}`, want: true},
 	}
@@ -1439,8 +1439,9 @@ func TestOpenAIResponsesSemanticStreamBootstrap(t *testing.T) {
 
 func TestOpenAIResponsesPreludeOnlyStreamIsRetryableEmpty(t *testing.T) {
 	t.Parallel()
-	chunks := make(chan cliproxyexecutor.StreamChunk, 2)
+	chunks := make(chan cliproxyexecutor.StreamChunk, 3)
 	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.created"}`)}
+	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.reasoning_summary_text.delta","delta":"checking"}`)}
 	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"output":[]}}`)}
 	close(chunks)
 

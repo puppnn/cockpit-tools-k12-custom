@@ -1023,9 +1023,7 @@ func openAIResponsesEventHasSemanticOutput(payload []byte) bool {
 	eventType := strings.ToLower(strings.TrimSpace(event.Type))
 	switch eventType {
 	case "response.output_text.delta", "response.output_text.done",
-		"response.refusal.delta", "response.refusal.done",
-		"response.reasoning_summary_text.delta", "response.reasoning_summary_text.done",
-		"response.reasoning_text.delta", "response.reasoning_text.done":
+		"response.refusal.delta", "response.refusal.done":
 		return strings.TrimSpace(event.Delta) != "" || strings.TrimSpace(event.Text) != "" || strings.TrimSpace(event.Refusal) != ""
 	case "response.output_item.added", "response.output_item.done":
 		return openAIResponsesItemHasSemanticOutput(event.Item)

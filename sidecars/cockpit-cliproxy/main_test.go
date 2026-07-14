@@ -392,15 +392,9 @@ func TestQuotaReserveSelectorReroutesEstablishedK12Spillover(t *testing.T) {
 	if err != nil || selected == nil || selected.ID != team.AuthID {
 		t.Fatalf("reserve-blocked spillover reroute = %#v, %v; want %s", selected, err, team.AuthID)
 	}
-	preselected, handled, err = preSelector.PickBeforeAvailability(
-		context.Background(),
-		"codex",
-		"gpt-5.4",
-		spilloverOpts,
-		auths,
-	)
-	if err != nil || !handled || preselected == nil || preselected.ID != team.AuthID {
-		t.Fatalf("replacement spillover affinity = %#v, handled=%t, err=%v; want %s", preselected, handled, err, team.AuthID)
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", spilloverOpts, auths)
+	if err != nil || selected == nil || selected.ID != team.AuthID {
+		t.Fatalf("replacement spillover after capacity recheck = %#v, %v; want %s", selected, err, team.AuthID)
 	}
 }
 
@@ -854,6 +848,57 @@ func TestQuotaReserveStateStoreHotReloadsSnapshot(t *testing.T) {
 	}
 	if reason := quotaReserveBlockReasonWithState(account, store, time.Now()); !strings.Contains(reason, "5h remaining 20% <= reserve 20%") {
 		t.Fatalf("expected hot-reloaded reserve block, got %q", reason)
+	}
+}
+
+func TestQuotaRoutingBlocksFreshDepletedNonK12Only(t *testing.T) {
+	t.Parallel()
+	statePath := filepath.Join(t.TempDir(), "quota-reserve.json")
+	now := time.Now()
+	content, err := json.Marshal(quotaReserveStateFile{
+		Version: quotaReserveStateVersion,
+		Accounts: map[string]quotaReserveSnapshot{
+			"plus-depleted": {
+				SnapshotUpdatedAtUnixSeconds: int64PointerForTest(now.Unix()),
+				HourlyRemainingPercent:       intPointerForTest(0),
+				WeeklyRemainingPercent:       intPointerForTest(80),
+				HourlyWindowPresent:          boolPointerForTest(true),
+				WeeklyWindowPresent:          boolPointerForTest(true),
+			},
+			"plus-weekly-only": {
+				SnapshotUpdatedAtUnixSeconds: int64PointerForTest(now.Unix()),
+				HourlyRemainingPercent:       intPointerForTest(0),
+				WeeklyRemainingPercent:       intPointerForTest(80),
+				HourlyWindowPresent:          boolPointerForTest(false),
+				WeeklyWindowPresent:          boolPointerForTest(true),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newQuotaReserveStateStore(statePath, nil)
+	if err := store.load(); err != nil {
+		t.Fatal(err)
+	}
+
+	depleted := &accountSpec{ID: "plus-depleted", Email: "depleted@example.com", PlanType: "plus"}
+	if reason := quotaRoutingBlockReasonWithState(depleted, store, now); !strings.Contains(reason, "5h quota depleted") {
+		t.Fatalf("fresh depleted Plus was not blocked: %q", reason)
+	}
+	weeklyOnly := &accountSpec{ID: "plus-weekly-only", Email: "weekly@example.com", PlanType: "plus"}
+	if reason := quotaRoutingBlockReasonWithState(weeklyOnly, store, now); reason != "" {
+		t.Fatalf("Plus without a 5h window was blocked: %q", reason)
+	}
+	k12 := &accountSpec{ID: "plus-depleted", Email: "k12@example.com", PlanType: "K12"}
+	if reason := quotaRoutingBlockReasonWithState(k12, store, now); reason != "" {
+		t.Fatalf("K12 quota was blocked outside session policy: %q", reason)
+	}
+	if reason := quotaRoutingBlockReasonWithState(depleted, store, now.Add(quotaReserveMaxSnapshotAge+time.Second)); reason != "" {
+		t.Fatalf("stale depleted Plus should be verified upstream: %q", reason)
 	}
 }
 

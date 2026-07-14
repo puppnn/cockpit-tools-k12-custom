@@ -706,6 +706,54 @@ func TestK12SingleCandidateCapsTentativeSessionsAtTwo(t *testing.T) {
 	}
 }
 
+func TestK12CapacitySpilloversRedistributeWhenK12StartsBecomeIdle(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(80), "k12-b": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b"), testPlusAuth("plus-a")}
+
+	occupied := make([]cliproxyexecutor.Options, 0, 4)
+	for index, wantAuthID := range []string{"k12-a", "k12-b", "k12-a", "k12-b"} {
+		opts := promptCacheOptions(fmt.Sprintf("redistribute-occupied-%d", index))
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("occupied selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
+		occupied = append(occupied, opts)
+	}
+
+	spilled := make([]cliproxyexecutor.Options, 0, 2)
+	for index := 0; index < 2; index++ {
+		opts := promptCacheOptions(fmt.Sprintf("redistribute-spillover-%d", index))
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+		if err != nil || selected == nil || selected.ID != "plus-a" {
+			t.Fatalf("spillover selection %d = %#v, %v; want plus-a", index, selected, err)
+		}
+		selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+		spilled = append(spilled, opts)
+	}
+
+	for index, opts := range occupied {
+		authID := "k12-a"
+		if index%2 == 1 {
+			authID = "k12-b"
+		}
+		selector.OnSelectionResult(context.Background(), Result{AuthID: authID, Success: true}, opts)
+	}
+
+	for index, wantAuthID := range []string{"k12-a", "k12-b"} {
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5", spilled[index], auths)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("rebalanced selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
+		identity, _ := extractSessionIdentities(spilled[index].Headers, spilled[index].OriginalRequest, spilled[index].Metadata)
+		digest := selector.k12.store.digest(identity.ID)
+		if spilloverAuthID := selector.k12.spilloverAuth(digest, time.Now()); spilloverAuthID != "" {
+			t.Fatalf("rebalanced session %d retained spillover %s", index, spilloverAuthID)
+		}
+	}
+}
+
 func TestK12SingleCandidateConcurrentTentativeCapacityLimit(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80)}
@@ -1709,25 +1757,66 @@ func TestK12FailedSpilloverRestoresBindingAfterCooldown(t *testing.T) {
 	}
 	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
 	digest := selector.k12.store.digest(identity.ID)
+	stillSpilled, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || !handled || stillSpilled == nil || stillSpilled.ID != plus.ID {
+		t.Fatalf("active K12 cooldown did not preserve spillover: auth=%v handled=%v err=%v", stillSpilled, handled, err)
+	}
+	directive := selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  spillover.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusServiceUnavailable, Message: "plus unavailable"},
+	}, opts)
+	if !directive.SuppressAvailabilityUpdate || !directive.StopAuthAttempt || directive.StopCredentialFallback {
+		t.Fatalf("transient spillover directive = %#v", directive)
+	}
 	selector.k12.store.mu.Lock()
 	binding := selector.k12.store.bindings[digest]
 	binding.CooldownUntil = time.Now().Add(-time.Second).Unix()
 	selector.k12.store.bindings[digest] = binding
 	selector.k12.store.mu.Unlock()
 
-	stillSpilled, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
-	if err != nil || !handled || stillSpilled == nil || stillSpilled.ID != plus.ID {
-		t.Fatalf("expired K12 cooldown bypassed in-flight spillover: auth=%v handled=%v err=%v", stillSpilled, handled, err)
-	}
-	selector.OnSelectionResult(context.Background(), Result{
-		AuthID:  spillover.ID,
-		Success: false,
-		Error:   &Error{HTTPStatus: http.StatusServiceUnavailable, Message: "plus unavailable"},
-	}, opts)
-
 	restored, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
 	if err != nil || !handled || restored == nil || restored.ID != k12.ID {
 		t.Fatalf("expired cooldown did not restore original binding: auth=%v handled=%v err=%v", restored, handled, err)
+	}
+}
+
+func TestK12ConfirmedCooldownDelegatesToNonK12Fallback(t *testing.T) {
+	t.Parallel()
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), map[string]*int{"k12-a": intPtr(20)})
+	k12 := testK12Auth("k12-a")
+	plus := testPlusAuth("plus-a")
+	opts := promptCacheOptions("confirmed-cooldown-fallback")
+	auths := []*Auth{k12, plus}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, opts)
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	until := time.Now().Add(2 * time.Hour)
+	if err := selector.k12.store.setCooldown(digest, k12.ID, until); err != nil {
+		t.Fatal(err)
+	}
+	selector.k12.markSpilloverPreferred(digest, until)
+	plus.ModelStates = map[string]*ModelState{
+		"gpt-5": {
+			Status:         StatusError,
+			Unavailable:    true,
+			NextRetryAfter: time.Now().Add(time.Minute),
+		},
+	}
+
+	selected, remaining, handled, err := selector.pickK12(
+		context.Background(), "codex", "gpt-5", opts, identity, auths,
+	)
+	if err != nil || handled || selected != nil {
+		t.Fatalf("cooldown fallback = selected=%#v handled=%v err=%v", selected, handled, err)
+	}
+	if len(remaining) != 1 || remaining[0] == nil || remaining[0].ID != plus.ID {
+		t.Fatalf("fallback candidates = %#v; want only %s", remaining, plus.ID)
 	}
 }
 

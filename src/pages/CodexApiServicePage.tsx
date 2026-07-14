@@ -371,7 +371,7 @@ function defaultCodexLocalAccessTimeouts(): CodexLocalAccessTimeouts {
     legacyUpstreamConnectTimeoutMs: 60000,
     legacyStreamIdleTimeoutMs: 120000,
     legacyStreamTotalTimeoutMs: 300000,
-    sidecarStreamOpenTimeoutMs: 120000,
+    sidecarStreamOpenTimeoutMs: 90000,
     sidecarStreamIdleTimeoutMs: 120000,
     sidecarImageStreamOpenTimeoutMs: 60000,
     sidecarImageStreamIdleTimeoutMs: 180000,
@@ -2160,7 +2160,7 @@ export function CodexApiServicePage() {
       legacyStreamTotalTimeoutMs:
         (parsedSeconds.get("legacyStreamTotalTimeoutMs") ?? 180) * 1000,
       sidecarStreamOpenTimeoutMs:
-        (parsedSeconds.get("sidecarStreamOpenTimeoutMs") ?? 120) * 1000,
+        (parsedSeconds.get("sidecarStreamOpenTimeoutMs") ?? 90) * 1000,
       sidecarStreamIdleTimeoutMs:
         (parsedSeconds.get("sidecarStreamIdleTimeoutMs") ?? 60) * 1000,
       sidecarImageStreamOpenTimeoutMs:

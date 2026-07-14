@@ -1639,7 +1639,7 @@ func (s *quotaReserveSelector) PickBeforeAvailability(ctx context.Context, provi
 	if !handled || err != nil || selected == nil {
 		return selected, handled, err
 	}
-	if reason := quotaReserveBlockReasonWithState(accountForAuthInManifest(s.manifest, selected), s.quota, time.Now()); reason != "" {
+	if reason := quotaRoutingBlockReasonWithState(accountForAuthInManifest(s.manifest, selected), s.quota, time.Now()); reason != "" {
 		// Let the ordinary Pick path filter the protected auth and invalidate
 		// any cached affinity or K12 spillover that still points at it.
 		return nil, false, nil
@@ -1834,7 +1834,7 @@ func (s *quotaReserveSelector) Pick(ctx context.Context, provider, model string,
 			}
 			continue
 		}
-		reason := quotaReserveBlockReasonWithState(
+		reason := quotaRoutingBlockReasonWithState(
 			accountForAuthInManifest(s.manifest, auth),
 			s.quota,
 			now,
@@ -1998,6 +1998,32 @@ func quotaReserveBlockReasonWithState(account *accountSpec, state *quotaReserveS
 		snapshot = quotaReserveSnapshotFromSpec(account)
 	}
 	return quotaReserveBlockReasonWithSnapshot(account, snapshot, now)
+}
+
+func quotaRoutingBlockReasonWithState(account *accountSpec, state *quotaReserveStateStore, now time.Time) string {
+	if reason := quotaReserveBlockReasonWithState(account, state, now); reason != "" {
+		return reason
+	}
+	if account == nil || state == nil || isK12AccountSpec(account) {
+		return ""
+	}
+	snapshot := state.forAccount(account.ID)
+	if snapshot == nil || quotaReserveSnapshotBlockReason(snapshot.SnapshotUpdatedAtUnixSeconds, now) != "" {
+		return ""
+	}
+	reasons := make([]string, 0, 2)
+	if snapshot.HourlyWindowPresent != nil && *snapshot.HourlyWindowPresent &&
+		snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent <= 0 {
+		reasons = append(reasons, "5h quota depleted")
+	}
+	if snapshot.WeeklyWindowPresent != nil && *snapshot.WeeklyWindowPresent &&
+		snapshot.WeeklyRemainingPercent != nil && *snapshot.WeeklyRemainingPercent <= 0 {
+		reasons = append(reasons, "weekly quota depleted")
+	}
+	if len(reasons) == 0 {
+		return ""
+	}
+	return quotaReserveAccountReason(account, reasons)
 }
 
 func quotaReserveSnapshotFromSpec(account *accountSpec) *quotaReserveSnapshot {

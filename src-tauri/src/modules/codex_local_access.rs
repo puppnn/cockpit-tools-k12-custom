@@ -7478,16 +7478,13 @@ fn is_k12_plan_type(plan_type: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-fn sidecar_k12_quota_snapshot_value(account: &CodexAccount) -> Option<Value> {
-    if !is_k12_plan_type(account.plan_type.as_deref()) {
-        return None;
-    }
+fn sidecar_account_quota_snapshot_value(account: &CodexAccount) -> Value {
     let quota = account
         .quota_error
         .is_none()
         .then_some(account.quota.as_ref())
         .flatten();
-    Some(json!({
+    json!({
         "snapshotUpdatedAtUnixSeconds": account.usage_updated_at,
         "hourlyRemainingPercent": quota
             .and_then(|quota| valid_quota_remaining_percent(quota.hourly_percentage)),
@@ -7495,7 +7492,14 @@ fn sidecar_k12_quota_snapshot_value(account: &CodexAccount) -> Option<Value> {
             .and_then(|quota| valid_quota_remaining_percent(quota.weekly_percentage)),
         "hourlyWindowPresent": quota.and_then(|quota| quota.hourly_window_present),
         "weeklyWindowPresent": quota.and_then(|quota| quota.weekly_window_present),
-    }))
+    })
+}
+
+fn sidecar_k12_quota_snapshot_value(account: &CodexAccount) -> Option<Value> {
+    if !is_k12_plan_type(account.plan_type.as_deref()) {
+        return None;
+    }
+    Some(sidecar_account_quota_snapshot_value(account))
 }
 
 fn sidecar_quota_reserve_state_value(collection: &CodexLocalAccessCollection) -> Value {
@@ -7514,9 +7518,7 @@ fn sidecar_quota_reserve_state_value(collection: &CodexLocalAccessCollection) ->
             continue;
         }
         if let Some(account) = codex_account::load_account(&account_id) {
-            if let Some(snapshot) = sidecar_k12_quota_snapshot_value(&account) {
-                accounts.insert(account_id, snapshot);
-            }
+            accounts.insert(account_id, sidecar_account_quota_snapshot_value(&account));
         }
     }
     json!({
@@ -20470,8 +20472,8 @@ mod tests {
         restore_config_toml_from_takeover_backup, sanitize_collection_with_accounts,
         scutil_proxy_map, should_retry_single_account_upstream_status,
         should_treat_response_as_stream, should_try_next_account, sidecar_account_manifest_value,
-        sidecar_api_key_account_scope_values, sidecar_auth_file_name,
-        sidecar_auth_json_for_account, sidecar_auths_dir,
+        sidecar_account_quota_snapshot_value, sidecar_api_key_account_scope_values,
+        sidecar_auth_file_name, sidecar_auth_json_for_account, sidecar_auths_dir,
         sidecar_cached_account_usable_after_prepare_error, sidecar_codex_api_key_auth_id,
         sidecar_codex_key_config_value, sidecar_config_fingerprint,
         sidecar_k12_quota_snapshot_value, sidecar_payload_default_service_tier,
@@ -21641,6 +21643,10 @@ wire_api = "responses"
             .expect("case-insensitive K12 snapshot should exist");
         assert_eq!(snapshot["hourlyRemainingPercent"], json!(0));
         assert_eq!(snapshot["weeklyRemainingPercent"], json!(27));
+        let plus = test_oauth_account_with_quota("plus-account", 0, 64, Some(true), Some(true));
+        let plus_snapshot = sidecar_account_quota_snapshot_value(&plus);
+        assert_eq!(plus_snapshot["hourlyRemainingPercent"], json!(0));
+        assert_eq!(plus_snapshot["weeklyRemainingPercent"], json!(64));
 
         let k12_manifest = sidecar_account_manifest_value(&k12, Some("k12.json"), &collection);
         assert_eq!(k12_manifest["planType"], json!("k12"));

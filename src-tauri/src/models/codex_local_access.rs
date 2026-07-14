@@ -179,7 +179,7 @@ fn default_legacy_stream_total_timeout_ms() -> u64 {
 }
 
 fn default_sidecar_stream_open_timeout_ms() -> u64 {
-    120 * 1000
+    90 * 1000
 }
 
 fn default_sidecar_stream_idle_timeout_ms() -> u64 {

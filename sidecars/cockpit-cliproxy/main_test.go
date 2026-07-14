@@ -1213,6 +1213,68 @@ func TestBackupAccountSelectorOnlyAffectsNewSessions(t *testing.T) {
 	}
 }
 
+func TestBackupAPIKeyDoesNotKeepGenericSessionAffinity(t *testing.T) {
+	regularAccount := &accountSpec{ID: "regular", AuthID: "regular.json"}
+	apiKeyAccount := &accountSpec{
+		ID:             "api-key",
+		PlanType:       "API_KEY",
+		AuthKind:       "api_key",
+		UpstreamAPIKey: "upstream-key",
+	}
+	m := &manifest{
+		Accounts:        []accountSpec{*regularAccount, *apiKeyAccount},
+		RoutingStrategy: "custom",
+		CustomRoutingRules: []customRoutingRule{
+			{AccountID: "regular", Priority: 0, Weight: 1},
+			{AccountID: "api-key", Priority: 100, Weight: 1, IsBackup: true},
+		},
+		accountByID: map[string]*accountSpec{
+			"regular": regularAccount,
+			"api-key": apiKeyAccount,
+		},
+		accountByAuthID: map[string]*accountSpec{
+			"regular.json": regularAccount,
+		},
+		accountByAPIKey: map[string]*accountSpec{
+			"upstream-key": apiKeyAccount,
+		},
+		originalIndexByID: map[string]int{"regular": 0, "api-key": 1},
+	}
+	cfg := &config.Config{}
+	cfg.Routing.SessionAffinity = true
+	cfg.Routing.SessionAffinityTTL = time.Minute.String()
+	selector := buildCoreAuthSelector(cfg, &cockpitSelector{manifest: m}, m, nil)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		defer stoppable.Stop()
+	}
+
+	regularAuth := &coreauth.Auth{
+		ID:             "regular.json",
+		Unavailable:    true,
+		NextRetryAfter: time.Now().Add(time.Minute),
+	}
+	apiKeyAuth := &coreauth.Auth{
+		ID:         "codex:apikey:test",
+		Attributes: map[string]string{"api_key": "upstream-key"},
+	}
+	auths := []*coreauth.Auth{regularAuth, apiKeyAuth}
+	opts := cliproxyexecutor.Options{
+		OriginalRequest: []byte(`{"prompt_cache_key":"api-key-fallback-affinity"}`),
+	}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+	if err != nil || selected == nil || selected.ID != apiKeyAuth.ID {
+		t.Fatalf("expected API key while regular auth is unavailable, got auth=%#v err=%v", selected, err)
+	}
+
+	regularAuth.Unavailable = false
+	regularAuth.NextRetryAfter = time.Time{}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+	if err != nil || selected == nil || selected.ID != regularAuth.ID {
+		t.Fatalf("API key fallback kept generic affinity after regular recovery: auth=%#v err=%v", selected, err)
+	}
+}
+
 func TestBackupAccountSelectorPreservesConfirmedK12Binding(t *testing.T) {
 	regularAccount := &accountSpec{ID: "regular-k12", AuthID: "regular-k12.json", PlanType: "K12"}
 	backupAccount := &accountSpec{ID: "backup-k12", AuthID: "backup-k12.json", PlanType: "K12"}

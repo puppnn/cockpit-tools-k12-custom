@@ -1318,7 +1318,7 @@ func TestK12NewSessionQuarantineRequiresNewerFreshUsableQuotaToClear(t *testing.
 	}
 }
 
-func TestK12Tentative429PrefersSpillover(t *testing.T) {
+func TestK12Tentative429PrefersAnotherK12BeforeSpillover(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -1339,12 +1339,12 @@ func TestK12Tentative429PrefersSpillover(t *testing.T) {
 	}
 
 	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
-	if err != nil || retry == nil || retry.ID != "plus-a" {
-		t.Fatalf("tentative 429 retry = %#v, %v; want plus-a", retry, err)
+	if err != nil || retry == nil || retry.ID != "k12-b" {
+		t.Fatalf("tentative 429 retry = %#v, %v; want k12-b", retry, err)
 	}
 }
 
-func TestK12Confirmed429PreservesBindingDuringTemporarySpillover(t *testing.T) {
+func TestK12Confirmed429MigratesToAnotherK12BeforeSpillover(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -1370,23 +1370,23 @@ func TestK12Confirmed429PreservesBindingDuringTemporarySpillover(t *testing.T) {
 	}
 
 	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
-	if err != nil || retry == nil || retry.ID != "plus-a" {
-		t.Fatalf("confirmed 429 spillover = %v, %v; want plus-a", retry, err)
+	if err != nil || retry == nil || retry.ID != "k12-b" {
+		t.Fatalf("confirmed 429 failover = %v, %v; want k12-b", retry, err)
 	}
 	selector.OnSelectionResult(context.Background(), Result{AuthID: retry.ID, Success: true}, opts)
 	bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
 	if err != nil || !handled || bound == nil || bound.ID != retry.ID {
-		t.Fatalf("temporary spillover was not reused: auth=%v handled=%v err=%v", bound, handled, err)
+		t.Fatalf("replacement K12 binding was not reused: auth=%v handled=%v err=%v", bound, handled, err)
 	}
 	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
 	digest := selector.k12.store.digest(identity.ID)
 	binding, ok := selector.k12.store.binding(digest, time.Now())
-	if !ok || binding.AuthID != selected.ID {
-		t.Fatalf("temporary spillover replaced K12 binding: binding=%#v ok=%v", binding, ok)
+	if !ok || binding.AuthID != retry.ID {
+		t.Fatalf("successful K12 failover did not replace binding: binding=%#v ok=%v", binding, ok)
 	}
 }
 
-func TestK12Confirmed429WithoutPaidSpilloverDoesNotSwitchK12(t *testing.T) {
+func TestK12Confirmed429WithoutPaidSpilloverSwitchesToAnotherK12(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -1405,12 +1405,8 @@ func TestK12Confirmed429WithoutPaidSpilloverDoesNotSwitchK12(t *testing.T) {
 	}, opts)
 
 	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
-	if retry != nil {
-		t.Fatalf("confirmed session switched K12 accounts: first=%s retry=%s", selected.ID, retry.ID)
-	}
-	var cooldownErr *k12SessionCooldownError
-	if !errors.As(err, &cooldownErr) {
-		t.Fatalf("confirmed session error = %T %v; want cooldown", err, err)
+	if err != nil || retry == nil || retry.ID == selected.ID {
+		t.Fatalf("confirmed session failover = %#v, %v; first=%s", retry, err, selected.ID)
 	}
 }
 
@@ -2002,7 +1998,7 @@ func TestK12Confirmed429FailsOverWithinSameStreamRequest(t *testing.T) {
 	if len(payload) == 0 {
 		t.Fatal("failover stream returned no payload")
 	}
-	if len(executor.streamCalls) != 2 || executor.streamCalls[0] != selected.ID || executor.streamCalls[1] == selected.ID {
+	if len(executor.streamCalls) != 2 || executor.streamCalls[0] != selected.ID || executor.streamCalls[1] == selected.ID || executor.streamCalls[1] == "plus-failover" {
 		t.Fatalf("stream failover calls = %#v, first auth = %s", executor.streamCalls, selected.ID)
 	}
 	bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
@@ -2011,8 +2007,8 @@ func TestK12Confirmed429FailsOverWithinSameStreamRequest(t *testing.T) {
 	}
 	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
 	digest := selector.k12.store.digest(identity.ID)
-	if binding, ok := selector.k12.store.binding(digest, time.Now()); !ok || binding.AuthID != selected.ID {
-		t.Fatalf("stream spillover replaced original K12 binding: binding=%#v ok=%v", binding, ok)
+	if binding, ok := selector.k12.store.binding(digest, time.Now()); !ok || binding.AuthID != executor.streamCalls[1] {
+		t.Fatalf("stream K12 failover did not replace binding: binding=%#v ok=%v", binding, ok)
 	}
 }
 

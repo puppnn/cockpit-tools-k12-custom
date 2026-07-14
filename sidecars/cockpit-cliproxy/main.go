@@ -2928,11 +2928,23 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 				return account != nil && quota != nil && quota.prefersNewSessionAccount(account.ID)
 			},
 			SkipGenericAffinity: func(auth *coreauth.Auth) bool {
-				if m == nil || strings.TrimSpace(m.BoundOAuthAccountID) == "" {
+				if m == nil {
 					return false
 				}
 				account := accountForAuthInManifest(m, auth)
-				return account != nil && account.ID == strings.TrimSpace(m.BoundOAuthAccountID)
+				if account == nil {
+					return false
+				}
+				// Provider API keys are stateless fallback capacity. Keeping them in
+				// the generic affinity cache would let an old fallback bypass later
+				// custom-priority and backup-account decisions for the full TTL.
+				if strings.TrimSpace(account.UpstreamAPIKey) != "" ||
+					strings.EqualFold(strings.TrimSpace(account.AuthKind), "api_key") ||
+					strings.EqualFold(strings.TrimSpace(account.PlanType), "API_KEY") {
+					return true
+				}
+				boundOAuthAccountID := strings.TrimSpace(m.BoundOAuthAccountID)
+				return boundOAuthAccountID != "" && account.ID == boundOAuthAccountID
 			},
 			K12: k12Policy,
 		})

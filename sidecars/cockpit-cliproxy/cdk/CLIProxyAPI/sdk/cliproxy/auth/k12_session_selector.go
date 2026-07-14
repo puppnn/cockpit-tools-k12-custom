@@ -733,8 +733,6 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 		return nil, false, nil
 	}
 	if _, excluded := excludedAuthIDsFromOptions(opts)[binding.AuthID]; excluded {
-		until := now.Add(s.k12.cooldown)
-		s.k12.markSpilloverPreferred(digest, until)
 		selectorLogEntry(ctx).Infof(
 			"k12-session-affinity: confirmed binding excluded for request failover | source=%s session=%s auth=%s",
 			identity.Source, shortSessionDigest(digest), binding.AuthID,
@@ -809,11 +807,9 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		if _, excluded := excludedAuthIDs[binding.AuthID]; excluded {
 			suspendedAuthID = binding.AuthID
 			earliestCooldown = s.k12.cooldown
-			s.k12.markSpilloverPreferred(digest, now.Add(s.k12.cooldown))
 		} else if remaining := s.k12.store.cooldownRemaining(digest, binding.AuthID, now); remaining > 0 {
 			suspendedAuthID = binding.AuthID
 			earliestCooldown = remaining
-			s.k12.markSpilloverPreferred(digest, now.Add(remaining))
 		} else {
 			for _, auth := range auths {
 				if auth != nil && auth.ID == binding.AuthID && s.k12.isK12(auth) {
@@ -849,6 +845,12 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		k12Candidates = append(k12Candidates, auth)
 	}
 
+	// A stream-open timeout explicitly prefers paid spillover to avoid repeating
+	// a slow bootstrap. A 429 instead tries another quota-eligible K12 first;
+	// only when no K12 candidate remains do we create a temporary spillover.
+	if len(k12Candidates) == 0 && earliestCooldown > 0 {
+		s.k12.markSpilloverPreferred(digest, now.Add(earliestCooldown))
+	}
 	if selected, preferred, err := s.k12.reservePreferredSpillover(
 		digest,
 		identity.Source,
@@ -870,7 +872,7 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 			identity.Source, shortSessionDigest(digest),
 		)
 	}
-	if suspendedAuthID != "" {
+	if suspendedAuthID != "" && len(k12Candidates) == 0 {
 		if len(nonK12) > 0 {
 			selectorLogEntry(ctx).Infof(
 				"k12-session-affinity: confirmed binding unavailable, delegating to non-K12 fallback | source=%s session=%s auth=%s candidates=%d",
@@ -1153,8 +1155,8 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		return SelectionResultDirective{StopCredentialFallback: resultIsBinding && isRequestInvalidResultError(result.Error)}
 	}
 
-	preferSpillover := status == http.StatusTooManyRequests || streamOpenTimeout
-	if preferSpillover {
+	allowFailover := status == http.StatusTooManyRequests || streamOpenTimeout
+	if allowFailover {
 		reason := "429"
 		if streamOpenTimeout {
 			reason = "stream_open_timeout"
@@ -1173,7 +1175,9 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		} else if err := s.k12.store.setCooldown(digest, result.AuthID, until); err != nil {
 			entry.Warnf("k12-session-affinity: persist cooldown failed | source=%s session=%s auth=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, err)
 		}
-		s.k12.markSpilloverPreferred(digest, until)
+		if streamOpenTimeout {
+			s.k12.markSpilloverPreferred(digest, until)
+		}
 		if resultIsBinding {
 			entry.Warnf("k12-session-affinity: confirmed binding temporarily suspended for failover | source=%s session=%s auth=%s reason=%s retry_after=%s", identity.Source, shortSessionDigest(digest), result.AuthID, reason, until.Sub(now).Round(time.Second))
 		}
@@ -1182,7 +1186,7 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 	return SelectionResultDirective{
 		SuppressAvailabilityUpdate: true,
 		StopAuthAttempt:            true,
-		StopCredentialFallback:     resultIsBinding && !preferSpillover,
+		StopCredentialFallback:     resultIsBinding && !allowFailover,
 	}
 }
 

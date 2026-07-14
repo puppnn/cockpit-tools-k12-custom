@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1366,12 +1367,14 @@ func TestRequestUsageTrackerKeepsStreamFailureAfterHTTPHeaders(t *testing.T) {
 
 func TestRequestPolicyEmitsRequestDiagnostics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
 	m := &manifest{
 		apiKeyByValue: map[string]*apiKeySpec{
 			"client-key": {ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true},
 		},
 	}
-	policy := &requestPolicy{manifest: m, emitter: &eventEmitter{}}
+	policy := &requestPolicy{manifest: m, emitter: emitter}
 	router := gin.New()
 	router.Use(policy.middleware())
 	router.GET("/v1/responses", func(c *gin.Context) {
@@ -1381,11 +1384,13 @@ func TestRequestPolicyEmitsRequestDiagnostics(t *testing.T) {
 		c.Status(http.StatusNoContent)
 	})
 
-	out := captureStdout(t, func() {
-		req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
-		req.Header.Set("Authorization", "Bearer client-key")
-		router.ServeHTTP(httptest.NewRecorder(), req)
-	})
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing request diagnostics")
+	}
+	out := output.String()
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected start and complete diagnostics, got %d lines:\n%s", len(lines), out)
@@ -1463,32 +1468,36 @@ func TestErrorCategoryClassifiesClientCanceled(t *testing.T) {
 }
 
 func TestAuthHookEmitsRequestScopedResultDiagnostics(t *testing.T) {
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
 	apiKey := &apiKeySpec{ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true}
 	account := &accountSpec{ID: "account_1", Email: "user@example.com", AuthID: "auth.json"}
 	m := &manifest{
 		accountByAuthID: map[string]*accountSpec{"auth.json": account},
 		accountByID:     map[string]*accountSpec{"auth": account},
 	}
-	hook := &authHook{manifest: m, emitter: &eventEmitter{}}
+	hook := &authHook{manifest: m, emitter: emitter}
 	ctx := internallogging.WithRequestID(context.Background(), "req-2")
 	ctx = context.WithValue(ctx, clientAPIKeyContextKey, apiKey)
 	ctx = context.WithValue(ctx, requestKindContextKey, "text")
 	ctx = context.WithValue(ctx, requestModelContextKey, "gpt-5.5")
 
-	out := captureStdout(t, func() {
-		hook.OnResult(ctx, coreauth.Result{
-			AuthID:   "auth.json",
-			Provider: "codex",
-			Model:    "upstream-model",
-			Success:  false,
-			Error: &coreauth.Error{
-				Code:       "upstream_timeout",
-				Message:    "upstream timed out",
-				Retryable:  true,
-				HTTPStatus: http.StatusGatewayTimeout,
-			},
-		})
+	hook.OnResult(ctx, coreauth.Result{
+		AuthID:   "auth.json",
+		Provider: "codex",
+		Model:    "upstream-model",
+		Success:  false,
+		Error: &coreauth.Error{
+			Code:       "upstream_timeout",
+			Message:    "upstream timed out",
+			Retryable:  true,
+			HTTPStatus: http.StatusGatewayTimeout,
+		},
 	})
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing auth result diagnostic")
+	}
+	out := output.String()
 
 	var payload requestDiagnosticPayload
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {

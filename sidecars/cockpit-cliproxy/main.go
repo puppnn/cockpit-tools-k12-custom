@@ -406,18 +406,89 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	return payload, true
 }
 
+const eventEmitterQueueCapacity = 1024
+
 type eventEmitter struct {
-	mu sync.Mutex
+	once    sync.Once
+	writer  io.Writer
+	queue   chan eventEnvelope
+	dropped atomic.Uint64
+}
+
+type eventEnvelope struct {
+	data []byte
+	done chan struct{}
+}
+
+func newEventEmitter(writer io.Writer) *eventEmitter {
+	emitter := &eventEmitter{writer: writer}
+	emitter.start()
+	return emitter
+}
+
+func (e *eventEmitter) start() {
+	if e == nil {
+		return
+	}
+	e.once.Do(func() {
+		if e.writer == nil {
+			e.writer = os.Stdout
+		}
+		e.queue = make(chan eventEnvelope, eventEmitterQueueCapacity)
+		go e.writeLoop()
+	})
+}
+
+func (e *eventEmitter) writeLoop() {
+	for event := range e.queue {
+		if len(event.data) > 0 {
+			_, _ = e.writer.Write(event.data)
+			if dropped := e.dropped.Swap(0); dropped > 0 {
+				_, _ = fmt.Fprintf(e.writer, "{\"type\":\"events_dropped\",\"count\":%d}\n", dropped)
+			}
+		}
+		if event.done != nil {
+			close(event.done)
+		}
+	}
 }
 
 func (e *eventEmitter) emit(v any) {
+	if e == nil {
+		return
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	fmt.Println(string(data))
+	data = append(data, '\n')
+	e.start()
+	select {
+	case e.queue <- eventEnvelope{data: data}:
+	default:
+		e.dropped.Add(1)
+	}
+}
+
+func (e *eventEmitter) flush(timeout time.Duration) bool {
+	if e == nil {
+		return true
+	}
+	e.start()
+	done := make(chan struct{})
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case e.queue <- eventEnvelope{done: done}:
+	case <-timer.C:
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func (e *eventEmitter) emitStartupStage(stage string) {
@@ -6447,7 +6518,7 @@ func main() {
 	parentPID := flag.Int("parent-pid", 0, "Cockpit Tools parent process id")
 	flag.Parse()
 
-	emitter := &eventEmitter{}
+	emitter := newEventEmitter(os.Stdout)
 	if strings.TrimSpace(*configPath) == "" || strings.TrimSpace(*manifestPath) == "" {
 		emitter.emit(map[string]any{"type": "error", "message": "missing --config or --manifest"})
 		os.Exit(2)

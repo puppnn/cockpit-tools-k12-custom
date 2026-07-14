@@ -631,6 +631,29 @@ func (p *k12SessionPolicy) reserveCandidate(
 			}
 		}
 		balanced = withBestQuota
+	} else {
+		// A stale snapshot must not make a K12 ineligible, but its last known
+		// positive value is still a useful ordering hint. Prefer it over accounts
+		// last seen at zero, then let the upstream request verify availability.
+		bestKnownPositive := 0
+		for _, auth := range balanced {
+			snapshot := p.quota(auth)
+			if snapshot.HourlyRemainingPercent != nil &&
+				*snapshot.HourlyRemainingPercent > bestKnownPositive &&
+				*snapshot.HourlyRemainingPercent <= 100 {
+				bestKnownPositive = *snapshot.HourlyRemainingPercent
+			}
+		}
+		if bestKnownPositive > 0 {
+			withBestKnownQuota := make([]*Auth, 0, len(balanced))
+			for _, auth := range balanced {
+				snapshot := p.quota(auth)
+				if snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent == bestKnownPositive {
+					withBestKnownQuota = append(withBestKnownQuota, auth)
+				}
+			}
+			balanced = withBestKnownQuota
+		}
 	}
 
 	selected, err := pickK12(balanced)

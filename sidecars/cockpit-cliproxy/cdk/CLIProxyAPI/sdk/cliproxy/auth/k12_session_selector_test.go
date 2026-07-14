@@ -573,6 +573,52 @@ func TestK12NewSessionsIgnoreIdleBindingsAndPreferQuota(t *testing.T) {
 	}
 }
 
+func TestK12NewSessionPrefersLastKnownPositiveQuotaWhenSnapshotsAreStale(t *testing.T) {
+	t.Parallel()
+	snapshots := map[string]K12QuotaSnapshot{
+		"k12-zero":     {Fresh: false, HourlyRemainingPercent: intPtr(0)},
+		"k12-positive": {Fresh: false, HourlyRemainingPercent: intPtr(13)},
+		"k12-lower":    {Fresh: false, HourlyRemainingPercent: intPtr(7)},
+	}
+	selector := newTestK12SelectorWithSnapshots(t, filepath.Join(t.TempDir(), "state.json"), snapshots)
+	auths := []*Auth{testK12Auth("k12-zero"), testK12Auth("k12-positive"), testK12Auth("k12-lower")}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", promptCacheOptions("stale-positive-quota"), auths)
+	if err != nil || selected == nil || selected.ID != "k12-positive" {
+		t.Fatalf("stale quota selection = %#v, %v; want k12-positive", selected, err)
+	}
+}
+
+func TestK12NewSessionPrefersFreshQuotaOverHigherStaleQuota(t *testing.T) {
+	t.Parallel()
+	snapshots := map[string]K12QuotaSnapshot{
+		"k12-stale": {Fresh: false, HourlyRemainingPercent: intPtr(90)},
+		"k12-fresh": {Fresh: true, HourlyRemainingPercent: intPtr(5)},
+	}
+	selector := newTestK12SelectorWithSnapshots(t, filepath.Join(t.TempDir(), "state.json"), snapshots)
+	auths := []*Auth{testK12Auth("k12-stale"), testK12Auth("k12-fresh")}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", promptCacheOptions("fresh-before-stale-quota"), auths)
+	if err != nil || selected == nil || selected.ID != "k12-fresh" {
+		t.Fatalf("fresh quota selection = %#v, %v; want k12-fresh", selected, err)
+	}
+}
+
+func TestK12NewSessionStillProbesStaleZeroOrUnknownQuota(t *testing.T) {
+	t.Parallel()
+	snapshots := map[string]K12QuotaSnapshot{
+		"k12-zero":    {Fresh: false, HourlyRemainingPercent: intPtr(0)},
+		"k12-unknown": {Fresh: false},
+	}
+	selector := newTestK12SelectorWithSnapshots(t, filepath.Join(t.TempDir(), "state.json"), snapshots)
+	auths := []*Auth{testK12Auth("k12-zero"), testK12Auth("k12-unknown")}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", promptCacheOptions("stale-zero-probe"), auths)
+	if err != nil || selected == nil || (selected.ID != "k12-zero" && selected.ID != "k12-unknown") {
+		t.Fatalf("stale zero probe = %#v, %v; want a K12 probe candidate", selected, err)
+	}
+}
+
 func TestK12IdleConfirmedBindingsDoNotConsumeNewSessionCapacity(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80)}

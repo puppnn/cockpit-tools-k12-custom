@@ -16,7 +16,6 @@ pub const PLATFORM_GITHUB_COPILOT: &str = "github-copilot";
 pub const PLATFORM_WINDSURF: &str = "windsurf";
 pub const PLATFORM_KIRO: &str = "kiro";
 pub const PLATFORM_CURSOR: &str = "cursor";
-pub const PLATFORM_GEMINI: &str = "gemini";
 pub const PLATFORM_GROK: &str = "grok";
 pub const PLATFORM_CODEBUDDY: &str = "codebuddy";
 pub const PLATFORM_CODEBUDDY_CN: &str = "codebuddy_cn";
@@ -28,7 +27,7 @@ pub const PLATFORM_TRAE_CN: &str = "trae_cn";
 pub const PLATFORM_TRAE_SOLO_CN: &str = "trae_solo_cn";
 pub const PLATFORM_WORKBUDDY: &str = "workbuddy";
 
-pub const SUPPORTED_PLATFORM_IDS: [&str; 19] = [
+pub const SUPPORTED_PLATFORM_IDS: [&str; 18] = [
     PLATFORM_CLAUDE_MANAGER,
     PLATFORM_CODEX,
     PLATFORM_ANTIGRAVITY,
@@ -37,7 +36,6 @@ pub const SUPPORTED_PLATFORM_IDS: [&str; 19] = [
     PLATFORM_WINDSURF,
     PLATFORM_KIRO,
     PLATFORM_CURSOR,
-    PLATFORM_GEMINI,
     PLATFORM_GROK,
     PLATFORM_CODEBUDDY,
     PLATFORM_CODEBUDDY_CN,
@@ -152,7 +150,6 @@ fn normalize_platform_id(id: &str) -> Option<&'static str> {
         PLATFORM_WINDSURF => Some(PLATFORM_WINDSURF),
         PLATFORM_KIRO => Some(PLATFORM_KIRO),
         PLATFORM_CURSOR => Some(PLATFORM_CURSOR),
-        PLATFORM_GEMINI => Some(PLATFORM_GEMINI),
         PLATFORM_GROK => Some(PLATFORM_GROK),
         PLATFORM_CODEBUDDY => Some(PLATFORM_CODEBUDDY),
         PLATFORM_CODEBUDDY_CN => Some(PLATFORM_CODEBUDDY_CN),
@@ -215,7 +212,6 @@ fn normalize_tray_platforms(
         PLATFORM_ZED,
         PLATFORM_KIRO,
         PLATFORM_CURSOR,
-        PLATFORM_GEMINI,
         PLATFORM_CODEBUDDY,
         PLATFORM_CODEBUDDY_CN,
         PLATFORM_QODER,
@@ -469,7 +465,6 @@ fn normalize_config(
     let raw_order_new_platforms: Vec<&str> = [
         PLATFORM_KIRO,
         PLATFORM_CURSOR,
-        PLATFORM_GEMINI,
         PLATFORM_CODEBUDDY,
         PLATFORM_CODEBUDDY_CN,
         PLATFORM_QODER,

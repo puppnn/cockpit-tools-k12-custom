@@ -592,6 +592,15 @@ fn score_windows_candidate(
     None
 }
 
+#[cfg(any(test, target_os = "windows"))]
+fn is_codex_embedded_backend_executable(path: &std::path::Path) -> bool {
+    let normalized = path
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    normalized.contains("\\windowsapps\\") && normalized.ends_with("\\app\\resources\\codex.exe")
+}
+
 #[cfg(target_os = "windows")]
 fn parse_windows_exec_candidates(
     app_label: &str,
@@ -1255,6 +1264,9 @@ fn scan_windows_app_launch_targets(
     }
 
     if app == "codex" {
+        candidates.retain(|candidate| {
+            !is_codex_embedded_backend_executable(std::path::Path::new(&candidate.target))
+        });
         candidates.sort_by_key(|candidate| {
             let file_name = std::path::Path::new(&candidate.target)
                 .file_name()
@@ -12992,7 +13004,10 @@ mod codex_launch_args_tests {
 
 #[cfg(test)]
 mod codex_windows_path_migration_tests {
-    use super::{score_windows_candidate, should_migrate_legacy_codex_launch_path};
+    use super::{
+        is_codex_embedded_backend_executable, score_windows_candidate,
+        should_migrate_legacy_codex_launch_path,
+    };
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -13045,6 +13060,19 @@ mod codex_windows_path_migration_tests {
             score_windows_candidate(Path::new("C:/Tools/ChatGPT.exe"), &exe_names, &keywords,)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn scan_excludes_embedded_resources_backend() {
+        assert!(is_codex_embedded_backend_executable(Path::new(
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_26.707.9564.0_x64__2p2nqsd0c76g0\app\resources\codex.exe"
+        )));
+        assert!(!is_codex_embedded_backend_executable(Path::new(
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_26.707.9564.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe"
+        )));
+        assert!(!is_codex_embedded_backend_executable(Path::new(
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_1.0.0.0_x64__2p2nqsd0c76g0\app\Codex.exe"
+        )));
     }
 }
 

@@ -251,20 +251,32 @@ export function getGrokPlanBadge(account: GrokAccount): string {
   }
   if (
     ["SUBSCRIPTION_TIER_GROK_PRO", "GROK_PRO"].includes(normalized) ||
-    compact === "GROKPRO"
+    compact === "GROKPRO" ||
+    compact === "SUBSCRIPTIONTIERGROKPRO"
   ) {
     return "Grok Pro";
   }
-  if (["SUBSCRIPTION_TIER_X_BASIC", "X_BASIC"].includes(normalized)) {
-    return "X Basic";
+  // XPremiumPlus 等无下划线别名必须先于 XPremium 精确匹配
+  if (
+    ["SUBSCRIPTION_TIER_X_PREMIUM_PLUS", "X_PREMIUM_PLUS"].includes(normalized) ||
+    compact === "XPREMIUMPLUS" ||
+    compact === "SUBSCRIPTIONTIERXPREMIUMPLUS"
+  ) {
+    return "X Premium+";
   }
-  if (["SUBSCRIPTION_TIER_X_PREMIUM", "X_PREMIUM"].includes(normalized)) {
+  if (
+    ["SUBSCRIPTION_TIER_X_PREMIUM", "X_PREMIUM"].includes(normalized) ||
+    compact === "XPREMIUM" ||
+    compact === "SUBSCRIPTIONTIERXPREMIUM"
+  ) {
     return "X Premium";
   }
   if (
-    ["SUBSCRIPTION_TIER_X_PREMIUM_PLUS", "X_PREMIUM_PLUS"].includes(normalized)
+    ["SUBSCRIPTION_TIER_X_BASIC", "X_BASIC"].includes(normalized) ||
+    compact === "XBASIC" ||
+    compact === "SUBSCRIPTIONTIERXBASIC"
   ) {
-    return "X Premium+";
+    return "X Basic";
   }
   if (
     [
@@ -306,7 +318,7 @@ function grokLabelT(key: string, defaultValue?: string): string {
 
 /**
  * Account health uses the same visible quota buckets as the overview cards
- * (products / tasks / on-demand). Weekly totals are intentionally excluded.
+ * (weekly pool / products / tasks / on-demand). Most-constrained bucket wins.
  */
 export function getGrokUsage(account: GrokAccount): GrokUsage {
   const usagePercents = getGrokQuotaSummaryItems(account, grokLabelT).map(
@@ -402,7 +414,7 @@ export function getGrokQuotaClass(
 
 /**
  * Single source of truth for Grok quota rows (overview, health, presentation).
- * Weekly billing totals are intentionally omitted from the visible model.
+ * Includes weekly shared pool + productUsage + task/on-demand buckets.
  * Product rows may carry billing period reset; task/on-demand rows do not
  * invent a reset time when the API does not provide one.
  */
@@ -419,6 +431,25 @@ export function getGrokQuotaSummaryItems(
   const billingResetAtMs = timestampMs(quota.periodEnd);
   const items: GrokQuotaSummaryItem[] = [];
 
+  // 周总池（creditUsagePercent / weeklyCredits）——展示剩余时由调用方 100-used
+  const weeklyUsed = finite(quota.weeklyUsed);
+  const weeklyTotal = finite(quota.weeklyTotal);
+  const weeklyUsedPercent =
+    finite(quota.weeklyLimitPercent) ??
+    (weeklyUsed != null && weeklyTotal != null && weeklyTotal > 0
+      ? (weeklyUsed / weeklyTotal) * 100
+      : null);
+  if (weeklyUsedPercent != null || (weeklyUsed != null && weeklyTotal != null)) {
+    items.push({
+      key: "weekly",
+      label: t("grok.quota.weekly", "每周用量"),
+      percentage: clampPercent(weeklyUsedPercent ?? 0),
+      used: weeklyUsed,
+      total: weeklyTotal,
+      resetAtMs: billingResetAtMs,
+    });
+  }
+
   (quota.products ?? []).forEach((product, index) => {
     const used = finite(product.used);
     const total = finite(product.total);
@@ -428,18 +459,25 @@ export function getGrokQuotaSummaryItems(
       (total != null && remaining != null
         ? Math.max(0, total - remaining)
         : null);
+    const resolvedTotal =
+      total ??
+      (used != null && remaining != null ? used + remaining : null);
     const usagePercent =
       finite(product.usagePercent) ??
-      (resolvedUsed != null && total != null && total > 0
-        ? (resolvedUsed / total) * 100
-        : null);
-    if (usagePercent == null && resolvedUsed == null && total == null) return;
+      (resolvedUsed != null && resolvedTotal != null && resolvedTotal > 0
+        ? (resolvedUsed / resolvedTotal) * 100
+        : remaining != null && resolvedTotal != null && resolvedTotal > 0
+          ? ((resolvedTotal - remaining) / resolvedTotal) * 100
+          : null);
+    if (usagePercent == null && resolvedUsed == null && resolvedTotal == null) {
+      return;
+    }
     items.push({
       key: `product-${index}`,
       label: product.product || t("grok.quota.included", "套餐用量"),
       percentage: clampPercent(usagePercent ?? 0),
       used: resolvedUsed,
-      total,
+      total: resolvedTotal,
       resetAtMs: billingResetAtMs,
     });
   });

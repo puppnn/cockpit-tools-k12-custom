@@ -2,7 +2,7 @@ import {
   isCodexApiKeyAccount,
   isCodexExplicitFreePlanType,
   type CodexAccount,
-} from '../types/codex';
+} from '../types/codex.ts';
 
 const CHAT_COMPLETIONS_PROVIDER_HOSTS = [
   "api.deepseek.com",
@@ -114,4 +114,20 @@ export function filterCodexLocalAccessAccountIds(
   }
 
   return next;
+}
+
+export function resolveCodexLocalAccessInitialAccountIds(
+  accountIds: string[],
+  accounts: CodexAccount[],
+  restrictFreeAccounts: boolean,
+  accountsLoaded: boolean,
+): string[] {
+  if (!accountsLoaded) {
+    return Array.from(new Set(accountIds));
+  }
+  return filterCodexLocalAccessAccountIds(
+    accountIds,
+    accounts,
+    restrictFreeAccounts,
+  );
 }

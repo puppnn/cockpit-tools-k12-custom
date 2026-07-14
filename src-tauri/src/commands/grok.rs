@@ -353,27 +353,17 @@ pub async fn grok_oauth_login_complete(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let was_current_account = if let Some(account_id) = reauth_account_id {
-        match grok_account::current_account_id() {
-            Ok(current_account_id) => current_account_id.as_deref() == Some(account_id),
-            Err(error) => {
-                logger::log_warn(&format!(
-                    "[Grok OAuth] 重新授权前对账默认账号失败: {}",
-                    error
-                ));
-                false
-            }
-        }
-    } else {
-        false
-    };
     let account = if let Some(account_id) = reauth_account_id {
         grok_account::upsert_oauth_for_reauth(payload, account_id)?
     } else {
         grok_account::upsert_oauth(payload)?
     };
-    if was_current_account {
-        grok_account::inject_to_default(&account.id)?;
+    // 每账号独立 home：登录/重授权后刷新该账号 profile，不写官方默认 ~/.grok。
+    if let Err(error) = grok_account::prepare_account_home(&account.id) {
+        logger::log_warn(&format!(
+            "[Grok OAuth] 准备独立 GROK_HOME 失败: account_id={}, error={}",
+            account.id, error
+        ));
     }
     let view = match grok_account::refresh_account(&account.id).await {
         Ok(view) => view,
@@ -430,9 +420,14 @@ pub async fn refresh_all_grok_accounts(app: AppHandle) -> Result<i32, String> {
 
 #[tauri::command]
 pub fn switch_grok_account(app: AppHandle, account_id: String) -> Result<String, String> {
-    let email = grok_account::inject_to_default(&account_id)?;
+    // 不再「切全局当前号」：只准备该账号独立 GROK_HOME，供并行启动使用。
+    let (email, home) = grok_account::prepare_account_home(&account_id)?;
     let _ = crate::modules::tray::update_tray_menu(&app);
-    Ok(format!("切换完成: {}", email))
+    Ok(format!(
+        "已准备独立目录: {} ({})",
+        email,
+        home.display()
+    ))
 }
 
 #[tauri::command]

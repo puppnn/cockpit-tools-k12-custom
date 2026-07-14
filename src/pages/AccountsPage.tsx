@@ -2706,12 +2706,12 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
         <div className="quota-column">
           <div className="quota-column-title">Claude</div>
           {renderBar("5h", claude5h)}
-          {renderBar(t('gemini.quota.geminiWeekly', 'Weekly'), claudeWeekly)}
+          {renderBar(t('common.weekly', 'Weekly'), claudeWeekly)}
         </div>
         <div className="quota-column">
           <div className="quota-column-title">Gemini</div>
           {renderBar("5h", gemini5h)}
-          {renderBar(t('gemini.quota.geminiWeekly', 'Weekly'), geminiWeekly)}
+          {renderBar(t('common.weekly', 'Weekly'), geminiWeekly)}
         </div>
       </>
     );

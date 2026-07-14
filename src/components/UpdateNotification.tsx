@@ -3,6 +3,7 @@ import { X, Download, Sparkles, RefreshCw, Check, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useEscClose } from '../hooks/useEscClose';
+import { prependUpdaterReleaseHighlights } from '../utils/updaterReleaseNotes';
 import './UpdateNotification.css';
 
 export interface UpdateInfo {
@@ -120,9 +121,14 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
   const releaseNotes = useMemo(() => {
     if (!updateInfo) return '';
     const isZh = i18n.language.startsWith('zh');
-    return isZh && updateInfo.release_notes_zh
+    const notes = isZh && updateInfo.release_notes_zh
       ? updateInfo.release_notes_zh
       : updateInfo.release_notes;
+    return prependUpdaterReleaseHighlights(
+      updateInfo.latest_version,
+      notes,
+      i18n.language,
+    );
   }, [updateInfo, i18n.language]);
 
   // 简单的 Markdown 渲染

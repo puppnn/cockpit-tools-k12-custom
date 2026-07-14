@@ -349,7 +349,6 @@ fn normalize_platform_id(value: &str) -> Option<String> {
         "windsurf" => Some("windsurf".to_string()),
         "kiro" => Some("kiro".to_string()),
         "cursor" => Some("cursor".to_string()),
-        "gemini" | "gemini-cli" => Some("gemini".to_string()),
         "codebuddy" => Some("codebuddy".to_string()),
         "codebuddy-cn" => Some("codebuddy_cn".to_string()),
         "qoder" => Some("qoder".to_string()),

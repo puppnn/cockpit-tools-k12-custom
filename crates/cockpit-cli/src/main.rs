@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use cockpit_core::modules::{cursor_account, gemini_account, github_copilot_account};
+use cockpit_core::modules::{cursor_account, github_copilot_account};
 use colored::*;
 use tabled::{Table, Tabled};
 
@@ -14,19 +14,19 @@ struct Cli {
 enum Commands {
     /// List accounts for a platform
     List {
-        /// The platform (cursor, gemini, copilot)
+        /// The platform (cursor, copilot)
         platform: String,
     },
     /// Switch accounts for a specific platform
     Switch {
-        /// The platform (cursor, gemini, copilot)
+        /// The platform (cursor, copilot)
         platform: String,
         /// The account ID or email to switch to
         account: String,
     },
     /// Show current quota for a platform
     Quota {
-        /// The platform (cursor, gemini, copilot)
+        /// The platform (cursor, copilot)
         platform: String,
     },
 }
@@ -63,20 +63,6 @@ async fn main() -> anyhow::Result<()> {
                         .collect(),
                 );
             }
-            "gemini" => {
-                let accounts = gemini_account::list_accounts();
-                display_accounts(
-                    accounts
-                        .iter()
-                        .map(|a| AccountDisplay {
-                            id: a.id.clone(),
-                            email: a.email.clone(),
-                            plan: a.plan_name.clone().unwrap_or_default(),
-                            tags: a.tags.as_ref().map(|t| t.join(", ")).unwrap_or_default(),
-                        })
-                        .collect(),
-                );
-            }
             "copilot" | "github_copilot" => {
                 let accounts = github_copilot_account::list_accounts();
                 display_accounts(
@@ -100,17 +86,6 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!(
                         "{} Successfully switched Cursor account to {}",
-                        "Success:".green(),
-                        account
-                    );
-                }
-            }
-            "gemini" => {
-                if let Err(e) = gemini_account::inject_to_gemini(&account) {
-                    println!("{} {}", "Error:".red(), e);
-                } else {
-                    println!(
-                        "{} Successfully switched Gemini account to {}",
                         "Success:".green(),
                         account
                     );

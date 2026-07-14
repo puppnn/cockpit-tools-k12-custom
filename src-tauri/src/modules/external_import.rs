@@ -61,7 +61,6 @@ fn resolve_provider_and_page(value: &str) -> Option<(&'static str, &'static str)
         "windsurf" => Some(("windsurf", "windsurf")),
         "kiro" => Some(("kiro", "kiro")),
         "cursor" => Some(("cursor", "cursor")),
-        "gemini" => Some(("gemini", "gemini")),
         "grok" => Some(("grok", "grok")),
         "codebuddy" => Some(("codebuddy", "codebuddy")),
         "codebuddy_cn" | "codebuddycn" => Some(("codebuddy_cn", "codebuddy-cn")),

@@ -27,7 +27,6 @@ import {
   CODEX_OVERVIEW_FILTER_FIELDS,
   CODEX_OVERVIEW_FILTER_SCOPE,
   buildCodexOverviewGroupFilterOptions,
-  buildCodexOverviewSortOptions,
   buildCodexPlanFilterOptions,
   collectCodexOverviewAvailableTags,
   createCodexOverviewAccountComparator,
@@ -100,13 +99,13 @@ export function useCodexAccountOverviewMemberView({
   const [groupFilter, setGroupFilter] = useState(() =>
     readPersistedStringArray(CODEX_OVERVIEW_FILTER_FIELDS.groupFilter),
   );
-  const [sortBy, setSortBy] = useState(() =>
+  const [sortBy] = useState(() =>
     readPersistedString(
       CODEX_OVERVIEW_FILTER_FIELDS.sortBy,
       readCodexCustomSortActive() ? "custom" : "created_at",
     ),
   );
-  const [sortDirection, setSortDirection] =
+  const [sortDirection] =
     useState<CodexOverviewSortDirection>(readPersistedSortDirection);
   const activeGroupId = useMemo(() => {
     const value = readPersistedString(
@@ -241,7 +240,6 @@ export function useCodexAccountOverviewMemberView({
     () => buildCodexOverviewGroupFilterOptions(groups),
     [groups],
   );
-  const sortOptions = useMemo(() => buildCodexOverviewSortOptions(t), [t]);
 
   const toggleArrayValue = useCallback(
     (
@@ -263,15 +261,12 @@ export function useCodexAccountOverviewMemberView({
     filterTypes,
     tagFilter,
     groupFilter,
-    sortBy,
-    sortDirection,
     tierFilterOptions,
     tierFilterAllLabel: t("common.shared.filter.all", {
       count: tierCounts.all,
     }),
     availableTags,
     groupFilterOptions,
-    sortOptions,
     onSearchQueryChange: setSearchQuery,
     onToggleFilterType: (value) => toggleArrayValue(setFilterTypes, value),
     onClearFilterTypes: () => setFilterTypes([]),
@@ -279,8 +274,5 @@ export function useCodexAccountOverviewMemberView({
     onClearTagFilter: () => setTagFilter([]),
     onToggleGroupFilter: (value) => toggleArrayValue(setGroupFilter, value),
     onClearGroupFilter: () => setGroupFilter([]),
-    onSortByChange: setSortBy,
-    onToggleSortDirection: () =>
-      setSortDirection((current) => (current === "desc" ? "asc" : "desc")),
   };
 }

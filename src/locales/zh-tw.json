@@ -2,6 +2,8 @@
   "common": {
     "confirm": "確認",
     "cancel": "取消",
+    "cancelling": "正在取消...",
+    "cancelled": "已取消",
     "save": "儲存",
     "saving": "儲存中...",
     "delete": "刪除",
@@ -250,7 +252,6 @@
       "restart": "重新啟動",
       "installing": "安裝中"
     },
-    "gemini": "Gemini Cli",
     "codebuddy": "CodeBuddy",
     "qoder": "Qoder",
     "trae": "Trae",
@@ -271,7 +272,9 @@
     "switchClassicLayoutConfirm": "立即切換",
     "2faManager": "2FA 管理",
     "apiRelay": "中轉站",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "贊助商",
@@ -754,7 +757,7 @@
       "codexAutoSwitchAccountScope": "Codex 自動切號帳號範圍",
       "codexAutoSwitchAccountScopeDesc": "當前 Codex 自動切號狀態：{{status}}。僅在該範圍內參與切號。",
       "defaultTerminal": "預設終端機",
-      "defaultTerminalDesc": "啟動 Gemini CLI 時使用的終端機",
+      "defaultTerminalDesc": "啟動 CLI 時使用的終端機",
       "terminalSystem": "跟隨系統",
       "currentAccountRefreshRequiresAutoRefresh": "請先啟用「配額自動刷新」，才能設定目前帳號刷新。",
       "codebuddyCnAppPath": "CodeBuddy CN 應用程式路徑",
@@ -807,7 +810,35 @@
       "platformAutoRefresh": "{{platform}} 自動刷新配額",
       "traeSoloAppPath": "TRAE SOLO 啟動路徑",
       "traeCnAppPath": "Trae CN 啟動路徑",
-      "traeSoloCnAppPath": "TRAE SOLO CN 啟動路徑"
+      "traeSoloCnAppPath": "TRAE SOLO CN 啟動路徑",
+      "reducedMotion": "減少動畫",
+      "reducedMotionDesc": "降低頁面淡入、彈層過渡、陰影、模糊與平滑捲動，僅保留必要載入回饋",
+      "autoImportFromLocal": "本機帳號自動匯入",
+      "autoImportFromLocalDesc": "開啟後會立即掃描本機用戶端登入並匯入目前帳號；之後官方用戶端更換登入時自動匯入。首次可能跳出鑰匙圈授權，請選擇「永遠允許」。",
+      "autoImportFromLocalScanning": "正在掃描本機帳號，可隨時關閉…",
+      "autoImportFromLocalScanDone": "掃描完成：發現 {{scanned}} 個本機登入，已匯入 {{imported}} 個",
+      "autoImportFromLocalScanEmpty": "掃描完成：未發現可匯入的本機登入",
+      "autoImportFromLocalScanPartial": "掃描完成：未成功匯入，部分平台失敗，可到帳號頁手動匯入",
+      "autoImportFromLocalScanFailed": "掃描失敗：{{error}}",
+      "autoImportFromLocalScanCancelled": "已關閉，背景掃描將忽略結果",
+      "startupPage": "啟動預設頁",
+      "startupPageDesc": "應用冷啟動時開啟的頁面；選「記住上次」則恢復上次離開時的頁面",
+      "startupPageLast": "記住上次",
+      "startupPageCodexApi": "Codex API 服務",
+      "hermesAuthOverwrite": "切換 Codex 時同步 Hermes",
+      "hermesAuthOverwriteDesc": "僅 OAuth 帳號：切號後寫入 ~/.hermes/auth.json 的 openai-codex 憑證（預設關閉）",
+      "themeColor": "主題色套件",
+      "themeColorDesc": "在淺色/深色之上疊加配色包",
+      "themeColorDefault": "預設",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "允許外連",
+      "externalNetworkDesc": "關閉後阻斷 WebDAV 同步、OpenRouter 用量刷新、遠端公告與自動更新檢查（不影響本機功能）",
+      "webdavAllowedDomains": "WebDAV 網域白名單",
+      "webdavAllowedDomainsDesc": "逗號分隔；留空不限制"
     },
     "network": {
       "apiTitle": "反重力駕駛艙 API",
@@ -872,6 +903,7 @@
       "releaseHistoryLoading": "正在載入更新記錄...",
       "releaseHistoryEmpty": "暫無更新紀錄",
       "releaseHistoryLoadFailed": "載入失敗：{{error}}",
+      "releaseHistorySectionHighlights": "重要更新",
       "releaseHistorySectionAdded": "新增",
       "releaseHistorySectionChanged": "變更",
       "releaseHistorySectionFixed": "修復",
@@ -1036,6 +1068,19 @@
       "retentionUnit": "天",
       "collapseAll": "收起遠端備份",
       "expandAll": "展開全部遠端備份 (還有 {{count}} 個)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "本機保存多把 API Key（明文落在應用資料目錄）。外連開啟時可刷新 OpenRouter 用量。非完整平台帳號管理。",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "備註",
+      "empty": "暫無 Key",
+      "added": "已新增",
+      "deleted": "已刪除",
+      "refreshed": "已刷新用量",
+      "usage": "用量",
+      "tierOther": "其他"
     }
   },
   "appPath": {
@@ -1732,7 +1777,8 @@
       "title": "新增 Codex 帳號",
       "oauth": "OAuth 授權",
       "token": "JSON 匯入",
-      "local": "本機匯入"
+      "local": "本機匯入",
+      "accessToken": "訪問令牌"
     },
     "oauth": {
       "desc": "點擊下方按鈕，在瀏覽器中完成 OpenAI 帳號授權",
@@ -1963,7 +2009,7 @@
       },
       "customRoutingEdit": "編輯自訂調度",
       "customRoutingTitle": "自訂調度",
-      "customRoutingDesc": "依帳號設定優先級與權重，用來控制 API 服務選擇帳號的順序，以及同級帳號的負載分配。",
+      "customRoutingDesc": "設定帳號的優先級和權重，控制帳號選擇順序與負載分配。",
       "customRoutingBackupTitle": "備用帳號",
       "customRoutingBackupDesc": "僅在所有一般帳號無法使用時啟用；一般帳號恢復後，新請求會自動切回。",
       "customRoutingBackupShort": "備用",
@@ -2080,6 +2126,20 @@
       "showApiKey": "顯示 API Key",
       "hideApiKey": "隱藏 API Key",
       "apiKeyHiddenHint": "API Key 已隱藏，點擊顯示",
+      "modelCatalog": {
+        "label": "模型清單",
+        "fetch": "從上游取得",
+        "fetching": "取得中...",
+        "count": "{{count}} 個模型",
+        "placeholder": "每行填寫一個模型 ID，也可以使用逗號分隔。",
+        "editHint": "上游結果只會填入目前草稿，可在儲存前刪除、補充或調整模型。",
+        "syncToggle": "同步供應商模型到 Codex",
+        "syncDescription": "儲存後使用目前模型清單產生 Cockpit 管理的 Codex 模型目錄，不會覆蓋使用者自訂目錄。",
+        "fetchCredentialsRequired": "請先填寫 API Key 和 Base URL。",
+        "fetchEmpty": "上游未回傳可用模型，已保留目前清單。",
+        "fetchFailed": "取得上游模型失敗：{{error}}",
+        "syncRequiresModels": "同步到 Codex 前請先取得或填寫模型清單。"
+      },
       "actions": {
         "addAndSwitch": "新增並切換"
       },
@@ -2239,7 +2299,12 @@
     },
     "list": {
       "showCodeReviewQuota": "顯示 Code Review 配額",
-      "showAdditionalQuota": "顯示模型專屬配額"
+      "showAdditionalQuota": "顯示模型專屬配額",
+      "planBadgeStyle": "方案徽章樣式",
+      "planBadgeStyleDefault": "預設",
+      "planBadgeStyleOutline": "描邊",
+      "planBadgeStyleSoft": "柔和",
+      "planBadgeStyleMono": "單色"
     },
     "time": {
       "today": "今天 {{time}}",
@@ -2499,7 +2564,8 @@
         "selectAllSessions": "全選全部會話",
         "clearSelectedSessions": "取消全選",
         "copyToInstance": "複製到實例",
-        "trash": "垃圾桶"
+        "trash": "垃圾桶",
+        "openRollout": "開啟工作階段檔案"
       },
       "confirm": {
         "title": "移到垃圾桶",
@@ -2701,7 +2767,15 @@
         "removeItem": "移出",
         "emptyFilteredTitle": "目前篩選無會話",
         "emptyFilteredDesc": "調整搜尋、來源或選取狀態後再試。"
-      }
+      },
+      "kindFilter": "會話類型",
+      "kind": {
+        "conversation": "對話",
+        "external": "外部",
+        "subagent": "子代理",
+        "all": "全部類型"
+      },
+      "pickInstancePrompt": "此工作階段存在於多個實例，請輸入實例 ID："
     },
     "modelProviders": {
       "tab": "模型供應商",
@@ -2974,7 +3048,10 @@
         "help": "僅在供應商明確支援 Responses WebSocket 時開啟；連線方式可透過 Codex 或代理服務日誌確認。",
         "enabled": "已啟用",
         "disabled": "已停用"
-      }
+      },
+      "renameApiKeyPrompt": "重新命名 API Key",
+      "renameApiKeySuccess": "API Key 已重新命名",
+      "renameApiKeyFailed": "重新命名 API Key 失敗：{{error}}"
     },
     "quickSwitch": {
       "action": "快速切換供應商",
@@ -3163,15 +3240,33 @@
         "pricingOutput": "輸出",
         "pricingSource": "來源",
         "pricingActions": "操作",
-        "pricingCachePlaceholder": "同輸入",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "自訂",
         "pricingPreset": "預設",
         "pricingUnset": "未設定",
         "pricingReset": "重設",
         "pricingSaved": "價格設定已儲存",
-        "pricingInvalid": "價格必須是大於或等於 0 的數字",
+        "pricingInvalid": "價格必須是大於或等於 0 的數字，Token 閾值必須是正整數",
         "pricingReprice": "重算歷史估值",
-        "pricingRepriced": "歷史估值已按目前價格重算"
+        "pricingRepriced": "歷史估值已按目前價格重算",
+        "pricingLongThreshold": "長上下文階梯閾值（tokens）",
+        "pricingStandard": "標準",
+        "pricingStandardLong": "標準（長上下文）",
+        "pricingPriority": "快速",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "標準（長上下文）輸入",
+        "pricingStandardLongCache": "標準（長上下文）快取輸入",
+        "pricingStandardLongOutput": "標準（長上下文）輸出",
+        "pricingPriorityInput": "快速輸入",
+        "pricingPriorityCache": "快速快取輸入",
+        "pricingPriorityOutput": "快速輸出",
+        "pricingRepriceDone": "歷史估算價值已更新，變更 {{updated}} 筆",
+        "pricingRepriceFailedWithMessage": "歷史估算價值更新失敗：{{message}}",
+        "pricingRepriceFailed": "歷史估算價值更新失敗",
+        "pricingRepriceSuperseded": "已收到新的價格設定，正在切換到最新重算任務",
+        "pricingRepriceRunning": "正在更新歷史估算價值 {{processed}} / {{total}}，已更新 {{updated}} 筆",
+        "pricingRepriceCompleted": "歷史估算價值已更新",
+        "pricingRepriceSaveBlocked": "歷史估算價值更新中，完成後再儲存"
       },
       "keys": {
         "policyTitle": "模型策略",
@@ -3308,8 +3403,20 @@
       "previewSubtitle": "選擇要寫入的帳號",
       "scanSubtitle": "正在逐條解析並檢查帳號",
       "parseSubtitle": "正在解析帳號檔案",
+      "importSubtitle": "正在寫入所選帳號",
+      "finalizing": "正在完成匯入",
+      "finalizingSubtitle": "正在更新帳號清單和相關設定",
+      "cancelImport": "取消匯入",
+      "importCancelledSummary": "匯入已取消，已處理 {{processed}}/{{total}} 個帳號。",
+      "importChecked": "匯入已檢測帳號",
+      "directImport": "不檢測，直接匯入",
+      "importCheckedAndAddToApiService": "匯入已檢測帳號並加入 API 服務",
+      "directImportAndAddToApiService": "直接匯入並加入 API 服務",
+      "viewAllTasks": "查看全部 {{count}} 個任務",
+      "collapseTasks": "收合任務",
       "cancelling": "正在取消...",
       "scanDone": "掃描完成",
+      "scanCompleteReview": "掃描完成，請查看",
       "parseDone": "解析完成",
       "scanning": "掃描中",
       "parsing": "解析中",
@@ -3318,7 +3425,7 @@
       "failed": "失敗",
       "quotaOk": "帳號正常",
       "quotaFailed": "異常",
-      "checkQuotaToggle": "檢測帳號",
+      "checkQuotaToggle": "匯入前檢測帳號",
       "preparing": "正在準備匯入任務...",
       "importSelected": "匯入選取帳號",
       "noSelection": "請先選擇要匯入的帳號",
@@ -3341,7 +3448,17 @@
       "taskRunning": "正在處理 {{current}} / {{total}}",
       "taskPreview": "已產生 {{total}} 筆預覽",
       "reopen": "查看任務",
-      "dismissTask": "捨棄"
+      "dismissTask": "捨棄",
+      "queueCount": "佇列中 {{count}} 個任務",
+      "queued": "排隊",
+      "batchLabel": "批次 {{index}}",
+      "runInBackground": "背景",
+      "cancelQueued": "取消佇列",
+      "importing": "輸入",
+      "checkAccounts": "檢查帳戶",
+      "importAndAddToApiService": "導入+API",
+      "importAndAddToApiServiceSuccess": "導入並新增至API服務",
+      "addToApiServiceFailed": "已匯入，但新增 API 服務失敗：{{error}}"
     },
     "autoRepairMode": {
       "label": "自動修復邏輯",
@@ -3388,6 +3505,71 @@
       "chipSearch": "搜尋",
       "chipPlan": "方案",
       "chipFolder": "分組目錄"
+    },
+    "accessTokenImport": {
+      "nameRequired": "請輸入帳戶名",
+      "tokenRequired": "請輸入 Codex access token",
+      "desc": "輸入帳號名與 Codex access token，以 OAuth 帳號保存；無 refresh 時落盤使用 personal_access_token 形態。",
+      "nameLabel": "帳戶名",
+      "namePlaceholder": "用於列表展示的名稱",
+      "tokenLabel": "Codex access token",
+      "hideToken": "隱藏",
+      "showToken": "顯示",
+      "submit": "匯入訪問令牌",
+      "success": "訪問令牌帳號已匯入: {{name}}"
+    },
+    "ssh": {
+      "tab": "SSH 同步",
+      "title": "Codex SSH 同步",
+      "desc": "儲存遠端主機，測連後將目前 auth.json 同步到遠端。切號成功後若已選中主機將自動同步。",
+      "new": "新建",
+      "empty": "暫無 SSH 主機",
+      "test": "測連",
+      "sync": "同步",
+      "saved": "SSH 伺服器已儲存",
+      "deleted": "已刪除",
+      "name": "名稱",
+      "host": "主機",
+      "user": "使用者",
+      "port": "連接埠",
+      "remoteDir": "遠端 Codex 目錄",
+      "syncSwitch": "交換器上的 SSH",
+      "syncSwitchDesc": "開啟設定SSH主機； Codex 交換器遠端同步目前帳戶。",
+      "configure": "設定",
+      "modalTitle": "SSH 同步設定",
+      "modalHint": "新增並選擇啟用自動同步的 SSH 主機，以便 Codex 帳戶切換更新遠端身份驗證。",
+      "subtitle": "所選主機在帳戶切換後接收目前的 Codex 驗證套件。",
+      "addServer": "新增伺服器",
+      "editServer": "編輯伺服器",
+      "username": "使用者名稱",
+      "codexHome": "遠端 Codex 目錄",
+      "authMethod": "認證方式",
+      "agentAuth": "SSH代理",
+      "privateKeyAuth": "私鑰",
+      "privateKeyPath": "關鍵路徑",
+      "syncOnSwitch": "切換後同步",
+      "emptyTitle": "沒有 SSH 伺服器",
+      "emptyBody": "在左側填寫一個主機並將其儲存為交換器同步目標。",
+      "selected": "已選擇",
+      "select": "選擇",
+      "testConnection": "測試",
+      "syncNow": "立即同步",
+      "connectionOk": "已連接",
+      "syncVerified": "SSH 同步已驗證",
+      "syncFailed": "SSH 同步失敗",
+      "syncedAs": "已同步 {{email}} · {{time}}",
+      "neverSynced": "尚未同步",
+      "latestVerified": "上次 SSH 同步已驗證",
+      "syncSwitchActive": "已啟用 · {{name}}（{{user}}@{{host}}）",
+      "footerHint": "儲存後開關打開；隨時將其關閉以停止自動同步。",
+      "formLead": "遠端主機詳細資訊",
+      "namePlaceholder": "例如家庭網路存儲",
+      "syncOnSwitchHint": "儲存並選擇後，Codex 切換將身份驗證推送到該主機",
+      "addAndSave": "添加並保存",
+      "serverList": "伺服器",
+      "serverListLead": "選擇同步目標",
+      "serverCount": "{{count}} 台",
+      "autoSyncBadge": "汽車"
     }
   },
   "githubCopilot": {
@@ -3618,13 +3800,6 @@
       "appPath": "Cursor 路徑"
     },
     "cursorRefreshInterval": "配額自動更新",
-    "gemini": {
-      "title": "Gemini Cli 設定",
-      "appPath": "Gemini Cli 路徑",
-      "syncWsl": "同步 WSL 設定",
-      "syncWslDesc": "切換帳號時自動覆寫 WSL 內的 .gemini 設定"
-    },
-    "geminiRefreshInterval": "配額自動刷新",
     "grok": {
       "title": "Grok CLI 設定",
       "appPath": "Grok CLI 路徑",
@@ -4214,99 +4389,6 @@
       "title": "喚醒任務與驗證"
     }
   },
-  "gemini": {
-    "injectToGemini": "切換到 Gemini Cli",
-    "title": "Gemini Cli 帳戶管理",
-    "empty": {
-      "description": "點擊「新增帳戶」開始管理您的 Gemini Cli 帳戶"
-    },
-    "addModal": {
-      "title": "新增 Gemini Cli 帳戶"
-    },
-    "oauth": {
-      "desc": "點選下方按鈕，在瀏覽器中完成Gemini Cli OAuth授權。"
-    },
-    "token": {
-      "desc": "貼上您的 Gemini Cli 存取權令牌 (JWT) 或匯出的 JSON 資料。",
-      "formatHint": "必填欄位和範例（點擊展開）",
-      "formatRequired": "單token：直接貼上JWT；批次匯入：使用JSON陣列格式",
-      "singleExample": "單一範例 (JWT)",
-      "batchExample": "批量範例（JSON）"
-    },
-    "import": {
-      "localDesc": "從本機 Gemini Cli 設定目錄 (~/.gemini) 或 JSON 檔案匯入 Gemini Cli 帳戶資料。",
-      "localClient": "從本機 Gemini Cli 匯入"
-    },
-    "flowNotice": {
-      "title": "Gemini Cli 帳號指南（點選展開/折疊）",
-      "desc": "透過從本機 Gemini Cli 設定匯入、貼上 JWT 令牌或透過 OAuth 登入來管理 Gemini Cli 帳戶。",
-      "reason": "權限範圍：在預設~/.gemini或實例路徑（GEMINI_CLI_HOME/.gemini）下讀寫oauth_creds.json、google_accounts.json、settings.json，用於帳戶導入和本地憑證注入（帳戶切換）。",
-      "storage": "網路範圍：OAuth 和刷新呼叫官方 Google/Gemini API（例如 oauth2.googleapis.com 和 googleapis.com）。僅發送必需的身份驗證/配額欄位；本機帳戶檔案不會上傳到第三方伺服器。"
-    },
-    "updated": {
-      "label": "更新 {{relative}} 前"
-    },
-    "quota": {
-      "pro": "PRO",
-      "flash": "FLASH",
-      "left": "剩 {{value}}%",
-      "resetsIn": "在 {{relative}} 中重置",
-      "resetsSoon": "很快就會重置",
-      "resetsUnknown": "重置時間未知",
-      "onDemand": "一經請求",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "instances": {
-      "unsupported": "尚不支援Gemini Cli多實例管理。",
-      "unsupportedDescPlatform": "Gemini Cli 多執行個體僅在 macOS、Windows 和 Linux 上支援。",
-      "launchDialogTitle": "啟動實例",
-      "launchHint": "複製命令並手動運行，或直接在終端機中執行。",
-      "runInTerminal": "在終端機中運行",
-      "workingDir": "工作目錄",
-      "workingDirPlaceholder": "預設目前路徑",
-      "workingDirDesc": "啟動時將首先切換到此目錄",
-      "pickWorkingDir": "選擇工作目錄"
-    },
-    "switch": {
-      "success": "帳號切換成功"
-    },
-    "projectConfig": {
-      "button": "設定 GCP 專案",
-      "title": "設定 GCP 專案",
-      "selectLabel": "選擇專案",
-      "loading": "正在載入專案清單...",
-      "auto": "自動選擇（不手動指定）",
-      "empty": "未取得可用專案，請確認此帳號具備 GCP 專案權限。",
-      "hint": "儲存後將優先使用此專案請求配額，並在啟動命令注入 GOOGLE_CLOUD_PROJECT。",
-      "current": "專案：{{projectId}}",
-      "saved": "專案已儲存：{{projectId}}",
-      "cleared": "已恢復為自動專案識別",
-      "savedWithRefreshError": "專案已儲存，但配額刷新失敗：{{error}}"
-    },
-    "identity": {
-      "authMethod": "驗證方式",
-      "tier": "方案",
-      "signedInWithGoogle": "使用 Google 登入",
-      "signedInWithGoogleEmail": "使用 Google 登入（{{email}}）"
-    },
-    "quotaTable": {
-      "model": "模型",
-      "leftOfTotal": "剩餘 / 總量",
-      "usage": "已用",
-      "usageResets": "重設時間",
-      "usedPercent": "{{value}}%",
-      "remainingOfTotal": "{{remaining}} / {{total}}",
-      "resetAtWithRelative": "{{absolute}}（{{relative}}）"
-    },
-    "tierText": {
-      "pro": "Google One AI Pro 的 Gemini Code Assist",
-      "ultra": "Google AI Ultra 的 Gemini Code Assist",
-      "free": "Gemini Code Assist（免費版）"
-    }
-  },
   "codebuddy": {
     "title": "CodeBuddy 帳號管理",
     "noAccounts": "暫無 CodeBuddy 帳號",
@@ -4405,6 +4487,12 @@
     },
     "quota": {
       "usedOfTotal": "{{used}} / {{total}}"
+    },
+    "sessions": {
+      "title": "本機會話檔案",
+      "desc": "掃描本機 CodeBuddy 資料目錄中的會話相關 JSON/JSONL 檔案，可開啟所在位置。",
+      "empty": "未找到會話檔案",
+      "open": "開啟位置"
     }
   },
   "qoder": {
@@ -5124,7 +5212,8 @@
       "installHint": "可在終端機執行以下官方指令，安裝完成後點擊重新整理。",
       "selectWorkingDir": "選擇 Grok CLI 工作目錄",
       "workingDirAccountHint": "工作目錄與目前帳號綁定，下次切號啟動會自動回填。",
-      "launchCommandPlaceholder": "選擇或確認工作目錄後產生啟動命令"
+      "launchCommandPlaceholder": "選擇或確認工作目錄後產生啟動命令",
+      "reauthLaunchHint": "帳戶授權已過期。重新授權；下面的啟動命令仍然可用。"
     },
     "switch": {
       "success": "切換帳號成功"
@@ -5407,5 +5496,23 @@
       "supports1mLabel": "宣告支援 1M",
       "supports1mShort": "1M上下文"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "管理 OpenRouter API Key、查看用量，並瀏覽可用模型列表。",
+    "tabKeys": "密鑰與用量",
+    "tabModels": "模型瀏覽",
+    "modelsLoaded": "已載入 {{count}} 個模型",
+    "noUsageYet": "尚未重新整理用量",
+    "loadModels": "載入模型",
+    "searchModels": "搜尋模型",
+    "freeOnly": "僅免費",
+    "noModels": "暫無模型資料，請先新增 Key 並載入",
+    "free": "免費",
+    "noCtx": "無上下文長度"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "管理 OpenCode Go / Zen 檔 API Key，並按檔位篩選列表。金鑰保存在本機應用資料目錄。"
   }
 }

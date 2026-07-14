@@ -433,9 +433,7 @@ function ensureApiKeyOnProvider(
   const now = Date.now();
   const existing = provider.apiKeys.find((item) => sanitizeApiKey(item.apiKey) === normalized);
   if (existing) {
-    if (apiKeyName && sanitizeName(apiKeyName)) {
-      existing.name = sanitizeName(apiKeyName);
-    }
+    // #1510: reusing the same key must not clobber a saved display name.
     existing.updatedAt = now;
     return;
   }
@@ -664,6 +662,26 @@ export async function removeApiKeyFromCodexModelProvider(
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
 }
 
+/** Explicit rename for an existing provider API key (#1510). Does not rewrite key material. */
+export async function renameApiKeyOnCodexModelProvider(
+  providerId: string,
+  apiKeyId: string,
+  name: string,
+): Promise<CodexModelProvider> {
+  const providers = await ensureProvidersLoaded();
+  const provider = providers.find((item) => item.id === providerId);
+  if (!provider) throw new Error('PROVIDER_NOT_FOUND');
+  const apiKey = provider.apiKeys.find((item) => item.id === apiKeyId);
+  if (!apiKey) throw new Error('API_KEY_NOT_FOUND');
+
+  const now = Date.now();
+  apiKey.name = sanitizeName(name);
+  apiKey.updatedAt = now;
+  provider.updatedAt = now;
+  await writeProviders(providers);
+  return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
+}
+
 export async function testCodexModelProviderConnection(input: {
   baseUrl: string;
   apiKey: string;
@@ -721,7 +739,8 @@ export interface CodexModelProviderChatTestProgressPayload {
     | 'batch_started'
     | 'provider_started'
     | 'provider_completed'
-    | 'batch_completed';
+    | 'batch_completed'
+    | 'batch_cancelled';
   currentProviderId?: string | null;
   item?: CodexModelProviderChatTestRecord | null;
 }
@@ -738,6 +757,10 @@ export async function testCodexModelProviderChatBatch(input: {
     model: input.model ?? null,
     runId: input.runId ?? null,
   });
+}
+
+export async function cancelCodexModelProviderChatTest(runId: string): Promise<boolean> {
+  return await invoke('codex_cancel_model_provider_chat_test', { runId });
 }
 
 export async function queryCodexModelProviderUsage(input: {

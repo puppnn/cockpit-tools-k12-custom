@@ -5,8 +5,6 @@ import { getCodebuddyExtraCreditSummary, getCodebuddyOfficialQuotaModel, getCode
 import type { CodexAccount } from '../types/codex';
 import type { CursorAccount } from '../types/cursor';
 import { getCursorUsage } from '../types/cursor';
-import type { GeminiAccount } from '../types/gemini';
-import { getGeminiTierQuotaSummary } from '../types/gemini';
 import type { GrokAccount } from '../types/grok';
 import { getGrokUsage } from '../types/grok';
 import type { GitHubCopilotAccount } from '../types/githubCopilot';
@@ -29,7 +27,6 @@ export const GHCP_CURRENT_ACCOUNT_ID_KEY = 'agtools.github_copilot.current_accou
 export const WINDSURF_CURRENT_ACCOUNT_ID_KEY = 'agtools.windsurf.current_account_id';
 export const KIRO_CURRENT_ACCOUNT_ID_KEY = 'agtools.kiro.current_account_id';
 export const CURSOR_CURRENT_ACCOUNT_ID_KEY = 'agtools.cursor.current_account_id';
-export const GEMINI_CURRENT_ACCOUNT_ID_KEY = 'agtools.gemini.current_account_id';
 export const GROK_CURRENT_ACCOUNT_ID_KEY = 'agtools.grok.current_account_id';
 export const CODEBUDDY_CURRENT_ACCOUNT_ID_KEY = 'agtools.codebuddy.current_account_id';
 export const CODEBUDDY_CN_CURRENT_ACCOUNT_ID_KEY = 'agtools.codebuddycn.current_account_id';
@@ -53,7 +50,6 @@ export type StoredCurrentPlatformId =
   | 'windsurf'
   | 'kiro'
   | 'cursor'
-  | 'gemini'
   | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
@@ -71,7 +67,6 @@ const CURRENT_ACCOUNT_STORAGE_KEYS: Record<StoredCurrentPlatformId, string> = {
   windsurf: WINDSURF_CURRENT_ACCOUNT_ID_KEY,
   kiro: KIRO_CURRENT_ACCOUNT_ID_KEY,
   cursor: CURSOR_CURRENT_ACCOUNT_ID_KEY,
-  gemini: GEMINI_CURRENT_ACCOUNT_ID_KEY,
   grok: GROK_CURRENT_ACCOUNT_ID_KEY,
   codebuddy: CODEBUDDY_CURRENT_ACCOUNT_ID_KEY,
   codebuddy_cn: CODEBUDDY_CN_CURRENT_ACCOUNT_ID_KEY,
@@ -357,42 +352,6 @@ export function getRecommendedCursorAccount(
   });
 }
 
-export function getRecommendedGeminiAccount(
-  accounts: GeminiAccount[],
-  currentId: string | null | undefined,
-): GeminiAccount | null {
-  if (accounts.length <= 1) return null;
-  const others = accounts.filter((account) => account.id !== currentId);
-  if (others.length === 0) return null;
-
-  const getScore = (account: GeminiAccount) => {
-    const tiers = getGeminiTierQuotaSummary(account);
-    const remainingValues = [
-      tiers.gemini5h.remainingPercent,
-      tiers.geminiWeekly.remainingPercent,
-      tiers.claude5h.remainingPercent,
-      tiers.claudeWeekly.remainingPercent,
-    ].filter(
-      (value): value is number => typeof value === 'number' && Number.isFinite(value),
-    );
-    const totalUsed = remainingValues.length > 0
-      ? 100 - Math.min(...remainingValues)
-      : null;
-    return {
-      remainingPercent: totalUsed == null ? -1 : 100 - totalUsed,
-      freshness: account.last_used || account.created_at || 0,
-    };
-  };
-
-  return others.reduce((best, candidate) => {
-    const bestScore = getScore(best);
-    const candidateScore = getScore(candidate);
-    if (candidateScore.remainingPercent !== bestScore.remainingPercent) {
-      return candidateScore.remainingPercent > bestScore.remainingPercent ? candidate : best;
-    }
-    return candidateScore.freshness > bestScore.freshness ? candidate : best;
-  });
-}
 
 export function getRecommendedGrokAccount(
   accounts: GrokAccount[],

@@ -1601,23 +1601,39 @@ pub async fn refresh_account_subscription_info(
     }
 }
 
-/// 刷新所有账号配额
-pub async fn refresh_all_quotas() -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
+const CODEX_QUOTA_REFRESH_MAX_CONCURRENT: usize = 5;
+
+/// 按账号 ID 列表限流并发刷新配额（分组/勾选批量共用）。
+pub async fn refresh_quotas_for_account_ids(
+    account_ids: &[String],
+) -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
     use futures::future::join_all;
+    use std::collections::HashSet;
     use std::sync::Arc;
     use tokio::sync::Semaphore;
 
-    const MAX_CONCURRENT: usize = 5;
-    let accounts: Vec<_> = codex_account::list_accounts()
-        .into_iter()
-        .filter(|account| !account.is_api_key_auth() || is_new_api_account(account))
+    if account_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 去重并保持输入顺序，避免重复刷新同一账号
+    let mut seen = HashSet::new();
+    let unique_ids: Vec<String> = account_ids
+        .iter()
+        .filter_map(|id| {
+            let trimmed = id.trim();
+            if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
         .collect();
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
-    let tasks: Vec<_> = accounts
+    let semaphore = Arc::new(Semaphore::new(CODEX_QUOTA_REFRESH_MAX_CONCURRENT));
+    let tasks: Vec<_> = unique_ids
         .into_iter()
-        .map(|account| {
-            let account_id = account.id;
+        .map(|account_id| {
             let semaphore = semaphore.clone();
             async move {
                 let _permit = semaphore
@@ -1637,8 +1653,17 @@ pub async fn refresh_all_quotas() -> Result<Vec<(String, Result<CodexQuota, Stri
             Err(err) => return Err(err),
         }
     }
-
     Ok(results)
+}
+
+/// 刷新所有账号配额
+pub async fn refresh_all_quotas() -> Result<Vec<(String, Result<CodexQuota, String>)>, String> {
+    let account_ids: Vec<String> = codex_account::list_accounts()
+        .into_iter()
+        .filter(|account| !account.is_api_key_auth() || is_new_api_account(account))
+        .map(|account| account.id)
+        .collect();
+    refresh_quotas_for_account_ids(&account_ids).await
 }
 
 #[cfg(test)]

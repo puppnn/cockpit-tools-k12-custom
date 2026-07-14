@@ -8,7 +8,6 @@ import type { ClaudeAccount } from "../types/claude";
 import type { GitHubCopilotAccount } from "../types/githubCopilot";
 import type { WindsurfAccount } from "../types/windsurf";
 import type { CursorAccount } from "../types/cursor";
-import type { GeminiAccount } from "../types/gemini";
 import type { GrokAccount } from "../types/grok";
 import type { KiroAccount, KiroAccountStatus } from "../types/kiro";
 import type { QoderAccount, QoderSubscriptionInfo } from "../types/qoder";
@@ -45,6 +44,7 @@ import {
   isCodexNewApiAccount,
   isCodexPendingOAuthAccount,
 } from "../types/codex";
+import { withCodexPlanBadgeStyle } from "../utils/codexPreferences";
 import {
   formatClaudeResetTime,
   getClaudeAccountDisplayEmail,
@@ -80,12 +80,6 @@ import {
   getCursorUsage,
   isCursorAccountBanned,
 } from "../types/cursor";
-import {
-  getGeminiAccountDisplayEmail,
-  getGeminiPlanDisplayName,
-  getGeminiPlanBadgeClass,
-  getGeminiTierQuotaSummary,
-} from "../types/gemini";
 import {
   formatGrokQuotaUsedTotal,
   getGrokAccountDisplayEmail,
@@ -782,7 +776,7 @@ export function buildCodexAccountPresentation(
     id: account.id,
     displayName,
     planLabel: planBadge.label,
-    planClass: planBadge.className,
+    planClass: withCodexPlanBadgeStyle(planBadge.className),
     quotaItems,
   };
 }
@@ -1567,10 +1561,6 @@ export interface CursorAccountPresentation extends UnifiedAccountPresentation {
   isBanned: boolean;
 }
 
-export interface GeminiAccountPresentation extends UnifiedAccountPresentation {
-  isBanned: boolean;
-}
-
 function normalizeCursorUsagePercent(
   raw: number | null | undefined,
 ): number | null {
@@ -1682,50 +1672,6 @@ export function buildCursorAccountPresentation(
   };
 }
 
-export function buildGeminiAccountPresentation(
-  account: GeminiAccount,
-  t: Translate,
-): GeminiAccountPresentation {
-  const tierSummary = getGeminiTierQuotaSummary(account);
-  const planLabel = getGeminiPlanDisplayName(account);
-  const quotaItems: UnifiedQuotaMetric[] = [];
-
-  [
-    tierSummary.gemini5h,
-    tierSummary.geminiWeekly,
-    tierSummary.claude5h,
-    tierSummary.claudeWeekly,
-  ].forEach((tier) => {
-    const remaining =
-      tier.remainingPercent == null
-        ? null
-        : clampPercent(tier.remainingPercent);
-    const usedPercent = remaining == null ? 100 : 100 - remaining;
-    quotaItems.push({
-      key: tier.key,
-      label: t(`gemini.quota.${tier.key}`, tier.label),
-      percentage: remaining ?? 0,
-      progressPercent: remaining ?? 0,
-      quotaClass: getCursorUsageQuotaClass(usedPercent),
-      valueText:
-        remaining == null
-          ? "--"
-          : t("gemini.quota.left", "{{value}}% left", { value: remaining }),
-      resetText: formatMetricResetText(tier.resetAt, t),
-      resetAt: tier.resetAt,
-      showProgress: true,
-    });
-  });
-
-  return {
-    id: account.id,
-    displayName: getGeminiAccountDisplayEmail(account),
-    planLabel,
-    planClass: getGeminiPlanBadgeClass(undefined, account),
-    isBanned: false,
-    quotaItems,
-  };
-}
 
 export function buildGrokAccountPresentation(
   account: GrokAccount,
@@ -1740,17 +1686,18 @@ export function buildGrokAccountPresentation(
         item.used != null && item.total != null
           ? Math.max(0, item.total - item.used)
           : null;
+      // 与 Gemini 一致：文案与进度条均为剩余%（额度越少条越短）；颜色按已用比例
+      const remainingText = t("common.shared.quota.leftPercent", "{{value}}% left", {
+        value: Math.round(remaining),
+      });
       const valueText = amountText
-        ? `${amountText} · ${Math.round(usedPercent)}%`
-        : t("common.shared.quota.leftPercent", "{{value}}% left", {
-            value: Math.round(remaining),
-          });
+        ? `${amountText} · ${remainingText}`
+        : remainingText;
       return {
         key: item.key,
         label: item.label,
         percentage: remaining,
-        progressPercent: usedPercent,
-        // Match overview card coloring (used% based), not remaining-only class.
+        progressPercent: remaining,
         quotaClass: getGrokQuotaClass(usedPercent),
         valueText,
         resetAt: item.resetAtMs,

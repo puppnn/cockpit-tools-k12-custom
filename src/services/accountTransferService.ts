@@ -6,7 +6,6 @@ import * as githubCopilotService from './githubCopilotService';
 import * as windsurfService from './windsurfService';
 import * as kiroService from './kiroService';
 import * as cursorService from './cursorService';
-import * as geminiService from './geminiService';
 import * as codebuddyService from './codebuddyService';
 import * as codebuddyCnService from './codebuddyCnService';
 import * as qoderService from './qoderService';
@@ -83,11 +82,6 @@ const PLATFORM_ADAPTERS: Partial<Record<PlatformId, TransferAdapter>> = {
     listAccounts: cursorService.listCursorAccounts,
     exportAccounts: cursorService.exportCursorAccounts,
     importFromJson: cursorService.importCursorFromJson,
-  },
-  gemini: {
-    listAccounts: geminiService.listGeminiAccounts,
-    exportAccounts: geminiService.exportGeminiAccounts,
-    importFromJson: geminiService.importGeminiFromJson,
   },
   codebuddy: {
     listAccounts: codebuddyService.listCodebuddyAccounts,

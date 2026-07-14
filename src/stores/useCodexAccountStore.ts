@@ -47,6 +47,9 @@ const loadCachedCodexCurrentAccount = () => {
   }
 };
 
+const initialCachedCodexAccounts = loadCachedCodexAccounts();
+const initialCachedCodexCurrentAccount = loadCachedCodexCurrentAccount();
+
 const persistCodexAccountsCache = (accounts: CodexAccount[]) => {
   try {
     localStorage.setItem(CODEX_ACCOUNTS_CACHE_KEY, JSON.stringify(accounts));
@@ -96,6 +99,7 @@ type FetchCodexCurrentAccountOptions = {
 
 interface CodexAccountState {
   accounts: CodexAccount[];
+  accountsLoaded: boolean;
   currentAccount: CodexAccount | null;
   loading: boolean;
   error: string | null;
@@ -126,6 +130,7 @@ interface CodexAccountState {
     apiVisionRoutingModel?: string,
     apiWireApi?: CodexProviderWireApi,
     apiSupportsWebsockets?: boolean,
+    apiSyncModelCatalogToCodex?: boolean,
   ) => Promise<CodexAccount>;
   updateApiKeyBoundOAuthAccount: (
     accountId: string,
@@ -138,8 +143,9 @@ interface CodexAccountState {
 }
 
 export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
-  accounts: loadCachedCodexAccounts(),
-  currentAccount: loadCachedCodexCurrentAccount(),
+  accounts: initialCachedCodexAccounts,
+  accountsLoaded: initialCachedCodexAccounts.length > 0,
+  currentAccount: initialCachedCodexCurrentAccount,
   loading: false,
   error: null,
   
@@ -157,11 +163,11 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
         !allowNextEmptyCodexAccountList
       ) {
         console.warn('[CodexAccountStore] 忽略异常空账号列表，保留本地缓存账号');
-        set({ loading: false });
+        set({ accountsLoaded: true, loading: false });
         return;
       }
       allowNextEmptyCodexAccountList = false;
-      set({ accounts, loading: false });
+      set({ accounts, accountsLoaded: true, loading: false });
       persistCodexAccountsCache(accounts);
       void get().hydrateAccountProfilesIfNeeded(accounts.map((account) => account.id));
     } catch (e) {
@@ -206,7 +212,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       elapsedMs: Math.round(performance.now() - flowStartedAt),
     });
     allowNextEmptyCodexAccountList = false;
-    set({ accounts, loading: false, error: null });
+    set({ accounts, accountsLoaded: true, loading: false, error: null });
     persistCodexAccountsCache(accounts);
 
     const targetExists = accounts.some((account) => account.id === accountId);
@@ -426,6 +432,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
     apiVisionRoutingModel?: string,
     apiWireApi?: CodexProviderWireApi,
     apiSupportsWebsockets?: boolean,
+    apiSyncModelCatalogToCodex?: boolean,
   ) => {
     const account = await codexService.updateCodexApiKeyCredentials(
       accountId,
@@ -440,6 +447,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       apiVisionRoutingModel,
       apiWireApi,
       apiSupportsWebsockets,
+      apiSyncModelCatalogToCodex,
     );
     await get().fetchAccounts();
     await get().fetchCurrentAccount();

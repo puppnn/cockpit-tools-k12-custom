@@ -11,7 +11,6 @@ const TRAY_MIGRATED_PLATFORM_IDS: PlatformId[] = [
   'zed',
   'kiro',
   'cursor',
-  'gemini',
   'grok',
   'codebuddy',
   'codebuddy_cn',
@@ -447,9 +446,6 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
   }
   if (fallbackPlatform === 'trae_solo_cn') {
     return 'TRAE SOLO CN';
-  }
-  if (fallbackPlatform === 'gemini') {
-    return 'Gemini Cli';
   }
   if (fallbackPlatform === 'grok') {
     return 'Grok CLI';

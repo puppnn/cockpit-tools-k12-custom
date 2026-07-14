@@ -23,8 +23,11 @@ import * as codexInstanceService from "../services/codexInstanceService";
 import {
   CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT,
   CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT,
+  CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT,
+  getCodexPlanBadgeStyle,
   isCodexAdditionalQuotaVisibleByDefault,
   isCodexCodeReviewQuotaVisibleByDefault,
+  type CodexPlanBadgeStyle,
 } from "../utils/codexPreferences";
 import {
   findCodexApiProviderPresetById,
@@ -75,6 +78,9 @@ export function CodexInstancesContent({
   const [showAdditionalQuota, setShowAdditionalQuota] = useState<boolean>(
     isCodexAdditionalQuotaVisibleByDefault,
   );
+  const [planBadgeStyle, setPlanBadgeStyle] = useState<CodexPlanBadgeStyle>(
+    getCodexPlanBadgeStyle,
+  );
   const [launchModal, setLaunchModal] = useState<CodexLaunchModalState | null>(
     null,
   );
@@ -107,6 +113,13 @@ export function CodexInstancesContent({
       CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT,
       syncAdditionalQuotaVisibility as EventListener,
     );
+    const syncPlanBadgeStyle = () => {
+      setPlanBadgeStyle(getCodexPlanBadgeStyle());
+    };
+    window.addEventListener(
+      CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT,
+      syncPlanBadgeStyle as EventListener,
+    );
     return () => {
       window.removeEventListener(
         CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT,
@@ -116,10 +129,16 @@ export function CodexInstancesContent({
         CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT,
         syncAdditionalQuotaVisibility as EventListener,
       );
+      window.removeEventListener(
+        CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT,
+        syncPlanBadgeStyle as EventListener,
+      );
     };
   }, []);
 
   const resolvePresentation = (account: CodexAccount) => {
+    // Read planBadgeStyle so style event rebuilds badge classes on instances.
+    void planBadgeStyle;
     const presentation = buildCodexAccountPresentation(account, t);
     return {
       ...presentation,
@@ -134,12 +153,13 @@ export function CodexInstancesContent({
   const accountsWithDisplayName = useMemo(
     () =>
       accounts.map((account) => {
+        void planBadgeStyle;
         const displayName =
           buildCodexAccountPresentation(account, t).displayName ||
           account.email;
         return { ...account, email: displayName };
       }),
-    [accounts, t],
+    [accounts, t, planBadgeStyle],
   );
 
   const resolveApiProviderDisplayName = (account: CodexAccount): string => {

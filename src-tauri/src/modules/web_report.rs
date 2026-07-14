@@ -114,10 +114,6 @@ fn build_service_refresh_policies(cfg: &super::config::UserConfig) -> Vec<Servic
             interval_minutes: cfg.cursor_auto_refresh_minutes,
         },
         ServiceRefreshPolicy {
-            key: "gemini",
-            interval_minutes: cfg.gemini_auto_refresh_minutes,
-        },
-        ServiceRefreshPolicy {
             key: "grok",
             interval_minutes: cfg.grok_auto_refresh_minutes,
         },
@@ -186,9 +182,7 @@ async fn run_refresh_for_service(policy: ServiceRefreshPolicy) -> Result<(), Str
         "cursor" => super::cursor_account::refresh_all_tokens()
             .await
             .map(|_| ()),
-        "gemini" => super::gemini_account::refresh_all_tokens()
-            .await
-            .map(|_| ()),
+
         "grok" => super::grok_account::refresh_all_accounts()
             .await
             .map(|_| ()),
@@ -625,7 +619,6 @@ fn build_report_rows() -> Vec<ReportRow> {
     append_windsurf_rows(&mut rows);
     append_kiro_rows(&mut rows);
     append_cursor_rows(&mut rows);
-    append_gemini_rows(&mut rows);
     append_codebuddy_rows(
         &mut rows,
         "CodeBuddy",
@@ -1493,68 +1486,6 @@ fn append_cursor_rows(rows: &mut Vec<ReportRow>) {
     }
 }
 
-fn append_gemini_rows(rows: &mut Vec<ReportRow>) {
-    let accounts = super::gemini_account::list_accounts();
-    for account in accounts {
-        let account_name = account.email.clone();
-        let status = account.status.as_deref().unwrap_or("normal");
-        let mut pushed = false;
-
-        if let Some(raw_usage) = account.gemini_usage_raw.as_ref() {
-            if let Some(buckets) =
-                get_nested_value(raw_usage, &["buckets"]).and_then(Value::as_array)
-            {
-                for bucket in buckets {
-                    let Some(model_id) = get_nested_value(bucket, &["modelId"])
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                    else {
-                        continue;
-                    };
-
-                    let Some(remaining_fraction) =
-                        get_nested_value(bucket, &["remainingFraction"]).and_then(as_f64)
-                    else {
-                        continue;
-                    };
-
-                    let remaining = clamp_percent(remaining_fraction * 100.0);
-                    let used = 100.0 - remaining;
-                    let reset = parse_reset_value(get_nested_value(bucket, &["resetTime"]));
-
-                    rows.push(make_row(
-                        "Gemini",
-                        &account_name,
-                        model_id,
-                        &percent_text(used),
-                        &percent_text(remaining),
-                        &reset,
-                        status,
-                        "",
-                    ));
-                    pushed = true;
-                }
-            }
-        }
-
-        if !pushed {
-            rows.push(make_row(
-                "Gemini",
-                &account_name,
-                "Usage",
-                "-",
-                "-",
-                "-",
-                status,
-                account
-                    .status_reason
-                    .as_deref()
-                    .unwrap_or("Usage data unavailable"),
-            ));
-        }
-    }
-}
 
 fn append_codebuddy_rows(
     rows: &mut Vec<ReportRow>,

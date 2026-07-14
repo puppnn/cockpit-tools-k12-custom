@@ -52,6 +52,41 @@ pub struct CodexSessionRecord {
     pub updated_at: Option<i64>,
     pub location_count: usize,
     pub locations: Vec<CodexSessionLocation>,
+    /// conversation | external | subagent — vertical slice of #1510
+    #[serde(default = "default_session_kind")]
+    pub session_kind: String,
+}
+
+fn default_session_kind() -> String {
+    "conversation".to_string()
+}
+
+/// Classify session for UI filters (conversation / external / subagent).
+/// Empty title defaults to conversation so the default conversation filter
+/// does not hide real chats that have not received a title yet.
+pub fn classify_session_kind(title: &str, cwd: &str) -> String {
+    let title_l = title.trim().to_ascii_lowercase();
+    let cwd_l = cwd.trim().to_ascii_lowercase();
+    if title_l.contains("subagent")
+        || title_l.contains("sub-agent")
+        || title_l.contains("agent run")
+        || cwd_l.contains("/subagent")
+        || cwd_l.contains("\\subagent")
+        || cwd_l.contains("subagent/")
+        || cwd_l.contains("subagent\\")
+    {
+        return "subagent".to_string();
+    }
+    if title_l.contains("external")
+        || title_l.contains("imported")
+        || title_l.contains("cli run")
+        || cwd_l.contains("imported")
+        || cwd_l.contains("/external")
+        || cwd_l.contains("\\external")
+    {
+        return "external".to_string();
+    }
+    "conversation".to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -474,6 +509,7 @@ pub fn list_sessions_across_instances(
                         updated_at: snapshot.updated_at,
                         location_count: 0,
                         locations: Vec::new(),
+                        session_kind: classify_session_kind(&snapshot.title, &snapshot.cwd),
                     });
 
             if entry.updated_at.is_none() {
@@ -1390,12 +1426,45 @@ pub fn import_sessions(
     })
 }
 
-pub fn resolve_session_location_dir(session_id: String) -> Result<PathBuf, String> {
+pub fn resolve_session_location_dir(
+    session_id: String,
+    instance_id: Option<String>,
+) -> Result<PathBuf, String> {
+    let rollout_path = resolve_session_rollout_path(session_id, instance_id)?;
+    rollout_path
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            format!(
+                "无法解析会话文件所在目录: {}",
+                rollout_path.display()
+            )
+        })
+}
+
+/// Resolve rollout JSONL path. When `instance_id` is set, only that instance is searched
+/// (community #1510 multi-instance ambiguity fix). When omitted, newest match wins.
+pub fn resolve_session_rollout_path(
+    session_id: String,
+    instance_id: Option<String>,
+) -> Result<PathBuf, String> {
     let session_id = session_id.trim().to_string();
     if session_id.is_empty() {
         return Err("请选择一条会话".to_string());
     }
     let instances = collect_instances()?;
+    if let Some(instance_id) = instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let instance = instances
+            .iter()
+            .find(|instance| instance.id == instance_id)
+            .ok_or_else(|| "未找到所选实例".to_string())?;
+        return resolve_rollout_path_from_snapshots(load_thread_snapshots(instance)?, &session_id);
+    }
+
     let mut best_snapshot: Option<ThreadSnapshot> = None;
     for instance in &instances {
         for snapshot in load_thread_snapshots(instance)? {
@@ -1416,16 +1485,25 @@ pub fn resolve_session_location_dir(session_id: String) -> Result<PathBuf, Strin
     let Some(snapshot) = best_snapshot else {
         return Err("未找到该会话文件".to_string());
     };
-    snapshot
-        .rollout_path
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            format!(
-                "无法解析会话文件所在目录: {}",
-                snapshot.rollout_path.display()
-            )
-        })
+    Ok(snapshot.rollout_path)
+}
+
+fn resolve_rollout_path_from_snapshots(
+    snapshots: Vec<ThreadSnapshot>,
+    session_id: &str,
+) -> Result<PathBuf, String> {
+    let mut matches = snapshots
+        .into_iter()
+        .filter(|snapshot| snapshot.id == session_id)
+        .map(|snapshot| snapshot.rollout_path)
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup();
+    match matches.as_slice() {
+        [] => Err("未在所选实例中找到该会话文件".to_string()),
+        [path] => Ok(path.clone()),
+        _ => Err("所选实例中存在多个同 ID 会话文件，无法确定要打开哪一个".to_string()),
+    }
 }
 
 fn collect_instances() -> Result<Vec<CodexSyncInstance>, String> {
@@ -2938,6 +3016,20 @@ fn cleanup_empty_trash_ancestors(entry_dir: &Path) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn classify_session_kind_detects_subagent_and_external() {
+        assert_eq!(super::classify_session_kind("subagent run", "/tmp"), "subagent");
+        assert_eq!(super::classify_session_kind("imported external", "/x"), "external");
+        assert_eq!(super::classify_session_kind("My chat", "/proj"), "conversation");
+        // Untitled chats must remain visible under the default conversation filter.
+        assert_eq!(super::classify_session_kind("", "/Users/me/project"), "conversation");
+        assert_eq!(super::classify_session_kind("   ", "/tmp"), "conversation");
+        assert_eq!(
+            super::classify_session_kind("task", "/Users/me/.codex/subagent/work"),
+            "subagent"
+        );
+    }
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -44,9 +44,19 @@ export interface CodexLocalAccessModelAlias {
 
 export interface CodexLocalAccessModelPricing {
   modelId: string;
+  longContextThresholdTokens?: number | null;
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
   cachedInputUsdPerMillion?: number | null;
+  standardLongInputUsdPerMillion?: number | null;
+  standardLongOutputUsdPerMillion?: number | null;
+  standardLongCachedInputUsdPerMillion?: number | null;
+  priorityInputUsdPerMillion?: number | null;
+  priorityOutputUsdPerMillion?: number | null;
+  priorityCachedInputUsdPerMillion?: number | null;
+  priorityLongInputUsdPerMillion?: number | null;
+  priorityLongOutputUsdPerMillion?: number | null;
+  priorityLongCachedInputUsdPerMillion?: number | null;
 }
 
 export interface CodexLocalAccessApiKey {
@@ -192,6 +202,7 @@ export interface CodexLocalAccessUsageEvent {
   modelId: string;
   gatewayMode?: CodexLocalAccessGatewayMode | null;
   requestKind: CodexLocalAccessRequestKind;
+  serviceTier?: string | null;
   success: boolean;
   httpStatus?: number | null;
   errorCategory: string;

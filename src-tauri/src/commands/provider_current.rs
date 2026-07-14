@@ -18,13 +18,6 @@ fn resolve_provider_current_account_id(platform: &str) -> Result<Option<String>,
                 &accounts,
             ))
         }
-        "gemini" => {
-            let accounts = crate::modules::gemini_account::list_accounts();
-            Ok(
-                crate::modules::gemini_account::resolve_current_account(&accounts)
-                    .map(|account| account.id),
-            )
-        }
         "codebuddy" => {
             let accounts = crate::modules::codebuddy_account::list_accounts();
             Ok(crate::modules::codebuddy_account::resolve_current_account_id(&accounts))
@@ -122,7 +115,6 @@ mod tests {
             "windsurf",
             "kiro",
             "cursor",
-            "gemini",
             "codebuddy",
             "codebuddy_cn",
             "codebuddy-cn",

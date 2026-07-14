@@ -14,7 +14,6 @@ const QUICK_SETTINGS_SCOPE_MAP: Record<string, string> = {
   windsurf: 'windsurf',
   kiro: 'kiro',
   cursor: 'cursor',
-  gemini: 'gemini',
   grok: 'grok',
   codebuddy: 'codebuddy',
   codebuddy_cn: 'codebuddy_cn',

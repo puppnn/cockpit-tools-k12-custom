@@ -89,6 +89,8 @@ pub struct CodexAccount {
     pub api_provider_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_model_catalog: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub api_sync_model_catalog_to_codex: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_wire_api: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -276,6 +278,9 @@ pub struct CodexAuthFile {
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<CodexAuthTokens>,
+    /// Official personal access token auth shape (`at-*` only, no refresh/id token).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_access_token: Option<String>,
     #[serde(default)]
     pub last_refresh: Option<serde_json::Value>, // 可以是字符串或数字
 }
@@ -377,6 +382,7 @@ impl CodexAccount {
             api_provider_id: None,
             api_provider_name: None,
             api_model_catalog: Vec::new(),
+            api_sync_model_catalog_to_codex: false,
             api_wire_api: None,
             api_supports_websockets: false,
             api_supports_vision: false,
@@ -444,6 +450,7 @@ impl CodexAccount {
         account.api_provider_id = api_provider_id;
         account.api_provider_name = api_provider_name;
         account.api_model_catalog = api_model_catalog;
+        account.api_sync_model_catalog_to_codex = false;
         account.api_wire_api = None;
         account.api_supports_websockets = false;
         account.api_supports_vision = false;
@@ -486,5 +493,6 @@ mod tests {
 
         let restored: CodexAccount = serde_json::from_value(value).expect("deserialize account");
         assert!(!restored.api_supports_websockets);
+        assert!(!restored.api_sync_model_catalog_to_codex);
     }
 }

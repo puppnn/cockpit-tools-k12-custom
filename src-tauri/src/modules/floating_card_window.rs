@@ -1,22 +1,29 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, Runtime, WebviewWindow, WebviewWindowBuilder,
+    Window,
 };
 
-use crate::modules::{config, i18n, logger};
+use crate::modules::{config, i18n, logger, process_memory};
 
 pub const FLOATING_CARD_WINDOW_LABEL: &str = "floating-card";
 pub const INSTANCE_FLOATING_CARD_WINDOW_LABEL_PREFIX: &str = "instance-floating-card-";
 pub const FLOATING_CARD_CONTEXT_CHANGED_EVENT: &str = "floating-card:context-changed";
+const MAIN_WINDOW_LABEL: &str = "main";
 const FLOATING_CARD_DEFAULT_MARGIN: i32 = 20;
 const INSTANCE_FLOATING_CARD_WINDOW_OFFSET_STEP: i32 = 28;
 const FLOATING_CARD_NATIVE_CORNER_RADIUS: f64 = 15.0;
 static FLOATING_CARD_INSTANCE_CONTEXTS: LazyLock<
     Mutex<HashMap<String, FloatingCardInstanceContext>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
+static PENDING_MAIN_WINDOW_NAVIGATION: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
+static APP_EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static MAIN_WINDOW_DESTROYED_TO_TRAY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -434,20 +441,107 @@ pub fn hide_floating_card_window<R: Runtime>(
     Ok(())
 }
 
+fn main_window_config(
+    app: &AppHandle<impl Runtime>,
+) -> Result<&tauri::utils::config::WindowConfig, String> {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|item| item.label == MAIN_WINDOW_LABEL)
+        .ok_or_else(|| "main_window_config_not_found".to_string())
+}
+
+fn clone_main_window_config(
+    app: &AppHandle<impl Runtime>,
+) -> Result<tauri::utils::config::WindowConfig, String> {
+    let mut config = main_window_config(app)?.clone();
+    config.create = false;
+    config.visible = false;
+    Ok(config)
+}
+
+fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(WebviewWindow<R>, bool), String> {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        return Ok((window, false));
+    }
+
+    let window_config = clone_main_window_config(app)?;
+    let window = WebviewWindowBuilder::from_config(app, &window_config)
+        .map_err(|err| err.to_string())?
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    logger::log_info("[Window] WebView 主窗口已重新创建");
+    Ok((window, true))
+}
+
+fn set_pending_main_window_navigation(page: &str) -> Result<(), String> {
+    let mut pending = PENDING_MAIN_WINDOW_NAVIGATION
+        .lock()
+        .map_err(|_| "main_window_navigation_lock_failed".to_string())?;
+    *pending = Some(page.to_string());
+    Ok(())
+}
+
+pub fn take_pending_main_window_navigation() -> Result<Option<String>, String> {
+    PENDING_MAIN_WINDOW_NAVIGATION
+        .lock()
+        .map_err(|_| "main_window_navigation_lock_failed".to_string())
+        .map(|mut pending| pending.take())
+}
+
+pub fn request_app_exit() {
+    APP_EXIT_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+pub fn should_keep_alive_after_main_window_destroyed() -> bool {
+    MAIN_WINDOW_DESTROYED_TO_TRAY.load(Ordering::SeqCst)
+        && !APP_EXIT_REQUESTED.load(Ordering::SeqCst)
+}
+
+/// Destroy the main WebView when minimizing to tray (community #686 full behavior).
+/// Backend, tray, and background services stay alive; reopen recreates the window.
+pub fn destroy_main_window_to_tray<R: Runtime>(window: &Window<R>) -> Result<(), String> {
+    MAIN_WINDOW_DESTROYED_TO_TRAY.store(true, Ordering::SeqCst);
+    if let Err(err) = window.destroy() {
+        MAIN_WINDOW_DESTROYED_TO_TRAY.store(false, Ordering::SeqCst);
+        return Err(err.to_string());
+    }
+    process_memory::trim_idle_process_memory();
+    logger::log_info("[Window] 主窗口 WebView 已销毁并保留托盘进程");
+    Ok(())
+}
+
 pub fn show_main_window_and_navigate<R: Runtime>(
     app: &AppHandle<R>,
     page: &str,
 ) -> Result<(), String> {
-    show_main_window(app)?;
-    app.emit("tray:navigate", page.to_string())
-        .map_err(|err| err.to_string())?;
+    let should_defer_navigation = app.get_webview_window(MAIN_WINDOW_LABEL).is_none();
+    if should_defer_navigation {
+        set_pending_main_window_navigation(page)?;
+    }
+    if let Err(err) = show_main_window_internal(app) {
+        if should_defer_navigation {
+            let _ = take_pending_main_window_navigation();
+        }
+        return Err(err);
+    }
+    if let Err(err) = app.emit("tray:navigate", page.to_string()) {
+        if should_defer_navigation {
+            let _ = take_pending_main_window_navigation();
+        }
+        return Err(err.to_string());
+    }
     Ok(())
 }
 
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let Some(window) = app.get_webview_window("main") else {
-        return Err("main_window_not_found".to_string());
-    };
+    show_main_window_internal(app).map(|_| ())
+}
+
+fn show_main_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
+    let (window, created) = ensure_main_window(app)?;
 
     logger::log_info("[Window] 尝试恢复主窗口");
     #[cfg(target_os = "macos")]
@@ -468,7 +562,12 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         logger::log_warn(&format!("[Window] Windows 原生前置主窗口失败: {}", err));
     }
 
-    Ok(())
+    if created {
+        MAIN_WINDOW_DESTROYED_TO_TRAY.store(false, Ordering::SeqCst);
+        logger::log_info("[Window] 主窗口恢复完成，前端将重新加载");
+    }
+
+    Ok(created)
 }
 
 #[cfg(target_os = "macos")]

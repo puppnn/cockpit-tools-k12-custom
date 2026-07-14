@@ -33,6 +33,9 @@ pub struct ServerStatus {
     pub pid: u32,
     /// 启动时间戳
     pub started_at: i64,
+    /// 当前进程 WebSocket 会话鉴权 token（高危操作必填，#1104）
+    #[serde(default)]
+    pub auth_token: String,
 }
 
 /// 用户配置（持久化存储）
@@ -77,6 +80,18 @@ pub struct UserConfig {
     /// 应用主题
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// 主题色套件：default / nord / tokyo-night / catppuccin / gruvbox / everforest
+    #[serde(default = "default_theme_color")]
+    pub theme_color: String,
+    /// 是否允许受控外连：当前闸 WebDAV 同步与 OpenRouter 用量刷新（非全局网络 kill switch）
+    #[serde(default = "default_external_network_enabled")]
+    pub external_network_enabled: bool,
+    /// WebDAV 允许域名（逗号分隔，空=不限制）；非空时同步 URL 主机必须匹配
+    #[serde(default = "default_webdav_allowed_domains")]
+    pub webdav_allowed_domains: String,
+    /// 是否减少界面动画
+    #[serde(default = "default_reduced_motion_enabled")]
+    pub reduced_motion_enabled: bool,
     /// 界面缩放比例
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f64,
@@ -107,18 +122,12 @@ pub struct UserConfig {
     /// Cursor 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_cursor_auto_refresh")]
     pub cursor_auto_refresh_minutes: i32,
-    /// Gemini 自动刷新间隔（分钟），-1 表示禁用
-    #[serde(default = "default_gemini_auto_refresh")]
-    pub gemini_auto_refresh_minutes: i32,
     /// Grok CLI 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_grok_auto_refresh")]
     pub grok_auto_refresh_minutes: i32,
     /// Claude 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_claude_auto_refresh")]
     pub claude_auto_refresh_minutes: i32,
-    /// Gemini 切号时是否同步覆盖 WSL 配置 (Windows Only)
-    #[serde(default = "default_gemini_sync_wsl")]
-    pub gemini_sync_wsl: bool,
     /// CodeBuddy 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_codebuddy_auto_refresh")]
     pub codebuddy_auto_refresh_minutes: i32,
@@ -161,6 +170,9 @@ pub struct UserConfig {
     /// 是否在启动后自动最小化主窗口
     #[serde(default = "default_startup_minimized")]
     pub startup_minimized: bool,
+    /// 启动默认页面：`last` 表示恢复上次页面，其它为页面 id（如 dashboard、codex）
+    #[serde(default = "default_startup_page")]
+    pub startup_page: String,
     /// 悬浮卡片是否默认置顶
     #[serde(default = "default_floating_card_always_on_top")]
     pub floating_card_always_on_top: bool,
@@ -170,6 +182,9 @@ pub struct UserConfig {
     /// 是否启用后台账号授权保活
     #[serde(default = "default_token_keeper_enabled")]
     pub token_keeper_enabled: bool,
+    /// 是否启用本机账号变更后自动导入
+    #[serde(default = "default_auto_import_from_local_enabled")]
+    pub auto_import_from_local_enabled: bool,
     /// 是否在应用启动后触发 Antigravity IDE 唤醒
     #[serde(default = "default_antigravity_startup_wakeup_enabled")]
     pub antigravity_startup_wakeup_enabled: bool,
@@ -325,6 +340,9 @@ pub struct UserConfig {
     /// 切换 Codex 时是否覆盖 OpenClaw 登录信息
     #[serde(default = "default_openclaw_auth_overwrite_on_switch")]
     pub openclaw_auth_overwrite_on_switch: bool,
+    /// 切换 Codex 时是否同步 Hermes auth.json（默认关）
+    #[serde(default = "default_hermes_auth_overwrite_on_switch")]
+    pub hermes_auth_overwrite_on_switch: bool,
     /// 切换 Codex 时是否自动启动/重启 Codex App
     #[serde(default = "default_codex_launch_on_switch")]
     pub codex_launch_on_switch: bool,
@@ -430,12 +448,6 @@ pub struct UserConfig {
     /// Cursor 配额预警阈值（百分比）
     #[serde(default = "default_cursor_quota_alert_threshold")]
     pub cursor_quota_alert_threshold: i32,
-    /// 是否启用 Gemini 配额预警通知
-    #[serde(default = "default_gemini_quota_alert_enabled")]
-    pub gemini_quota_alert_enabled: bool,
-    /// Gemini 配额预警阈值（百分比）
-    #[serde(default = "default_gemini_quota_alert_threshold")]
-    pub gemini_quota_alert_threshold: i32,
     /// 是否启用 Grok CLI 配额预警通知
     #[serde(default = "default_grok_quota_alert_enabled")]
     pub grok_quota_alert_enabled: bool,
@@ -597,6 +609,41 @@ fn default_default_terminal() -> String {
 fn default_theme() -> String {
     "system".to_string()
 }
+fn default_theme_color() -> String {
+    "default".to_string()
+}
+fn default_external_network_enabled() -> bool {
+    true
+}
+fn default_webdav_allowed_domains() -> String {
+    String::new()
+}
+
+/// Normalize theme color pack id.
+pub fn normalize_theme_color(raw: &str) -> String {
+    let v = raw.trim().to_ascii_lowercase().replace('_', "-");
+    match v.as_str() {
+        "nord" | "tokyo-night" | "tokyonight" => {
+            if v == "tokyonight" {
+                "tokyo-night".to_string()
+            } else {
+                v
+            }
+        }
+        "catppuccin" | "gruvbox" | "everforest" | "ayu" | "one-dark" | "onedark" => {
+            if v == "onedark" {
+                "one-dark".to_string()
+            } else {
+                v
+            }
+        }
+        "default" | "" => "default".to_string(),
+        _ => "default".to_string(),
+    }
+}
+fn default_reduced_motion_enabled() -> bool {
+    false
+}
 fn default_ui_scale() -> f64 {
     1.0
 }
@@ -627,17 +674,11 @@ fn default_kiro_auto_refresh() -> i32 {
 fn default_cursor_auto_refresh() -> i32 {
     10
 } // 默认 10 分钟
-fn default_gemini_auto_refresh() -> i32 {
-    10
-}
 fn default_grok_auto_refresh() -> i32 {
     10
 }
 fn default_claude_auto_refresh() -> i32 {
     10
-}
-fn default_gemini_sync_wsl() -> bool {
-    true
 }
 fn default_codebuddy_auto_refresh() -> i32 {
     10
@@ -675,6 +716,52 @@ fn default_floating_card_show_on_startup() -> bool {
 fn default_startup_minimized() -> bool {
     false
 }
+fn default_startup_page() -> String {
+    "last".to_string()
+}
+
+/// 规范化启动页配置；非法值回退为 `last`。
+pub fn normalize_startup_page(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() || normalized == "last" {
+        return "last".to_string();
+    }
+    const ALLOWED: &[&str] = &[
+        "dashboard",
+        "api-relay",
+        "overview",
+        "codex",
+        "claude",
+        "claude-cli",
+        "codex-api-service",
+        "github-copilot",
+        "windsurf",
+        "kiro",
+        "cursor",
+        "grok",
+        "codebuddy",
+        "codebuddy-cn",
+        "qoder",
+        "zcode",
+        "trae",
+        "trae-solo",
+        "trae-cn",
+        "trae-solo-cn",
+        "workbuddy",
+        "zed",
+        "instances",
+        "wakeup",
+        "verification",
+        "2fa",
+        "manual",
+        "settings",
+    ];
+    if ALLOWED.contains(&normalized.as_str()) {
+        normalized
+    } else {
+        "last".to_string()
+    }
+}
 fn default_floating_card_always_on_top() -> bool {
     false
 }
@@ -683,6 +770,9 @@ fn default_app_auto_launch_enabled() -> bool {
 }
 fn default_token_keeper_enabled() -> bool {
     true
+}
+fn default_auto_import_from_local_enabled() -> bool {
+    false
 }
 fn default_antigravity_startup_wakeup_enabled() -> bool {
     false
@@ -823,6 +913,9 @@ fn default_ghcp_launch_on_switch() -> bool {
 fn default_openclaw_auth_overwrite_on_switch() -> bool {
     false
 }
+fn default_hermes_auth_overwrite_on_switch() -> bool {
+    false
+}
 fn default_codex_launch_on_switch() -> bool {
     true
 }
@@ -928,12 +1021,6 @@ fn default_cursor_quota_alert_enabled() -> bool {
 fn default_cursor_quota_alert_threshold() -> i32 {
     20
 }
-fn default_gemini_quota_alert_enabled() -> bool {
-    false
-}
-fn default_gemini_quota_alert_threshold() -> i32 {
-    20
-}
 fn default_grok_quota_alert_enabled() -> bool {
     false
 }
@@ -993,6 +1080,10 @@ impl Default for UserConfig {
             language: default_language(),
             default_terminal: default_default_terminal(),
             theme: default_theme(),
+            theme_color: default_theme_color(),
+            external_network_enabled: default_external_network_enabled(),
+            webdav_allowed_domains: default_webdav_allowed_domains(),
+            reduced_motion_enabled: default_reduced_motion_enabled(),
             ui_scale: default_ui_scale(),
             auto_refresh_minutes: default_auto_refresh(),
             codex_auto_refresh_minutes: default_codex_auto_refresh(),
@@ -1003,10 +1094,8 @@ impl Default for UserConfig {
             windsurf_auto_refresh_minutes: default_windsurf_auto_refresh(),
             kiro_auto_refresh_minutes: default_kiro_auto_refresh(),
             cursor_auto_refresh_minutes: default_cursor_auto_refresh(),
-            gemini_auto_refresh_minutes: default_gemini_auto_refresh(),
             grok_auto_refresh_minutes: default_grok_auto_refresh(),
             claude_auto_refresh_minutes: default_claude_auto_refresh(),
-            gemini_sync_wsl: default_gemini_sync_wsl(),
             codebuddy_auto_refresh_minutes: default_codebuddy_auto_refresh(),
             codebuddy_cn_auto_refresh_minutes: default_codebuddy_cn_auto_refresh(),
             workbuddy_auto_refresh_minutes: default_workbuddy_auto_refresh(),
@@ -1022,9 +1111,11 @@ impl Default for UserConfig {
             tray_icon_style: default_tray_icon_style(),
             floating_card_show_on_startup: default_floating_card_show_on_startup(),
             startup_minimized: default_startup_minimized(),
+            startup_page: default_startup_page(),
             floating_card_always_on_top: default_floating_card_always_on_top(),
             app_auto_launch_enabled: default_app_auto_launch_enabled(),
             token_keeper_enabled: default_token_keeper_enabled(),
+            auto_import_from_local_enabled: default_auto_import_from_local_enabled(),
             antigravity_startup_wakeup_enabled: default_antigravity_startup_wakeup_enabled(),
             antigravity_startup_wakeup_delay_seconds:
                 default_antigravity_startup_wakeup_delay_seconds(),
@@ -1081,6 +1172,7 @@ impl Default for UserConfig {
             ),
             ghcp_launch_on_switch: default_ghcp_launch_on_switch(),
             openclaw_auth_overwrite_on_switch: default_openclaw_auth_overwrite_on_switch(),
+            hermes_auth_overwrite_on_switch: default_hermes_auth_overwrite_on_switch(),
             codex_launch_on_switch: default_codex_launch_on_switch(),
             antigravity_launch_on_switch: default_antigravity_launch_on_switch(),
             codex_restart_specified_app_on_switch: default_codex_restart_specified_app_on_switch(),
@@ -1118,8 +1210,6 @@ impl Default for UserConfig {
             kiro_quota_alert_threshold: default_kiro_quota_alert_threshold(),
             cursor_quota_alert_enabled: default_cursor_quota_alert_enabled(),
             cursor_quota_alert_threshold: default_cursor_quota_alert_threshold(),
-            gemini_quota_alert_enabled: default_gemini_quota_alert_enabled(),
-            gemini_quota_alert_threshold: default_gemini_quota_alert_threshold(),
             grok_quota_alert_enabled: default_grok_quota_alert_enabled(),
             grok_quota_alert_threshold: default_grok_quota_alert_threshold(),
             claude_quota_alert_enabled: default_claude_quota_alert_enabled(),
@@ -1357,24 +1447,9 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             );
         }
 
-        if !obj.contains_key("gemini_auto_refresh_minutes") {
-            let inherited_refresh = obj
-                .get("cursor_auto_refresh_minutes")
-                .or_else(|| obj.get("kiro_auto_refresh_minutes"))
-                .or_else(|| obj.get("windsurf_auto_refresh_minutes"))
-                .and_then(|v| v.as_i64())
-                .map(|v| v as i32)
-                .unwrap_or_else(default_gemini_auto_refresh);
-            obj.insert(
-                "gemini_auto_refresh_minutes".to_string(),
-                json!(inherited_refresh),
-            );
-        }
-
         if !obj.contains_key("claude_auto_refresh_minutes") {
             let inherited_refresh = obj
-                .get("gemini_auto_refresh_minutes")
-                .or_else(|| obj.get("codex_auto_refresh_minutes"))
+                .get("codex_auto_refresh_minutes")
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_claude_auto_refresh);
@@ -1398,17 +1473,9 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             );
         }
 
-        if !obj.contains_key("gemini_sync_wsl") {
-            obj.insert(
-                "gemini_sync_wsl".to_string(),
-                json!(default_gemini_sync_wsl()),
-            );
-        }
-
         if !obj.contains_key("qoder_auto_refresh_minutes") {
             let inherited_refresh = obj
-                .get("gemini_auto_refresh_minutes")
-                .or_else(|| obj.get("cursor_auto_refresh_minutes"))
+                .get("cursor_auto_refresh_minutes")
                 .or_else(|| obj.get("kiro_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
@@ -1422,7 +1489,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("zcode_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("qoder_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_zcode_auto_refresh);
@@ -1435,7 +1501,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("codebuddy_cn_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("codebuddy_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_codebuddy_cn_auto_refresh);
@@ -1449,7 +1514,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             let inherited_refresh = obj
                 .get("codebuddy_cn_auto_refresh_minutes")
                 .or_else(|| obj.get("codebuddy_auto_refresh_minutes"))
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_workbuddy_auto_refresh);
@@ -1462,7 +1526,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("trae_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("qoder_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_trae_auto_refresh);
@@ -1517,6 +1580,16 @@ pub fn load_user_config() -> Result<UserConfig, String> {
                 "startup_minimized".to_string(),
                 json!(default_startup_minimized()),
             );
+        }
+
+        if !obj.contains_key("startup_page") {
+            obj.insert(
+                "startup_page".to_string(),
+                json!(default_startup_page()),
+            );
+        } else if let Some(value) = obj.get("startup_page").and_then(|v| v.as_str()) {
+            let normalized = normalize_startup_page(value);
+            obj.insert("startup_page".to_string(), json!(normalized));
         }
 
         if !obj.contains_key("floating_card_always_on_top") {
@@ -1579,6 +1652,12 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "token_keeper_enabled".to_string(),
                 json!(default_token_keeper_enabled()),
+            );
+        }
+        if !obj.contains_key("auto_import_from_local_enabled") {
+            obj.insert(
+                "auto_import_from_local_enabled".to_string(),
+                json!(default_auto_import_from_local_enabled()),
             );
         }
 
@@ -1702,6 +1781,12 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "default_terminal".to_string(),
                 json!(default_default_terminal()),
+            );
+        }
+        if !obj.contains_key("reduced_motion_enabled") {
+            obj.insert(
+                "reduced_motion_enabled".to_string(),
+                json!(default_reduced_motion_enabled()),
             );
         }
         if !obj.contains_key("global_proxy_enabled") {
@@ -1903,18 +1988,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("cursor_quota_alert_threshold") {
             obj.insert(
                 "cursor_quota_alert_threshold".to_string(),
-                json!(legacy_threshold),
-            );
-        }
-        if !obj.contains_key("gemini_quota_alert_enabled") {
-            obj.insert(
-                "gemini_quota_alert_enabled".to_string(),
-                json!(legacy_enabled),
-            );
-        }
-        if !obj.contains_key("gemini_quota_alert_threshold") {
-            obj.insert(
-                "gemini_quota_alert_threshold".to_string(),
                 json!(legacy_threshold),
             );
         }
@@ -2250,7 +2323,7 @@ pub fn save_server_status(status: &ServerStatus) -> Result<(), String> {
 }
 
 /// 初始化服务状态（WebSocket 启动后调用）
-pub fn init_server_status(actual_port: u16) -> Result<(), String> {
+pub fn init_server_status(actual_port: u16, auth_token: String) -> Result<(), String> {
     // 更新运行时状态
     if let Ok(mut state) = get_runtime_state().write() {
         state.actual_port = Some(actual_port);
@@ -2261,6 +2334,7 @@ pub fn init_server_status(actual_port: u16) -> Result<(), String> {
         version: env!("CARGO_PKG_VERSION").to_string(),
         pid: std::process::id(),
         started_at: chrono::Utc::now().timestamp(),
+        auth_token,
     };
 
     save_server_status(&status)?;
@@ -2270,6 +2344,13 @@ pub fn init_server_status(actual_port: u16) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn normalize_theme_color_maps_aliases() {
+        assert_eq!(super::normalize_theme_color("TokyoNight"), "tokyo-night");
+        assert_eq!(super::normalize_theme_color("onedark"), "one-dark");
+        assert_eq!(super::normalize_theme_color("nope"), "default");
+    }
     use super::{acquire_config_file_lock, patch_runtime_state, RuntimeState, UserConfig};
     use std::fs;
     use std::path::Path;

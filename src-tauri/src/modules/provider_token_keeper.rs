@@ -10,7 +10,7 @@ use tauri::AppHandle;
 use tokio::sync::Notify;
 
 use crate::modules::{
-    codebuddy_account, codebuddy_cn_account, codex_account, config, cursor_account, gemini_account,
+    codebuddy_account, codebuddy_cn_account, codex_account, config, cursor_account,
     github_copilot_account, grok_account, kiro_account, kiro_instance, logger, process,
     trae_account, windsurf_account, windsurf_instance, workbuddy_account,
 };
@@ -75,7 +75,6 @@ async fn run_refresh_cycle(app_handle: &AppHandle) {
 
     refreshed_any |= refresh_platform_if_due("codex", refresh_due_codex_accounts).await;
     refreshed_any |= refresh_platform_if_due("cursor", refresh_due_cursor_accounts).await;
-    refreshed_any |= refresh_platform_if_due("gemini", refresh_due_gemini_accounts).await;
     refreshed_any |= refresh_platform_if_due("grok", refresh_due_grok_accounts).await;
     refreshed_any |=
         refresh_platform_if_due("github_copilot", refresh_due_github_copilot_accounts).await;
@@ -322,66 +321,6 @@ async fn refresh_due_cursor_accounts() -> bool {
     refreshed_any
 }
 
-async fn refresh_due_gemini_accounts() -> bool {
-    let accounts = match gemini_account::list_accounts_checked() {
-        Ok(accounts) => accounts,
-        Err(err) => {
-            logger::log_warn(&format!(
-                "[TokenKeeper][Gemini] 读取账号列表失败，跳过本轮保活: {}",
-                err
-            ));
-            return false;
-        }
-    };
-
-    let current_id = gemini_account::resolve_current_account(&accounts).map(|account| account.id);
-    let mut refreshed_any = false;
-    let mut attempted_refreshes = 0usize;
-
-    for account in accounts {
-        if reached_platform_refresh_limit(attempted_refreshes) {
-            break;
-        }
-        if !expires_at_milliseconds_due(account.expiry_date) {
-            continue;
-        }
-
-        let key = format!("gemini:{}", account.id);
-        if !allow_attempt(&key) {
-            continue;
-        }
-
-        attempted_refreshes += 1;
-        match gemini_account::refresh_account_token(&account.id).await {
-            Ok(updated) => {
-                clear_attempt_backoff(&key);
-                refreshed_any = true;
-                if current_id.as_deref() == Some(updated.id.as_str()) {
-                    if let Err(err) = gemini_account::inject_to_gemini(&updated.id) {
-                        logger::log_warn(&format!(
-                            "[TokenKeeper][Gemini] 当前本地登录回写失败: account_id={}, error={}",
-                            updated.id, err
-                        ));
-                    }
-                }
-                logger::log_info(&format!(
-                    "[TokenKeeper][Gemini] Token 保活成功: account_id={}, email={}",
-                    updated.id, updated.email
-                ));
-            }
-            Err(err) => {
-                mark_attempt_failure(&key);
-                logger::log_warn(&format!(
-                    "[TokenKeeper][Gemini] Token 保活失败，进入退避: account_id={}, error={}",
-                    account.id, err
-                ));
-            }
-        }
-    }
-
-    refreshed_any
-}
-
 async fn refresh_due_grok_accounts() -> bool {
     let accounts = match grok_account::list_accounts_checked() {
         Ok(accounts) => accounts,
@@ -411,7 +350,8 @@ async fn refresh_due_grok_accounts() -> bool {
             continue;
         }
         attempted_refreshes += 1;
-        match grok_account::force_refresh_account(&account.id).await {
+        // 软刷新：未临近过期不轮换单次 refresh_token，并在刷新前吸收 CLI 已写回的 auth.json，避免互抢
+        match grok_account::refresh_account(&account.id).await {
             Ok(updated) => {
                 clear_attempt_backoff(&key);
                 refreshed_any = true;

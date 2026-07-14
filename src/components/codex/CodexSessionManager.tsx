@@ -2,7 +2,7 @@ import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } fr
 import { useTranslation } from 'react-i18next';
 import { confirm as confirmDialog, open as openFileDialog, save as saveFileDialog } from '@tauri-apps/plugin-dialog';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { Check, ChevronDown, ChevronRight, Copy, Download, Eye, Folder, FolderOpen, Minimize2, RefreshCw, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Download, Eye, FileText, Folder, FolderOpen, Minimize2, RefreshCw, RotateCcw, Search, Trash2, Upload, X } from 'lucide-react';
 import { ModalErrorMessage, useModalErrorState } from '../ModalErrorMessage';
 import { SingleSelectDropdown, type SingleSelectOption } from '../SingleSelectDropdown';
 import { useEscClose } from '../../hooks/useEscClose';
@@ -147,11 +147,20 @@ function formatLargeNumber(value: number): string {
 }
 
 function formatTokenStats(stats?: CodexSessionTokenStats): string {
-  if (stats) {
-    return `${formatLargeNumber(stats.inputTokens)} / ${formatLargeNumber(stats.outputTokens)} tokens`;
+  if (!stats) {
+    return '';
   }
-
-  return '';
+  const input = stats.inputTokens ?? 0;
+  const output = stats.outputTokens ?? 0;
+  const total = stats.totalTokens ?? 0;
+  // #1510: when only total is available, show total-only instead of 0/0.
+  if (input === 0 && output === 0) {
+    if (total > 0) {
+      return `${formatLargeNumber(total)} tokens`;
+    }
+    return '';
+  }
+  return `${formatLargeNumber(input)} / ${formatLargeNumber(output)} tokens`;
 }
 
 function formatBytes(value: number): string {
@@ -240,6 +249,7 @@ export function CodexSessionManager() {
   const previewSessionImport = useCodexInstanceStore((state) => state.previewSessionImport);
   const importSessions = useCodexInstanceStore((state) => state.importSessions);
   const openSessionLocation = useCodexInstanceStore((state) => state.openSessionLocation);
+  const openSessionRollout = useCodexInstanceStore((state) => state.openSessionRollout);
   const [sessions, setSessions] = useState<CodexSessionRecord[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
@@ -281,6 +291,9 @@ export function CodexSessionManager() {
   const [loadedTokenGroupCwds, setLoadedTokenGroupCwds] = useState<string[]>([]);
   const [titleSearchInput, setTitleSearchInput] = useState('');
   const [appliedTitleSearch, setAppliedTitleSearch] = useState('');
+  const [sessionKindFilter, setSessionKindFilter] = useState<
+    'all' | 'conversation' | 'external' | 'subagent'
+  >('conversation');
   const {
     message: restoreModalError,
     scrollKey: restoreModalErrorScrollKey,
@@ -360,6 +373,27 @@ export function CodexSessionManager() {
           : instance.name || t('instances.defaultName', '默认实例'),
       })),
     [orderedInstances, t],
+  );
+  const sessionKindOptions = useMemo<SingleSelectOption[]>(
+    () => [
+      {
+        value: 'conversation',
+        label: t('codex.sessionManager.kind.conversation', '对话'),
+      },
+      {
+        value: 'external',
+        label: t('codex.sessionManager.kind.external', '外部'),
+      },
+      {
+        value: 'subagent',
+        label: t('codex.sessionManager.kind.subagent', '子代理'),
+      },
+      {
+        value: 'all',
+        label: t('codex.sessionManager.kind.all', '全部类型'),
+      },
+    ],
+    [t],
   );
   const importReadyItems = useMemo(
     () => importPreview?.items.filter((item) => item.status === 'ready') ?? [],
@@ -493,9 +527,14 @@ export function CodexSessionManager() {
     const task = (async () => {
       setLoading(true);
       try {
-        const nextSessions = await listSessionsAcrossInstances({
+        let nextSessions = await listSessionsAcrossInstances({
           titleQuery: appliedTitleSearch || null,
         });
+        if (sessionKindFilter !== 'all') {
+          nextSessions = nextSessions.filter(
+            (s) => (s.sessionKind || 'conversation') === sessionKindFilter,
+          );
+        }
         const nextGroups = buildGroups(nextSessions);
         const hasInitializedExpandedGroups = hasInitializedExpandedGroupsRef.current;
         tokenStatsVersionRef.current += 1;
@@ -529,7 +568,7 @@ export function CodexSessionManager() {
         loadSessionsPromiseRef.current = null;
       }
     }
-  }, [appliedTitleSearch, listSessionsAcrossInstances]);
+  }, [appliedTitleSearch, listSessionsAcrossInstances, sessionKindFilter]);
 
   const loadTokenStatsForGroups = useCallback(
     async (groups: SessionGroup[]) => {
@@ -1357,15 +1396,75 @@ export function CodexSessionManager() {
     }
   };
 
+  const pickSessionInstanceId = (session: CodexSessionRecord): string | null => {
+    if (session.locations.length === 1) {
+      return session.locations[0]?.instanceId ?? null;
+    }
+    if (session.locations.length > 1) {
+      // Prefer default instance when present; otherwise first location.
+      const preferred =
+        session.locations.find((loc) => loc.instanceId === '__default__') ??
+        session.locations[0];
+      return preferred?.instanceId ?? null;
+    }
+    return null;
+  };
+
   const handleOpenSessionLocation = async (
     event: MouseEvent<HTMLButtonElement>,
-    sessionId: string,
+    session: CodexSessionRecord,
   ) => {
     event.preventDefault();
     event.stopPropagation();
     setMessage(null);
     try {
-      await openSessionLocation(sessionId);
+      if (session.locations.length > 1) {
+        // Require explicit choice when ambiguous (#1510).
+        const chosen = window.prompt(
+          t(
+            'codex.sessionManager.pickInstancePrompt',
+            '该会话存在于多个实例，请输入实例 ID（可在位置列查看）：',
+          ),
+          session.locations[0]?.instanceId ?? '',
+        );
+        if (!chosen?.trim()) {
+          return;
+        }
+        await openSessionLocation(session.sessionId, chosen.trim());
+      } else {
+        await openSessionLocation(
+          session.sessionId,
+          pickSessionInstanceId(session),
+        );
+      }
+    } catch (error) {
+      setMessage({ text: String(error), tone: 'error' });
+    }
+  };
+
+  const handleOpenSessionRollout = async (
+    event: MouseEvent<HTMLButtonElement>,
+    session: CodexSessionRecord,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMessage(null);
+    try {
+      let instanceId = pickSessionInstanceId(session);
+      if (session.locations.length > 1) {
+        const chosen = window.prompt(
+          t(
+            'codex.sessionManager.pickInstancePrompt',
+            '该会话存在于多个实例，请输入实例 ID（可在位置列查看）：',
+          ),
+          session.locations[0]?.instanceId ?? '',
+        );
+        if (!chosen?.trim()) {
+          return;
+        }
+        instanceId = chosen.trim();
+      }
+      await openSessionRollout(session.sessionId, instanceId);
     } catch (error) {
       setMessage({ text: String(error), tone: 'error' });
     }
@@ -1432,106 +1531,124 @@ export function CodexSessionManager() {
             <X size={14} />
             {t('codex.sessionManager.search.clear', '清空')}
           </button>
+          <SingleSelectDropdown
+            className="codex-session-manager__kind-filter"
+            value={sessionKindFilter}
+            disabled={loading}
+            options={sessionKindOptions}
+            onChange={(value) =>
+              setSessionKindFilter(
+                value as 'all' | 'conversation' | 'external' | 'subagent',
+              )
+            }
+            ariaLabel={t('codex.sessionManager.kindFilter', '会话类型')}
+            menuWidth={160}
+            menuMaxHeight={220}
+          />
         </div>
         <div className="codex-session-manager__actions">
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={toggleAllSessions}
-            disabled={loading || allSessionIds.length === 0}
-            title={
-              allSessionsSelected
+          <div className="codex-session-manager__action-group is-selection">
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={toggleAllSessions}
+              disabled={loading || allSessionIds.length === 0}
+              title={
+                allSessionsSelected
+                  ? t('codex.sessionManager.actions.clearSelectedSessions', '取消全选')
+                  : t('codex.sessionManager.actions.selectAllSessions', '全选全部会话')
+              }
+              aria-label={
+                allSessionsSelected
+                  ? t('codex.sessionManager.actions.clearSelectedSessions', '取消全选')
+                  : t('codex.sessionManager.actions.selectAllSessions', '全选全部会话')
+              }
+            >
+              {allSessionsSelected ? <X size={14} /> : <Check size={14} />}
+              {allSessionsSelected
                 ? t('codex.sessionManager.actions.clearSelectedSessions', '取消全选')
-                : t('codex.sessionManager.actions.selectAllSessions', '全选全部会话')
-            }
-            aria-label={
-              allSessionsSelected
-                ? t('codex.sessionManager.actions.clearSelectedSessions', '取消全选')
-                : t('codex.sessionManager.actions.selectAllSessions', '全选全部会话')
-            }
-          >
-            {allSessionsSelected ? <X size={14} /> : <Check size={14} />}
-            {allSessionsSelected
-              ? t('codex.sessionManager.actions.clearSelectedSessions', '取消全选')
-              : t('codex.sessionManager.actions.selectAllSessions', '全选全部会话')}
-          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleSyncSessions()}
-            disabled={syncing || syncingToInstance || repairingVisibility || deleting || loading || instanceCount < 2}
-            title={
-              instanceCount < 2
-                ? t('codex.sessionManager.messages.syncNeedTwo', '至少需要两个实例才能同步会话')
-                : t('codex.sessionManager.actions.syncSessions', '同步会话')
-            }
-          >
-            <RefreshCw size={14} className={syncing ? 'icon-spin' : undefined} />
-            {t('codex.sessionManager.actions.syncSessions', '同步会话')}
-          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleOpenSyncTargetModal()}
-            disabled={syncing || syncingToInstance || repairingVisibility || deleting || loading || exporting || selectedIds.length === 0}
-          >
-            <Copy size={14} className={syncingToInstance ? 'icon-spin' : undefined} />
-            {t('codex.sessionManager.actions.copyToInstance', '复制到实例')} ({selectedIds.length})
-          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-	            type="button"
-	            onClick={() => void handleExportSessions()}
-	            disabled={syncing || syncingToInstance || repairingVisibility || deleting || loading || loadingExportPreview || exporting || selectedIds.length === 0}
-	          >
-	            <Download size={14} className={loadingExportPreview || exporting ? 'icon-spin' : undefined} />
-	            {t('codex.sessionManager.actions.exportSessions', '导出会话')} ({selectedIds.length})
-	          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleOpenImportModal()}
-            disabled={loading || syncing || syncingToInstance || repairingVisibility || deleting || exporting || importing || loadingImportPreview}
-          >
-            <Upload size={14} className={loadingImportPreview ? 'icon-spin' : undefined} />
-            {t('codex.sessionManager.actions.importSessions', '导入会话')}
-          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleRepairVisibility()}
-            disabled={repairingVisibility || loading || deleting || syncing || syncingToInstance || exporting}
-          >
-            <Eye size={14} />
-            {t('codex.sessionManager.actions.repairVisibility', '修复可见性')}
-          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleOpenRestoreModal()}
-            disabled={loading || syncing || syncingToInstance || repairingVisibility || deleting || restoring || purgingTrash}
-          >
-            <Trash2 size={14} />
-            {t('codex.sessionManager.actions.trash', '废纸篓')}
-          </button>
-          <button
-            className="btn btn-secondary codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleRefresh()}
-            disabled={loading || deleting || syncing || syncingToInstance || repairingVisibility}
-          >
-            <RefreshCw size={14} className={loading ? 'icon-spin' : undefined} />
-            {t('common.refresh', '刷新')}
-          </button>
-          <button
-            className="btn btn-danger codex-session-manager__action-button"
-            type="button"
-            onClick={() => void handleMoveToTrash()}
-            disabled={deleting || loading || syncing || syncingToInstance || repairingVisibility || selectedIds.length === 0}
-          >
-            <Trash2 size={14} />
-            {t('codex.sessionManager.actions.moveToTrash', '移到废纸篓')} ({selectedIds.length})
-          </button>
+                : t('codex.sessionManager.actions.selectAllSessions', '全选全部会话')}
+            </button>
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleOpenSyncTargetModal()}
+              disabled={syncing || syncingToInstance || repairingVisibility || deleting || loading || exporting || selectedIds.length === 0}
+            >
+              <Copy size={14} className={syncingToInstance ? 'icon-spin' : undefined} />
+              {t('codex.sessionManager.actions.copyToInstance', '复制到实例')} ({selectedIds.length})
+            </button>
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleExportSessions()}
+              disabled={syncing || syncingToInstance || repairingVisibility || deleting || loading || loadingExportPreview || exporting || selectedIds.length === 0}
+            >
+              <Download size={14} className={loadingExportPreview || exporting ? 'icon-spin' : undefined} />
+              {t('codex.sessionManager.actions.exportSessions', '导出会话')} ({selectedIds.length})
+            </button>
+            <button
+              className="btn btn-danger codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleMoveToTrash()}
+              disabled={deleting || loading || syncing || syncingToInstance || repairingVisibility || selectedIds.length === 0}
+            >
+              <Trash2 size={14} />
+              {t('codex.sessionManager.actions.moveToTrash', '移到废纸篓')} ({selectedIds.length})
+            </button>
+          </div>
+          <div className="codex-session-manager__action-group is-maintenance">
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleSyncSessions()}
+              disabled={syncing || syncingToInstance || repairingVisibility || deleting || loading || instanceCount < 2}
+              title={
+                instanceCount < 2
+                  ? t('codex.sessionManager.messages.syncNeedTwo', '至少需要两个实例才能同步会话')
+                  : t('codex.sessionManager.actions.syncSessions', '同步会话')
+              }
+            >
+              <RefreshCw size={14} className={syncing ? 'icon-spin' : undefined} />
+              {t('codex.sessionManager.actions.syncSessions', '同步会话')}
+            </button>
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleOpenImportModal()}
+              disabled={loading || syncing || syncingToInstance || repairingVisibility || deleting || exporting || importing || loadingImportPreview}
+            >
+              <Upload size={14} className={loadingImportPreview ? 'icon-spin' : undefined} />
+              {t('codex.sessionManager.actions.importSessions', '导入会话')}
+            </button>
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleRepairVisibility()}
+              disabled={repairingVisibility || loading || deleting || syncing || syncingToInstance || exporting}
+            >
+              <Eye size={14} />
+              {t('codex.sessionManager.actions.repairVisibility', '修复可见性')}
+            </button>
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleOpenRestoreModal()}
+              disabled={loading || syncing || syncingToInstance || repairingVisibility || deleting || restoring || purgingTrash}
+            >
+              <Trash2 size={14} />
+              {t('codex.sessionManager.actions.trash', '废纸篓')}
+            </button>
+            <button
+              className="btn btn-secondary codex-session-manager__action-button"
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={loading || deleting || syncing || syncingToInstance || repairingVisibility}
+            >
+              <RefreshCw size={14} className={loading ? 'icon-spin' : undefined} />
+              {t('common.refresh', '刷新')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1680,11 +1797,20 @@ export function CodexSessionManager() {
                             <button
                               className="codex-session-row__copy-button"
                               type="button"
-                              onClick={(event) => void handleOpenSessionLocation(event, session.sessionId)}
+                              onClick={(event) => void handleOpenSessionLocation(event, session)}
                               title={t('codex.sessionManager.actions.openLocation', '打开位置')}
                               aria-label={t('codex.sessionManager.actions.openLocation', '打开位置')}
                             >
                               <FolderOpen size={14} />
+                            </button>
+                            <button
+                              className="codex-session-row__copy-button"
+                              type="button"
+                              onClick={(event) => void handleOpenSessionRollout(event, session)}
+                              title={t('codex.sessionManager.actions.openRollout', '打开会话文件')}
+                              aria-label={t('codex.sessionManager.actions.openRollout', '打开会话文件')}
+                            >
+                              <FileText size={14} />
                             </button>
                             {tokenText ? (
                               <span className="codex-session-row__tokens" title={t('codex.sessionManager.labels.tokenUsage', 'Token使用')}>

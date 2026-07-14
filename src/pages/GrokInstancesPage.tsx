@@ -55,8 +55,8 @@ interface GrokLaunchModalState {
 function resolveGrokLaunchWorkingDir(
   instance: InstanceProfile,
   accountMap: Map<string, GrokAccount>,
-  currentAccountId: string | null,
 ): { accountId: string | null; workingDir: string } {
+  // 无全局当前账号：仅使用实例显式绑定的账号。
   const boundAccountId = instance.bindAccountId?.trim() || null;
   if (boundAccountId) {
     const bound = accountMap.get(boundAccountId);
@@ -68,21 +68,6 @@ function resolveGrokLaunchWorkingDir(
       accountId: boundAccountId,
       workingDir: instance.workingDir?.trim() || '',
     };
-  }
-
-  if (instance.isDefault) {
-    const currentId = currentAccountId?.trim() || null;
-    if (currentId) {
-      const current = accountMap.get(currentId);
-      const accountDir = current?.working_dir?.trim() || '';
-      if (accountDir) {
-        return { accountId: currentId, workingDir: accountDir };
-      }
-      return {
-        accountId: currentId,
-        workingDir: instance.workingDir?.trim() || '',
-      };
-    }
   }
 
   return {
@@ -212,7 +197,6 @@ export function GrokInstancesContent({
     const { accountId, workingDir } = resolveGrokLaunchWorkingDir(
       instance,
       accountMap,
-      accountStore.currentAccountId,
     );
     const boundAccount = accountId ? accountMap.get(accountId) : undefined;
     const instanceName = instance.isDefault
@@ -224,6 +208,7 @@ export function GrokInstancesContent({
         {
           workingDir,
           applyWorkingDirOverride: true,
+          accountId,
         },
       );
       setLaunchModal({
@@ -232,19 +217,26 @@ export function GrokInstancesContent({
         accountId,
         workingDir,
         switchMessage: boundAccount
-          ? t('accounts.switched', '已切换至 {{email}}', {
-              email: getGrokAccountDisplayEmail(boundAccount),
-            })
+          ? t(
+              'grok.instances.accountHomeReady',
+              '已准备独立目录：{{email}}',
+              {
+                email: getGrokAccountDisplayEmail(boundAccount),
+              },
+            )
           : t('instances.messages.launchPrepared', '启动命令已准备'),
         launchCommand: launchInfo.launchCommand,
         regeneratingCommand: false,
         copied: false,
         executing: false,
         executeMessage: null,
+        // 账号授权类问题只体现在账号列表，启动弹框不展示
         executeError: null,
         errorScrollKey: 0,
       });
+      void accountStore.fetchAccounts();
     } catch (error) {
+      const message = String(error);
       setLaunchModal({
         instanceId: instance.id,
         instanceName,
@@ -260,9 +252,14 @@ export function GrokInstancesContent({
         copied: false,
         executing: false,
         executeMessage: null,
-        executeError: String(error),
-        errorScrollKey: 1,
+        executeError: grokInstanceService.isGrokReauthError(message)
+          ? null
+          : message,
+        errorScrollKey: grokInstanceService.isGrokReauthError(message) ? 0 : 1,
       });
+      if (grokInstanceService.isGrokReauthError(message)) {
+        void accountStore.fetchAccounts();
+      }
     }
   };
 
@@ -348,7 +345,10 @@ export function GrokInstancesContent({
         'quickSettings.grok.cliMissing',
         '未检测到 Grok CLI，可填写自定义路径',
       );
-  const showLaunchInstallGuide = !!launchModal?.executeError;
+  const showLaunchInstallGuide = Boolean(
+    launchModal?.executeError &&
+      grokInstanceService.isGrokCliMissingError(launchModal.executeError),
+  );
 
   const handleCopyInstallCommand = async () => {
     setCliActionError(null);
@@ -417,6 +417,7 @@ export function GrokInstancesContent({
             {
               workingDir,
               applyWorkingDirOverride: true,
+              accountId: modal.accountId,
             },
           );
         setLaunchModal((current) =>
@@ -430,21 +431,30 @@ export function GrokInstancesContent({
               }
             : current,
         );
+        void accountStore.fetchAccounts();
       } catch (error) {
+        const message = String(error);
         setLaunchModal((current) =>
           current && current.instanceId === modal.instanceId
             ? {
                 ...current,
                 workingDir,
                 regeneratingCommand: false,
-                executeError: String(error),
-                errorScrollKey: current.errorScrollKey + 1,
+                executeError: grokInstanceService.isGrokReauthError(message)
+                  ? null
+                  : message,
+                errorScrollKey: grokInstanceService.isGrokReauthError(message)
+                  ? current.errorScrollKey
+                  : current.errorScrollKey + 1,
               }
             : current,
         );
+        if (grokInstanceService.isGrokReauthError(message)) {
+          void accountStore.fetchAccounts();
+        }
       }
     },
-    [],
+    [accountStore],
   );
 
   const updateLaunchWorkingDir = (value: string) => {
@@ -518,6 +528,7 @@ export function GrokInstancesContent({
         {
           workingDir: modal.workingDir,
           applyWorkingDirOverride: true,
+          accountId: modal.accountId,
         },
       );
       const next: GrokLaunchModalState = {
@@ -602,6 +613,7 @@ export function GrokInstancesContent({
         {
           workingDir: prepared.workingDir,
           applyWorkingDirOverride: true,
+          accountId: prepared.accountId,
         },
       );
       setLaunchModal((current) =>

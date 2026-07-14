@@ -77,6 +77,9 @@ pub struct UserConfig {
     /// 应用主题
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// 是否减少界面动画
+    #[serde(default = "default_reduced_motion_enabled")]
+    pub reduced_motion_enabled: bool,
     /// 界面缩放比例
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f64,
@@ -107,12 +110,6 @@ pub struct UserConfig {
     /// Cursor 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_cursor_auto_refresh")]
     pub cursor_auto_refresh_minutes: i32,
-    /// Gemini 自动刷新间隔（分钟），-1 表示禁用
-    #[serde(default = "default_gemini_auto_refresh")]
-    pub gemini_auto_refresh_minutes: i32,
-    /// Gemini 切号时是否同步覆盖 WSL 配置 (Windows Only)
-    #[serde(default = "default_gemini_sync_wsl")]
-    pub gemini_sync_wsl: bool,
     /// CodeBuddy 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_codebuddy_auto_refresh")]
     pub codebuddy_auto_refresh_minutes: i32,
@@ -347,12 +344,6 @@ pub struct UserConfig {
     /// Cursor 配额预警阈值（百分比）
     #[serde(default = "default_cursor_quota_alert_threshold")]
     pub cursor_quota_alert_threshold: i32,
-    /// 是否启用 Gemini 配额预警通知
-    #[serde(default = "default_gemini_quota_alert_enabled")]
-    pub gemini_quota_alert_enabled: bool,
-    /// Gemini 配额预警阈值（百分比）
-    #[serde(default = "default_gemini_quota_alert_threshold")]
-    pub gemini_quota_alert_threshold: i32,
     /// 是否启用 CodeBuddy 配额预警通知
     #[serde(default = "default_codebuddy_quota_alert_enabled")]
     pub codebuddy_quota_alert_enabled: bool,
@@ -467,6 +458,9 @@ fn default_default_terminal() -> String {
 fn default_theme() -> String {
     "system".to_string()
 }
+fn default_reduced_motion_enabled() -> bool {
+    false
+}
 fn default_ui_scale() -> f64 {
     1.0
 }
@@ -497,12 +491,6 @@ fn default_kiro_auto_refresh() -> i32 {
 fn default_cursor_auto_refresh() -> i32 {
     10
 } // 默认 10 分钟
-fn default_gemini_auto_refresh() -> i32 {
-    10
-}
-fn default_gemini_sync_wsl() -> bool {
-    true
-}
 fn default_codebuddy_auto_refresh() -> i32 {
     10
 }
@@ -726,12 +714,6 @@ fn default_cursor_quota_alert_enabled() -> bool {
 fn default_cursor_quota_alert_threshold() -> i32 {
     20
 }
-fn default_gemini_quota_alert_enabled() -> bool {
-    false
-}
-fn default_gemini_quota_alert_threshold() -> i32 {
-    20
-}
 fn default_codebuddy_quota_alert_enabled() -> bool {
     false
 }
@@ -777,6 +759,7 @@ impl Default for UserConfig {
             language: default_language(),
             default_terminal: default_default_terminal(),
             theme: default_theme(),
+            reduced_motion_enabled: default_reduced_motion_enabled(),
             ui_scale: default_ui_scale(),
             auto_refresh_minutes: default_auto_refresh(),
             codex_auto_refresh_minutes: default_codex_auto_refresh(),
@@ -787,8 +770,6 @@ impl Default for UserConfig {
             windsurf_auto_refresh_minutes: default_windsurf_auto_refresh(),
             kiro_auto_refresh_minutes: default_kiro_auto_refresh(),
             cursor_auto_refresh_minutes: default_cursor_auto_refresh(),
-            gemini_auto_refresh_minutes: default_gemini_auto_refresh(),
-            gemini_sync_wsl: default_gemini_sync_wsl(),
             codebuddy_auto_refresh_minutes: default_codebuddy_auto_refresh(),
             codebuddy_cn_auto_refresh_minutes: default_codebuddy_cn_auto_refresh(),
             workbuddy_auto_refresh_minutes: default_workbuddy_auto_refresh(),
@@ -874,8 +855,6 @@ impl Default for UserConfig {
             kiro_quota_alert_threshold: default_kiro_quota_alert_threshold(),
             cursor_quota_alert_enabled: default_cursor_quota_alert_enabled(),
             cursor_quota_alert_threshold: default_cursor_quota_alert_threshold(),
-            gemini_quota_alert_enabled: default_gemini_quota_alert_enabled(),
-            gemini_quota_alert_threshold: default_gemini_quota_alert_threshold(),
             codebuddy_quota_alert_enabled: default_codebuddy_quota_alert_enabled(),
             codebuddy_quota_alert_threshold: default_codebuddy_quota_alert_threshold(),
             codebuddy_cn_quota_alert_enabled: default_codebuddy_cn_quota_alert_enabled(),
@@ -1121,20 +1100,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             );
         }
 
-        if !obj.contains_key("gemini_auto_refresh_minutes") {
-            let inherited_refresh = obj
-                .get("cursor_auto_refresh_minutes")
-                .or_else(|| obj.get("kiro_auto_refresh_minutes"))
-                .or_else(|| obj.get("windsurf_auto_refresh_minutes"))
-                .and_then(|v| v.as_i64())
-                .map(|v| v as i32)
-                .unwrap_or_else(default_gemini_auto_refresh);
-            obj.insert(
-                "gemini_auto_refresh_minutes".to_string(),
-                json!(inherited_refresh),
-            );
-        }
-
         if !obj.contains_key("codex_sync_wsl") {
             obj.insert(
                 "codex_sync_wsl".to_string(),
@@ -1149,17 +1114,9 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             );
         }
 
-        if !obj.contains_key("gemini_sync_wsl") {
-            obj.insert(
-                "gemini_sync_wsl".to_string(),
-                json!(default_gemini_sync_wsl()),
-            );
-        }
-
         if !obj.contains_key("qoder_auto_refresh_minutes") {
             let inherited_refresh = obj
-                .get("gemini_auto_refresh_minutes")
-                .or_else(|| obj.get("cursor_auto_refresh_minutes"))
+                .get("cursor_auto_refresh_minutes")
                 .or_else(|| obj.get("kiro_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
@@ -1173,7 +1130,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("codebuddy_cn_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("codebuddy_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_codebuddy_cn_auto_refresh);
@@ -1187,7 +1143,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             let inherited_refresh = obj
                 .get("codebuddy_cn_auto_refresh_minutes")
                 .or_else(|| obj.get("codebuddy_auto_refresh_minutes"))
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_workbuddy_auto_refresh);
@@ -1200,7 +1155,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("trae_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("qoder_auto_refresh_minutes")
-                .or_else(|| obj.get("gemini_auto_refresh_minutes"))
                 .and_then(|v| v.as_i64())
                 .map(|v| v as i32)
                 .unwrap_or_else(default_trae_auto_refresh);
@@ -1338,6 +1292,12 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "default_terminal".to_string(),
                 json!(default_default_terminal()),
+            );
+        }
+        if !obj.contains_key("reduced_motion_enabled") {
+            obj.insert(
+                "reduced_motion_enabled".to_string(),
+                json!(default_reduced_motion_enabled()),
             );
         }
         if !obj.contains_key("global_proxy_enabled") {
@@ -1515,18 +1475,6 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         if !obj.contains_key("cursor_quota_alert_threshold") {
             obj.insert(
                 "cursor_quota_alert_threshold".to_string(),
-                json!(legacy_threshold),
-            );
-        }
-        if !obj.contains_key("gemini_quota_alert_enabled") {
-            obj.insert(
-                "gemini_quota_alert_enabled".to_string(),
-                json!(legacy_enabled),
-            );
-        }
-        if !obj.contains_key("gemini_quota_alert_threshold") {
-            obj.insert(
-                "gemini_quota_alert_threshold".to_string(),
                 json!(legacy_threshold),
             );
         }

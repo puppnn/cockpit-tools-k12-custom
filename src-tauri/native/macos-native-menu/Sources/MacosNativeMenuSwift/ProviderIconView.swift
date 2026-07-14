@@ -39,8 +39,6 @@ enum ProviderIconRegistry {
             return ProviderIconResource(name: "claude", ext: "png", renderingMode: .original)
         case "cursor":
             return ProviderIconResource(name: "cursor-menu", ext: "png", renderingMode: .original)
-        case "gemini":
-            return ProviderIconResource(name: "gemini-menu", ext: "png", renderingMode: .original)
         case "github-copilot":
             return ProviderIconResource(name: "github-copilot", ext: "svg", renderingMode: .template)
         case "kiro":

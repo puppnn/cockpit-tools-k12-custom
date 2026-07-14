@@ -12,7 +12,6 @@ import {
   buildCodebuddyAccountPresentation,
   buildCodexAccountPresentation,
   buildCursorAccountPresentation,
-  buildGeminiAccountPresentation,
   buildGrokAccountPresentation,
   buildGitHubCopilotAccountPresentation,
   buildKiroAccountPresentation,
@@ -45,12 +44,12 @@ import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
-import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
 import { useGrokAccountStore } from '../stores/useGrokAccountStore';
 import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { usePlatformLayoutStore } from '../stores/usePlatformLayoutStore';
 import { useRemoteConfigStore } from '../stores/useRemoteConfigStore';
+import { applyReducedMotion } from '../utils/reducedMotion';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
 import { useZcodeAccountStore } from '../stores/useZcodeAccountStore';
 import { useTraeAccountStore } from '../stores/useTraeAccountStore';
@@ -63,7 +62,6 @@ import { useClaudeInstanceStore } from '../stores/useClaudeInstanceStore';
 import { useCodebuddyInstanceStore } from '../stores/useCodebuddyInstanceStore';
 import { useCodexInstanceStore } from '../stores/useCodexInstanceStore';
 import { useCursorInstanceStore } from '../stores/useCursorInstanceStore';
-import { useGeminiInstanceStore } from '../stores/useGeminiInstanceStore';
 import { useGrokInstanceStore } from '../stores/useGrokInstanceStore';
 import { useGitHubCopilotInstanceStore } from '../stores/useGitHubCopilotInstanceStore';
 import type { InstanceStoreState } from '../stores/createInstanceStore';
@@ -90,7 +88,6 @@ import {
   getRecommendedCodebuddyCnAccount,
   getRecommendedCodexAccount,
   getRecommendedCursorAccount,
-  getRecommendedGeminiAccount,
   getRecommendedGrokAccount,
   getRecommendedGitHubCopilotAccount,
   getRecommendedKiroAccount,
@@ -105,15 +102,18 @@ import {
 import { changeLanguage, normalizeLanguage } from '../i18n';
 import {
   ACCOUNTS_CHANGED_EVENT,
+  ACTIVE_PLATFORM_FOCUS_EVENT,
   CURRENT_ACCOUNT_CHANGED_EVENT,
+  FLOATING_CARD_PLATFORM_STORAGE_KEY,
+  persistFloatingCardPlatform,
   type AccountSyncEventPayload,
+  type ActivePlatformFocusPayload,
 } from '../utils/accountSyncEvents';
 import './FloatingCardWindow.css';
 
 const windowInstance = getCurrentWindow();
 const FLOATING_CARD_WINDOW_LABEL = 'floating-card';
 const INSTANCE_FLOATING_CARD_WINDOW_LABEL_PREFIX = 'instance-floating-card-';
-const FLOATING_CARD_PLATFORM_STORAGE_KEY = 'agtools.floating_card.platform';
 const DEFAULT_INSTANCE_ID = '__default__';
 const FLOATING_CARD_BASE_HEIGHT = 290;
 const FLOATING_CARD_MAX_HEIGHT = 520;
@@ -123,6 +123,7 @@ const FLOATING_CARD_NO_DRAG_SELECTOR =
 type FloatingCardGeneralConfig = {
   language: string;
   theme: string;
+  reduced_motion_enabled: boolean;
   ui_scale?: number;
   floating_card_always_on_top?: boolean;
   floating_card_confirm_on_close?: boolean;
@@ -136,7 +137,6 @@ type FloatingCardAccount =
   | ReturnType<typeof useWindsurfAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useKiroAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useCursorAccountStore.getState>['accounts'][number]
-  | ReturnType<typeof useGeminiAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useGrokAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useCodebuddyAccountStore.getState>['accounts'][number]
   | ReturnType<typeof useCodebuddyCnAccountStore.getState>['accounts'][number]
@@ -205,8 +205,6 @@ function resolveInstanceStoreApi(platformId: PlatformId): FloatingCardInstanceSt
       return useKiroInstanceStore.getState();
     case 'cursor':
       return useCursorInstanceStore.getState();
-    case 'gemini':
-      return useGeminiInstanceStore.getState();
     case 'grok':
       return useGrokInstanceStore.getState();
     case 'codebuddy':
@@ -268,10 +266,6 @@ export function FloatingCardWindow() {
     accounts: cursorAccounts,
     currentAccountId: cursorCurrentId,
   } = useCursorAccountStore();
-  const {
-    accounts: geminiAccounts,
-    currentAccountId: geminiCurrentId,
-  } = useGeminiAccountStore();
   const {
     accounts: grokAccounts,
     currentAccountId: grokCurrentId,
@@ -352,8 +346,21 @@ export function FloatingCardWindow() {
   }, [fetchRemoteConfigState]);
 
   useEffect(() => {
+    if (platformOrder.length === 0) {
+      return;
+    }
     if (platformOrder.includes(selectedPlatform)) {
       return;
+    }
+    // 当前选中平台被隐藏时，优先保留存储中的平台，再回退到列表首项
+    try {
+      const saved = localStorage.getItem(FLOATING_CARD_PLATFORM_STORAGE_KEY) as PlatformId | null;
+      if (saved && platformOrder.includes(saved)) {
+        setSelectedPlatform(saved);
+        return;
+      }
+    } catch {
+      // ignore
     }
     setSelectedPlatform(platformOrder[0] ?? 'antigravity');
   }, [platformOrder, selectedPlatform]);
@@ -475,9 +482,6 @@ export function FloatingCardWindow() {
         case 'cursor':
           await useCursorAccountStore.getState().fetchAccounts();
           break;
-        case 'gemini':
-          await useGeminiAccountStore.getState().fetchAccounts();
-          break;
         case 'grok':
           await useGrokAccountStore.getState().fetchAccounts();
           break;
@@ -519,6 +523,7 @@ export function FloatingCardWindow() {
     let disposed = false;
     let unlistenAccountsChanged: (() => void) | null = null;
     let unlistenCurrentAccountChanged: (() => void) | null = null;
+    let unlistenActivePlatformFocus: (() => void) | null = null;
 
     const bindAccountSyncListeners = async () => {
       unlistenAccountsChanged = await listen<AccountSyncEventPayload>(
@@ -542,11 +547,15 @@ export function FloatingCardWindow() {
           const payload = event.payload;
           if (
             !payload ||
-            payload.platformId !== selectedPlatform ||
             payload.sourceWindowLabel === currentWindowLabel ||
             instanceContext
           ) {
             return;
+          }
+          // 主窗口在某平台切号/使用时，悬浮窗跟随到该平台（例如 Grok），不再锁死 antigravity
+          if (payload.platformId !== selectedPlatform) {
+            if (disposed) return;
+            setSelectedPlatform(payload.platformId);
           }
           await fetchPlatformData(payload.platformId);
           if (disposed) return;
@@ -554,6 +563,23 @@ export function FloatingCardWindow() {
             ...prev,
             [payload.platformId]: payload.accountId ?? null,
           }));
+        },
+      );
+
+      unlistenActivePlatformFocus = await listen<ActivePlatformFocusPayload>(
+        ACTIVE_PLATFORM_FOCUS_EVENT,
+        (event) => {
+          const payload = event.payload;
+          if (!payload?.platformId || instanceContext) {
+            return;
+          }
+          if (payload.sourceWindowLabel === currentWindowLabel) {
+            return;
+          }
+          if (!ALL_PLATFORM_IDS.includes(payload.platformId)) {
+            return;
+          }
+          setSelectedPlatform(payload.platformId);
         },
       );
     };
@@ -564,6 +590,7 @@ export function FloatingCardWindow() {
       disposed = true;
       unlistenAccountsChanged?.();
       unlistenCurrentAccountChanged?.();
+      unlistenActivePlatformFocus?.();
     };
   }, [
     currentWindowLabel,
@@ -588,6 +615,7 @@ export function FloatingCardWindow() {
   useEffect(() => {
     let disposed = false;
     let cleanupThemeWatcher: (() => void) | null = null;
+    let unlistenFocus: (() => void) | null = null;
 
     const applyTheme = (theme: string) => {
       const appliedTheme = resolveAppliedTheme(theme);
@@ -620,7 +648,10 @@ export function FloatingCardWindow() {
         if (disposed) return;
 
         await changeLanguage(normalizeLanguage(config.language));
+        cleanupThemeWatcher?.();
+        cleanupThemeWatcher = null;
         applyTheme(config.theme);
+        applyReducedMotion(config.reduced_motion_enabled);
         if (config.theme === 'system') {
           cleanupThemeWatcher = watchSystemTheme();
         }
@@ -636,11 +667,17 @@ export function FloatingCardWindow() {
       }
     };
 
-    void loadGeneralConfig();
+    const bindGeneralConfig = async () => {
+      await loadGeneralConfig();
+      unlistenFocus = await listen(TauriEvent.WINDOW_FOCUS, loadGeneralConfig);
+    };
+
+    void bindGeneralConfig();
 
     return () => {
       disposed = true;
       cleanupThemeWatcher?.();
+      unlistenFocus?.();
     };
   }, []);
 
@@ -717,11 +754,7 @@ export function FloatingCardWindow() {
     if (instanceContext) {
       return;
     }
-    try {
-      localStorage.setItem(FLOATING_CARD_PLATFORM_STORAGE_KEY, selectedPlatform);
-    } catch {
-      // ignore storage write failures
-    }
+    persistFloatingCardPlatform(selectedPlatform);
   }, [instanceContext, selectedPlatform]);
 
   const githubCopilotCurrent = useMemo(
@@ -739,10 +772,6 @@ export function FloatingCardWindow() {
   const cursorCurrent = useMemo(
     () => resolveCurrentAccountById(cursorAccounts, cursorCurrentId),
     [cursorAccounts, cursorCurrentId],
-  );
-  const geminiCurrent = useMemo(
-    () => resolveCurrentAccountById(geminiAccounts, geminiCurrentId),
-    [geminiAccounts, geminiCurrentId],
   );
   const grokCurrent = useMemo(
     () => resolveCurrentAccountById(grokAccounts, grokCurrentId),
@@ -815,11 +844,6 @@ export function FloatingCardWindow() {
           accounts: cursorAccounts,
           actualCurrentAccount: cursorCurrent,
         };
-      case 'gemini':
-        return {
-          accounts: geminiAccounts,
-          actualCurrentAccount: geminiCurrent,
-        };
       case 'grok':
         return {
           accounts: grokAccounts,
@@ -877,8 +901,7 @@ export function FloatingCardWindow() {
     codexCurrent,
     cursorAccounts,
     cursorCurrent,
-    geminiAccounts,
-    geminiCurrent,
+
     grokAccounts,
     grokCurrent,
     githubCopilotAccounts,
@@ -928,8 +951,6 @@ export function FloatingCardWindow() {
         return getRecommendedKiroAccount(kiroAccounts, effectiveCurrentId);
       case 'cursor':
         return getRecommendedCursorAccount(cursorAccounts, effectiveCurrentId);
-      case 'gemini':
-        return getRecommendedGeminiAccount(geminiAccounts, effectiveCurrentId);
       case 'grok':
         return getRecommendedGrokAccount(grokAccounts, effectiveCurrentId);
       case 'codebuddy':
@@ -958,7 +979,7 @@ export function FloatingCardWindow() {
     codexAccounts,
     currentAccount?.id,
     cursorAccounts,
-    geminiAccounts,
+
     grokAccounts,
     githubCopilotAccounts,
     kiroAccounts,
@@ -1025,8 +1046,6 @@ export function FloatingCardWindow() {
         return buildKiroAccountPresentation(viewedAccount as typeof kiroAccounts[number], t);
       case 'cursor':
         return buildCursorAccountPresentation(viewedAccount as typeof cursorAccounts[number], t);
-      case 'gemini':
-        return buildGeminiAccountPresentation(viewedAccount as typeof geminiAccounts[number], t);
       case 'grok':
         return buildGrokAccountPresentation(viewedAccount as typeof grokAccounts[number], t);
       case 'codebuddy':
@@ -1055,7 +1074,7 @@ export function FloatingCardWindow() {
     codexAccounts,
     cursorAccounts,
     displayGroups,
-    geminiAccounts,
+
     grokAccounts,
     githubCopilotAccounts,
     kiroAccounts,
@@ -1126,9 +1145,6 @@ export function FloatingCardWindow() {
             break;
           case 'cursor':
             await useCursorAccountStore.getState().refreshToken(viewedAccount.id);
-            break;
-          case 'gemini':
-            await useGeminiAccountStore.getState().refreshToken(viewedAccount.id);
             break;
           case 'grok':
             await useGrokAccountStore.getState().refreshToken(viewedAccount.id);
@@ -1259,9 +1275,6 @@ export function FloatingCardWindow() {
             break;
           case 'cursor':
             await useCursorAccountStore.getState().switchAccount(viewedAccount.id);
-            break;
-          case 'gemini':
-            await useGeminiAccountStore.getState().switchAccount(viewedAccount.id);
             break;
           case 'grok':
             await useGrokAccountStore.getState().switchAccount(viewedAccount.id);

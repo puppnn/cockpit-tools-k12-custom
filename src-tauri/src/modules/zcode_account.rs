@@ -153,12 +153,20 @@ fn save_index(index: &ZcodeAccountIndex) -> Result<(), String> {
 pub fn load_account(account_id: &str) -> Option<ZcodeAccount> {
     let path = account_path(account_id).ok()?;
     let content = fs::read_to_string(&path).ok()?;
-    atomic_write::parse_json_with_auto_restore(&path, &content).ok()
+    match crate::modules::secure_account_storage::deserialize_account_file(&path, &content) {
+        Ok((account, needs_rotation)) => {
+            if needs_rotation {
+                let _ = save_account_file(&account);
+            }
+            Some(account)
+        }
+        Err(_) => None,
+    }
 }
 
 fn save_account_file(account: &ZcodeAccount) -> Result<(), String> {
-    let content = serde_json::to_string_pretty(account)
-        .map_err(|error| format!("序列化 ZCode 账号失败: {}", error))?;
+    let content =
+        crate::modules::secure_account_storage::serialize_account_file("zcode", account)?;
     atomic_write::write_string_atomic(&account_path(&account.id)?, &content)
         .map_err(|error| format!("保存 ZCode 账号失败: {}", error))
 }

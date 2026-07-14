@@ -42,7 +42,6 @@ import {
   isGrokApiKeyAccount,
   type GrokAccount,
 } from "../types/grok";
-import { compareCurrentAccountFirst } from "../utils/currentAccountSort";
 import { GrokInstancesContent } from "./GrokInstancesPage";
 
 const FLOW_NOTICE_KEY = "agtools.grok.flow_notice_collapsed";
@@ -158,6 +157,7 @@ export function GrokAccountsPage() {
           await grokInstanceService.getGrokInstanceLaunchCommand("__default__", {
             workingDir,
             applyWorkingDirOverride: true,
+            accountId,
           });
         setLaunchModal({
           instanceId: launchInfo.instanceId || "__default__",
@@ -169,10 +169,14 @@ export function GrokAccountsPage() {
           copied: false,
           executing: false,
           executeMessage: null,
+          // 账号授权类问题只体现在账号列表，启动弹框不展示
           executeError: null,
           errorScrollKey: 0,
         });
+        // 后端可能已把 reauth 状态写回账号，刷新列表徽章
+        void store.fetchAccounts();
       } catch (error) {
+        const message = String(error);
         setLaunchModal({
           instanceId: "__default__",
           accountId,
@@ -183,9 +187,14 @@ export function GrokAccountsPage() {
           copied: false,
           executing: false,
           executeMessage: null,
-          executeError: String(error),
-          errorScrollKey: 1,
+          executeError: grokInstanceService.isGrokReauthError(message)
+            ? null
+            : message,
+          errorScrollKey: grokInstanceService.isGrokReauthError(message) ? 0 : 1,
         });
+        if (grokInstanceService.isGrokReauthError(message)) {
+          void store.fetchAccounts();
+        }
       }
     },
     resolveOauthSuccessMessage: () =>
@@ -237,6 +246,7 @@ export function GrokAccountsPage() {
             {
               workingDir,
               applyWorkingDirOverride: true,
+              accountId: modal.accountId,
             },
           );
         setLaunchModal((current) =>
@@ -250,21 +260,31 @@ export function GrokAccountsPage() {
               }
             : current,
         );
+        void store.fetchAccounts();
       } catch (error) {
+        const message = String(error);
         setLaunchModal((current) =>
           current && current.accountId === modal.accountId
             ? {
                 ...current,
                 workingDir,
                 regeneratingCommand: false,
-                executeError: String(error),
-                errorScrollKey: current.errorScrollKey + 1,
+                // 账号授权错误不进启动弹框
+                executeError: grokInstanceService.isGrokReauthError(message)
+                  ? null
+                  : message,
+                errorScrollKey: grokInstanceService.isGrokReauthError(message)
+                  ? current.errorScrollKey
+                  : current.errorScrollKey + 1,
               }
             : current,
         );
+        if (grokInstanceService.isGrokReauthError(message)) {
+          void store.fetchAccounts();
+        }
       }
     },
-    [],
+    [store],
   );
 
   const updateLaunchWorkingDir = (value: string) => {
@@ -348,6 +368,7 @@ export function GrokAccountsPage() {
         {
           workingDir: modal.workingDir,
           applyWorkingDirOverride: true,
+          accountId: modal.accountId,
         },
       );
       const next: GrokAccountLaunchModalState = {
@@ -432,6 +453,7 @@ export function GrokAccountsPage() {
         {
           workingDir: prepared.workingDir,
           applyWorkingDirOverride: true,
+          accountId: prepared.accountId,
         },
       );
       setLaunchModal((current) =>
@@ -512,18 +534,26 @@ export function GrokAccountsPage() {
               </div>
             )}
             {items.map((item) => {
-              const percentage = Math.max(
+              // item.percentage 为 used%；文案与进度条均展示剩余%（与 Gemini 等平台一致：越用越短）
+              const usedPercent = Math.max(
                 0,
                 Math.min(100, Math.round(item.percentage)),
               );
-              const quotaClass = getGrokQuotaClass(percentage);
+              const remainingPercent = Math.max(0, Math.min(100, 100 - usedPercent));
+              // 颜色按已用比例（越用越红），条长度按剩余
+              const quotaClass = getGrokQuotaClass(usedPercent);
               const amountText = formatGrokQuotaUsedTotal(item.used, item.total);
+              const remainingLabel = t(
+                "common.shared.quota.leftPercent",
+                "{{value}}% left",
+                { value: remainingPercent },
+              );
               const resetText = formatGrokQuotaResetTime(item.resetAtMs);
               const resetDisplay = resetText || "-";
               const titleParts = [
                 item.label,
                 amountText || null,
-                `${percentage}%`,
+                remainingLabel,
                 resetText
                   ? t("grok.quota.resetAt", "{{label}} 重置：{{time}}", {
                       label: item.label,
@@ -550,13 +580,13 @@ export function GrokAccountsPage() {
                             <span className="grok-quota-pct-sep">·</span>
                           </>
                         ) : null}
-                        {percentage}%
+                        {remainingLabel}
                       </span>
                     </div>
                     <div className="quota-bar-track">
                       <div
                         className={`quota-bar ${quotaClass}`}
-                        style={{ width: `${percentage}%` }}
+                        style={{ width: `${remainingPercent}%` }}
                       />
                     </div>
                     <span className="quota-reset">{resetDisplay}</span>
@@ -579,13 +609,13 @@ export function GrokAccountsPage() {
                           <span className="grok-quota-pct-sep">·</span>
                         </>
                       ) : null}
-                      {percentage}%
+                      {remainingLabel}
                     </span>
                   </div>
                   <div className="quota-progress-track">
                     <div
                       className={`quota-progress-bar ${quotaClass}`}
-                      style={{ width: `${percentage}%` }}
+                      style={{ width: `${remainingPercent}%` }}
                     />
                   </div>
                   <div className="quota-footer">
@@ -727,16 +757,10 @@ export function GrokAccountsPage() {
   const accountsForInstances = useMemo(
     () =>
       [...store.accounts].sort((left, right) => {
-        const current = compareCurrentAccountFirst(
-          left.id,
-          right.id,
-          store.currentAccountId,
-        );
-        if (current !== 0) return current;
         const createdDiff = right.created_at - left.created_at;
         return page.sortDirection === "desc" ? createdDiff : -createdDiff;
       }),
-    [page.sortDirection, store.accounts, store.currentAccountId],
+    [page.sortDirection, store.accounts],
   );
 
   const platformConfig: CodebuddySuiteAccountsPlatformConfig<GrokAccount> = {
@@ -749,10 +773,10 @@ export function GrokAccountsPage() {
       titleDefault: "Grok CLI 账号管理说明",
       descKey: "grok.flowNotice.desc",
       descDefault:
-        "Cockpit 按 Grok CLI 官方凭据格式管理账号，用于默认客户端真实切号和独立实例绑定。",
+        "每个 Grok 账号使用独立 GROK_HOME 目录并行运行，互不覆盖；可从本机 ~/.grok/auth.json 导入，启动时不再写回官方默认目录。",
       permissionKey: "grok.flowNotice.permission",
       permissionDefault:
-        "本地范围：读取默认 ~/.grok/auth.json，并管理 Cockpit 内的独立 GROK_HOME 账号目录。",
+        "本地范围：可读取默认 ~/.grok/auth.json 用于导入；运行时使用 Cockpit 内每账号独立目录。",
       networkKey: "grok.flowNotice.network",
       networkDefault:
         "网络范围：OAuth 授权、凭据刷新及账号用量查询；不会上传凭据到 Cockpit 服务。",
@@ -773,7 +797,7 @@ export function GrokAccountsPage() {
     oauthFeatureItem2Default:
       "授权成功后保存独立 GROK_HOME，并维护凭据有效状态。",
     oauthFeatureItem3Key: "grok.oauth.item3",
-    oauthFeatureItem3Default: "账号可用于默认 CLI 切号和相互隔离的多开实例。",
+    oauthFeatureItem3Default: "每个账号独立目录，可同时启动多个账号互不影响。",
     oauthUrlInputPlaceholderKey: "grok.oauth.urlPlaceholder",
     oauthUrlInputPlaceholderDefault: "Grok OAuth 授权地址",
     oauthWaitingKey: "grok.oauth.waiting",
@@ -792,7 +816,7 @@ export function GrokAccountsPage() {
     tokenInputSecret: true,
     importLocalDescKey: "grok.import.localDesc",
     importLocalDescDefault:
-      "从默认 ~/.grok/auth.json 导入当前账号；选择文件时应使用 Grok CLI 官方 auth.json。",
+      "从默认 ~/.grok/auth.json 导入账号；选择文件时应使用 Grok CLI 官方 auth.json。",
     importLocalClientKey: "grok.import.localClient",
     importLocalClientDefault: "从本机 Grok CLI 导入",
     getDisplayEmail: getGrokAccountDisplayEmail,
@@ -888,7 +912,11 @@ export function GrokAccountsPage() {
                 message={launchModal.executeError}
                 scrollKey={launchModal.errorScrollKey}
               />
-              {launchModal.executeError && renderGrokCliInstallGuide()}
+              {launchModal.executeError &&
+                grokInstanceService.isGrokCliMissingError(
+                  launchModal.executeError,
+                ) &&
+                renderGrokCliInstallGuide()}
               <div className="form-group">
                 <label>{t("instances.columns.instance", "实例")}</label>
                 <input
@@ -937,7 +965,7 @@ export function GrokAccountsPage() {
                 <p className="form-hint">
                   {t(
                     "grok.instances.workingDirAccountHint",
-                    "工作目录与当前账号绑定，下次切号启动会自动回填。",
+                    "工作目录与该账号绑定，下次从该账号启动会自动回填。",
                   )}
                 </p>
               </div>

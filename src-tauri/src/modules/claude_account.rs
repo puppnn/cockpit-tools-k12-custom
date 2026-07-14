@@ -400,8 +400,8 @@ fn save_index(index: &ClaudeAccountIndex) -> Result<(), String> {
 
 fn write_account_file(account: &ClaudeAccount) -> Result<(), String> {
     let path = account_file_path(&account.id)?;
-    let content = serde_json::to_string_pretty(account)
-        .map_err(|e| format!("序列化 Claude 账号失败: {}", e))?;
+    let content =
+        crate::modules::secure_account_storage::serialize_account_file("claude", account)?;
     atomic_write::write_string_atomic(&path, &content)
 }
 
@@ -411,7 +411,15 @@ fn load_account_file(account_id: &str) -> Option<ClaudeAccount> {
         return None;
     }
     let content = fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&content).ok()
+    match crate::modules::secure_account_storage::deserialize_account_file(&path, &content) {
+        Ok((account, needs_rotation)) => {
+            if needs_rotation {
+                let _ = write_account_file(&account);
+            }
+            Some(account)
+        }
+        Err(_) => None,
+    }
 }
 
 pub fn load_account(account_id: &str) -> Option<ClaudeAccount> {

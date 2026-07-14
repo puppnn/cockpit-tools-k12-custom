@@ -2,6 +2,8 @@
   "common": {
     "confirm": "Xác nhận",
     "cancel": "Hủy",
+    "cancelling": "Đang hủy...",
+    "cancelled": "Đã hủy",
     "save": "Lưu",
     "saving": "Đang lưu...",
     "delete": "Xóa",
@@ -250,7 +252,6 @@
       "restart": "Khởi động lại",
       "installing": "Đang cài đặt"
     },
-    "gemini": "Gemini Cli​",
     "codebuddy": "CodeBuddy​",
     "qoder": "Qoder​",
     "trae": "Trae​",
@@ -271,7 +272,9 @@
     "switchClassicLayoutConfirm": "Chuyển ngay",
     "2faManager": "Quản lý 2FA",
     "apiRelay": "Trạm chuyển",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "Nhà tài trợ",
@@ -582,7 +585,7 @@
       "theme": "Chủ đề ứng dụng",
       "themeDesc": "Chuyển đổi chế độ sáng hoặc tối",
       "defaultTerminal": "Terminal mặc định",
-      "defaultTerminalDesc": "Terminal được sử dụng khi mở Gemini CLI",
+      "defaultTerminalDesc": "Terminal được sử dụng khi mở CLI",
       "terminalSystem": "Mặc định hệ thống",
       "themeLight": "Sáng (Light)",
       "themeDark": "Tối (Dark)",
@@ -807,7 +810,35 @@
       "platformAutoRefresh": "Tự động làm mới hạn ngạch {{platform}}",
       "traeSoloAppPath": "Đường dẫn khởi động TRAE SOLO",
       "traeCnAppPath": "Đường dẫn khởi động Trae CN",
-      "traeSoloCnAppPath": "Đường dẫn khởi động TRAE SOLO CN"
+      "traeSoloCnAppPath": "Đường dẫn khởi động TRAE SOLO CN",
+      "reducedMotion": "Giảm chuyển động",
+      "reducedMotionDesc": "Giảm fade, chuyển modal, bóng, blur và cuộn mượt; chỉ giữ phản hồi tải cần thiết",
+      "autoImportFromLocal": "Tự nhập tài khoản cục bộ",
+      "autoImportFromLocalDesc": "Bật sẽ quét và nhập đăng nhập cục bộ ngay; sau đó tự nhập khi client chính thức đổi tài khoản. Có thể hỏi quyền keychain.",
+      "autoImportFromLocalScanning": "Đang quét tài khoản cục bộ… có thể tắt bất cứ lúc nào",
+      "autoImportFromLocalScanDone": "Xong: tìm {{scanned}}, đã nhập {{imported}}",
+      "autoImportFromLocalScanEmpty": "Xong: không có đăng nhập để nhập",
+      "autoImportFromLocalScanPartial": "Xong: một số nền tảng lỗi",
+      "autoImportFromLocalScanFailed": "Quét thất bại: {{error}}",
+      "autoImportFromLocalScanCancelled": "Đã tắt; kết quả quét đang chạy sẽ bị bỏ qua",
+      "startupPage": "Trang khởi động",
+      "startupPageDesc": "Trang mở khi khởi động lạnh. “Nhớ lần trước” khôi phục trang trước đó.",
+      "startupPageLast": "Nhớ lần trước",
+      "startupPageCodexApi": "Dịch vụ API Codex",
+      "hermesAuthOverwrite": "Đồng bộ Hermes khi đổi Codex",
+      "hermesAuthOverwriteDesc": "Chỉ OAuth: ghi openai-codex vào ~/.hermes/auth.json (mặc định tắt)",
+      "themeColor": "Gói màu",
+      "themeColorDesc": "Chồng gói màu lên sáng/tối",
+      "themeColorDefault": "Mặc định",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "Cho phép mạng ngoài",
+      "externalNetworkDesc": "Tắt: chặn WebDAV, usage OpenRouter, thông báo và kiểm tra cập nhật (tính năng local vẫn chạy).",
+      "webdavAllowedDomains": "Danh sách domain WebDAV",
+      "webdavAllowedDomainsDesc": "Cách nhau bằng dấu phẩy; trống = không giới hạn"
     },
     "network": {
       "apiTitle": "API Antigravity Cockpit",
@@ -872,6 +903,7 @@
       "releaseHistoryLoading": "Đang tải ghi chú phát hành...",
       "releaseHistoryEmpty": "Chưa có ghi chú phát hành",
       "releaseHistoryLoadFailed": "Không tải được: {{error}}",
+      "releaseHistorySectionHighlights": "Cập nhật nổi bật",
       "releaseHistorySectionAdded": "Đã thêm",
       "releaseHistorySectionChanged": "Đã thay đổi",
       "releaseHistorySectionFixed": "Đã sửa",
@@ -1036,6 +1068,19 @@
       "retentionUnit": "days",
       "collapseAll": "Collapse remote backups",
       "expandAll": "Expand all remote backups ({{count}} more)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "Lưu API key cục bộ. Làm mới usage OpenRouter khi cho phép mạng ngoài. Không phải nền tảng đầy đủ.",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "Nhãn",
+      "empty": "Chưa có key",
+      "added": "Đã thêm",
+      "deleted": "Đã xóa",
+      "refreshed": "Đã làm mới usage",
+      "usage": "Lượng dùng",
+      "tierOther": "Khác"
     }
   },
   "appPath": {
@@ -1732,7 +1777,8 @@
       "title": "Thêm tài khoản Codex",
       "oauth": "Ủy quyền OAuth",
       "token": "Nhập JSON",
-      "local": "Nhập từ máy"
+      "local": "Nhập từ máy",
+      "accessToken": "Token truy cập"
     },
     "oauth": {
       "desc": "Nhấn nút bên dưới và hoàn tất ủy quyền OpenAI trong trình duyệt",
@@ -1963,7 +2009,7 @@
       },
       "customRoutingEdit": "Sửa định tuyến tùy chỉnh",
       "customRoutingTitle": "Định tuyến tùy chỉnh",
-      "customRoutingDesc": "Đặt ưu tiên và trọng số cho từng tài khoản để kiểm soát thứ tự chọn tài khoản và phân bổ tải cùng mức ưu tiên.",
+      "customRoutingDesc": "Đặt mức ưu tiên và trọng số để điều khiển thứ tự chọn tài khoản và phân tải.",
       "customRoutingBackupTitle": "Tài khoản dự phòng",
       "customRoutingBackupDesc": "Chỉ dùng khi mọi tài khoản thường đều không khả dụng. Yêu cầu mới sẽ tự động chuyển lại khi một tài khoản thường phục hồi.",
       "customRoutingBackupShort": "Dự phòng",
@@ -2122,7 +2168,12 @@
     },
     "list": {
       "showCodeReviewQuota": "Hiển thị hạn mức Code Review",
-      "showAdditionalQuota": "Hạn mức theo model"
+      "showAdditionalQuota": "Hạn mức theo model",
+      "planBadgeStyle": "Kiểu huy hiệu gói",
+      "planBadgeStyleDefault": "Mặc định",
+      "planBadgeStyleOutline": "Viền",
+      "planBadgeStyleSoft": "Mềm",
+      "planBadgeStyleMono": "Đơn sắc"
     },
     "time": {
       "today": "Hôm nay {{time}}",
@@ -2382,7 +2433,8 @@
         "selectAllSessions": "Chọn mọi phiên",
         "clearSelectedSessions": "Bỏ chọn",
         "copyToInstance": "Sao chép sang phiên bản",
-        "trash": "Thùng rác"
+        "trash": "Thùng rác",
+        "openRollout": "Mở tệp phiên"
       },
       "confirm": {
         "title": "Chuyển vào thùng rác",
@@ -2584,7 +2636,15 @@
         "removeItem": "Bỏ",
         "emptyFilteredTitle": "Không có phiên phù hợp",
         "emptyFilteredDesc": "Điều chỉnh tìm kiếm, nguồn hoặc trạng thái chọn rồi thử lại."
-      }
+      },
+      "kindFilter": "Loại phiên",
+      "kind": {
+        "conversation": "Chat",
+        "external": "Ngoài",
+        "subagent": "Tác nhân con",
+        "all": "Mọi loại"
+      },
+      "pickInstancePrompt": "Phiên tồn tại trên nhiều instance. Nhập ID instance:"
     },
     "api": {
       "baseUrl": "URL cơ sở",
@@ -2598,6 +2658,20 @@
       "showApiKey": "Hiện API Key",
       "hideApiKey": "Ẩn API Key",
       "apiKeyHiddenHint": "API Key đã bị ẩn. Nhấp để hiển thị.",
+      "modelCatalog": {
+        "label": "Danh sách mô hình",
+        "fetch": "Lấy từ nhà cung cấp",
+        "fetching": "Đang lấy...",
+        "count": "{{count}} mô hình",
+        "placeholder": "Nhập một ID mô hình trên mỗi dòng hoặc phân tách các ID bằng dấu phẩy.",
+        "editHint": "Các mô hình đã lấy chỉ được thêm vào bản nháp này. Hãy xem lại và chỉnh sửa trước khi lưu.",
+        "syncToggle": "Đồng bộ mô hình nhà cung cấp với Codex",
+        "syncDescription": "Sau khi lưu, danh sách này được dùng để tạo danh mục mô hình Codex do Cockpit quản lý. Danh mục tùy chỉnh không bị ghi đè.",
+        "fetchCredentialsRequired": "Hãy nhập API Key và Base URL trước.",
+        "fetchEmpty": "Nhà cung cấp không trả về mô hình nào. Danh sách hiện tại được giữ nguyên.",
+        "fetchFailed": "Không thể lấy mô hình từ nhà cung cấp: {{error}}",
+        "syncRequiresModels": "Hãy lấy hoặc nhập ít nhất một mô hình trước khi đồng bộ với Codex."
+      },
       "actions": {
         "addAndSwitch": "Thêm và chuyển"
       },
@@ -2974,7 +3048,10 @@
         "help": "Chỉ bật khi nhà cung cấp hỗ trợ rõ ràng Responses qua WebSocket; hãy xác nhận phương thức truyền trong nhật ký Codex hoặc dịch vụ proxy.",
         "enabled": "Đã bật",
         "disabled": "Đã tắt"
-      }
+      },
+      "renameApiKeyPrompt": "Đổi tên API key",
+      "renameApiKeySuccess": "Đã đổi tên API key",
+      "renameApiKeyFailed": "Đổi tên API key thất bại: {{error}}"
     },
     "quickSwitch": {
       "action": "Chuyển nhanh nhà cung cấp",
@@ -3156,22 +3233,40 @@
         "rulesSaved": "Đã lưu quy tắc mô hình",
         "pricingAction": "Giá",
         "pricingTitle": "Giá mô hình",
-        "pricingDesc": "USD / 1M token, chỉ dùng cho thống kê giá trị cục bộ.",
+        "pricingDesc": "USD / 1M token, chỉ dùng thống kê cục bộ.",
         "pricingModel": "Mô hình",
         "pricingInput": "Đầu vào",
         "pricingCache": "Đầu vào cache",
         "pricingOutput": "Đầu ra",
         "pricingSource": "Nguồn",
         "pricingActions": "Thao tác",
-        "pricingCachePlaceholder": "Như đầu vào",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "Tùy chỉnh",
         "pricingPreset": "Cài sẵn",
         "pricingUnset": "Chưa đặt",
         "pricingReset": "Đặt lại",
         "pricingSaved": "Đã lưu giá",
-        "pricingInvalid": "Giá phải là số lớn hơn hoặc bằng 0",
+        "pricingInvalid": "Giá phải ≥ 0 và ngưỡng token là số nguyên dương",
         "pricingReprice": "Tính lại lịch sử",
-        "pricingRepriced": "Ước tính lịch sử đã được tính lại theo giá hiện tại"
+        "pricingRepriced": "Ước tính lịch sử đã được tính lại theo giá hiện tại",
+        "pricingLongThreshold": "Ngưỡng ngữ cảnh dài (tokens)",
+        "pricingStandard": "Chuẩn",
+        "pricingStandardLong": "Chuẩn (dài)",
+        "pricingPriority": "Ưu tiên",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "Input chuẩn (dài)",
+        "pricingStandardLongCache": "Input cache chuẩn (dài)",
+        "pricingStandardLongOutput": "Output chuẩn (dài)",
+        "pricingPriorityInput": "Input ưu tiên",
+        "pricingPriorityCache": "Input cache ưu tiên",
+        "pricingPriorityOutput": "Output ưu tiên",
+        "pricingRepriceDone": "Đã cập nhật ước tính lịch sử; đổi {{updated}} dòng",
+        "pricingRepriceFailedWithMessage": "Cập nhật ước tính thất bại: {{message}}",
+        "pricingRepriceFailed": "Cập nhật ước tính thất bại",
+        "pricingRepriceSuperseded": "Đã nhận giá mới; chuyển sang tác vụ tính lại mới nhất",
+        "pricingRepriceRunning": "Đang cập nhật ước tính {{processed}} / {{total}}; đã cập nhật {{updated}}",
+        "pricingRepriceCompleted": "Đã cập nhật ước tính lịch sử",
+        "pricingRepriceSaveBlocked": "Đang tính lại ước tính; hãy lưu sau khi xong"
       },
       "keys": {
         "policyTitle": "Chính sách mô hình",
@@ -3308,8 +3403,20 @@
       "previewSubtitle": "Chọn tài khoản để lưu",
       "scanSubtitle": "Đang phân tích và kiểm tra từng tài khoản",
       "parseSubtitle": "Đang phân tích tệp tài khoản",
+      "importSubtitle": "Đang lưu các tài khoản đã chọn",
+      "finalizing": "Đang hoàn tất nhập",
+      "finalizingSubtitle": "Đang cập nhật danh sách tài khoản và cài đặt liên quan",
+      "cancelImport": "Hủy nhập",
+      "importCancelledSummary": "Đã hủy nhập sau khi xử lý {{processed}}/{{total}} tài khoản.",
+      "importChecked": "Nhập các tài khoản đã kiểm tra",
+      "directImport": "Nhập trực tiếp không kiểm tra",
+      "importCheckedAndAddToApiService": "Nhập tài khoản đã kiểm tra và thêm vào Dịch vụ API",
+      "directImportAndAddToApiService": "Nhập trực tiếp và thêm vào Dịch vụ API",
+      "viewAllTasks": "Xem tất cả {{count}} tác vụ",
+      "collapseTasks": "Thu gọn tác vụ",
       "cancelling": "Đang hủy...",
       "scanDone": "Quét xong",
+      "scanCompleteReview": "Kiểm tra hoàn tất, hãy xem kết quả",
       "parseDone": "Phân tích xong",
       "scanning": "Đang quét",
       "parsing": "Đang phân tích",
@@ -3318,7 +3425,7 @@
       "failed": "Thất bại",
       "quotaOk": "Tài khoản OK",
       "quotaFailed": "Lỗi",
-      "checkQuotaToggle": "Kiểm tra tài khoản",
+      "checkQuotaToggle": "Kiểm tra trước khi nhập",
       "preparing": "Đang chuẩn bị nhập...",
       "importSelected": "Nhập tài khoản đã chọn",
       "noSelection": "Hãy chọn tài khoản trước",
@@ -3341,7 +3448,17 @@
       "taskRunning": "Đang xử lý {{current}} / {{total}}",
       "taskPreview": "Đã có {{total}} bản xem trước",
       "reopen": "Xem tác vụ",
-      "dismissTask": "Bỏ"
+      "dismissTask": "Bỏ",
+      "queueCount": "Hàng đợi {{count}} việc",
+      "queued": "Đã xếp hàng",
+      "batchLabel": "Lô {{index}}",
+      "runInBackground": "Lý lịch",
+      "cancelQueued": "Hủy hàng đợi",
+      "importing": "Nhập khẩu",
+      "checkAccounts": "Kiểm tra tài khoản",
+      "importAndAddToApiService": "Nhập + API",
+      "importAndAddToApiServiceSuccess": "Đã nhập và thêm vào dịch vụ API",
+      "addToApiServiceFailed": "Đã nhập nhưng việc thêm vào dịch vụ API không thành công: {{error}}"
     },
     "autoRepairMode": {
       "label": "Logic tự sửa",
@@ -3388,6 +3505,71 @@
       "chipSearch": "Tìm",
       "chipPlan": "Gói",
       "chipFolder": "Thư mục"
+    },
+    "accessTokenImport": {
+      "nameRequired": "Nhập tên tài khoản",
+      "tokenRequired": "Nhập access token Codex",
+      "desc": "Lưu tài khoản access token. Không có refresh/id sẽ ghi personal_access_token.",
+      "nameLabel": "Tên tài khoản",
+      "namePlaceholder": "Tên hiển thị trong danh sách",
+      "tokenLabel": "Access token Codex",
+      "hideToken": "Ẩn",
+      "showToken": "Hiện",
+      "submit": "Nhập token",
+      "success": "Đã nhập tài khoản access token: {{name}}"
+    },
+    "ssh": {
+      "tab": "Đồng bộ SSH",
+      "title": "Đồng bộ SSH Codex",
+      "desc": "Lưu host, kiểm tra kết nối và gửi auth.json. Tự đồng bộ sau khi đổi tài khoản nếu đã chọn host.",
+      "new": "Mới",
+      "empty": "Chưa có host SSH",
+      "test": "Kiểm tra",
+      "sync": "Đồng bộ",
+      "saved": "Đã lưu máy chủ SSH",
+      "deleted": "Đã xóa",
+      "name": "Tên",
+      "host": "Host",
+      "user": "Người dùng",
+      "port": "Cổng",
+      "remoteDir": "Thư mục Codex từ xa",
+      "syncSwitch": "SSH trên công tắc",
+      "syncSwitchDesc": "Bật để định cấu hình máy chủ SSH; Công tắc Codex đồng bộ hóa tài khoản hiện tại từ xa.",
+      "configure": "Cài đặt",
+      "modalTitle": "Thiết lập đồng bộ hóa SSH",
+      "modalHint": "Thêm và chọn máy chủ SSH có bật tính năng tự động đồng bộ hóa để chuyển đổi tài khoản Codex cập nhật xác thực từ xa.",
+      "subtitle": "Máy chủ đã chọn sẽ nhận được gói xác thực Codex hiện tại sau khi chuyển đổi tài khoản.",
+      "addServer": "Thêm máy chủ",
+      "editServer": "Chỉnh sửa máy chủ",
+      "username": "Tên người dùng",
+      "codexHome": "Thư mục Codex từ xa",
+      "authMethod": "Phương thức xác thực",
+      "agentAuth": "Đại lý SSH",
+      "privateKeyAuth": "Khóa riêng",
+      "privateKeyPath": "Đường dẫn chính",
+      "syncOnSwitch": "Đồng bộ hóa sau khi chuyển đổi",
+      "emptyTitle": "Không có máy chủ SSH",
+      "emptyBody": "Điền vào máy chủ ở bên trái và lưu nó làm mục tiêu đồng bộ hóa chuyển đổi.",
+      "selected": "Đã chọn",
+      "select": "Lựa chọn",
+      "testConnection": "Bài kiểm tra",
+      "syncNow": "Đồng bộ hóa ngay bây giờ",
+      "connectionOk": "Đã kết nối",
+      "syncVerified": "Đã xác minh đồng bộ hóa SSH",
+      "syncFailed": "Đồng bộ hóa SSH không thành công",
+      "syncedAs": "Đã đồng bộ hóa {{email}} · {{time}}",
+      "neverSynced": "Chưa được đồng bộ hóa",
+      "latestVerified": "Đã xác minh đồng bộ hóa SSH lần cuối",
+      "syncSwitchActive": "Bật · {{name}} ({{user}}@{{host}})",
+      "footerHint": "Công tắc bật sau khi lưu; tắt nó bất cứ lúc nào để ngừng tự động đồng bộ hóa.",
+      "formLead": "Chi tiết máy chủ từ xa",
+      "namePlaceholder": "ví dụ. Trang chủ NAS",
+      "syncOnSwitchHint": "Sau khi lưu và chọn, Codex chuyển sang đẩy xác thực đến máy chủ này",
+      "addAndSave": "Thêm và lưu",
+      "serverList": "Máy chủ",
+      "serverListLead": "Chọn mục tiêu đồng bộ hóa",
+      "serverCount": "{{count}} máy chủ",
+      "autoSyncBadge": "Tự động"
     }
   },
   "githubCopilot": {
@@ -3618,13 +3800,6 @@
       "appPath": "Đường dẫn Cursor"
     },
     "cursorRefreshInterval": "Tự động làm mới hạn mức",
-    "gemini": {
-      "title": "Cài đặt Gemini Cli",
-      "appPath": "Đường dẫn Gemini Cli",
-      "syncWsl": "Đồng bộ cấu hình WSL",
-      "syncWslDesc": "Tự động ghi đè cấu hình .gemini trong WSL khi chuyển tài khoản"
-    },
-    "geminiRefreshInterval": "Tự động làm mới hạn ngạch",
     "grok": {
       "title": "Cài đặt Grok CLI",
       "appPath": "Đường dẫn Grok CLI",
@@ -4214,99 +4389,6 @@
       "title": "Tác vụ wakeup và xác minh"
     }
   },
-  "gemini": {
-    "injectToGemini": "Chuyển sang Gemini Cli",
-    "title": "Quản lý tài khoản Gemini Cli",
-    "empty": {
-      "description": "Nhấp vào \"Thêm tài khoản\" để bắt đầu quản lý tài khoản Gemini Cli của bạn"
-    },
-    "addModal": {
-      "title": "Thêm tài khoản Gemini Cli"
-    },
-    "oauth": {
-      "desc": "Nhấp vào nút bên dưới và hoàn tất ủy quyền Gemini Cli OAuth trong trình duyệt của bạn."
-    },
-    "token": {
-      "desc": "Dán Mã thông báo truy cập Gemini Cli (JWT) hoặc dữ liệu JSON đã xuất của bạn.",
-      "formatHint": "Các trường và ví dụ bắt buộc (bấm vào để mở rộng)",
-      "formatRequired": "Mã thông báo đơn: dán JWT trực tiếp; nhập hàng loạt: sử dụng định dạng mảng JSON",
-      "singleExample": "Ví dụ đơn (JWT)",
-      "batchExample": "Ví dụ về lô (JSON)"
-    },
-    "import": {
-      "localDesc": "Nhập dữ liệu tài khoản Gemini Cli từ thư mục cấu hình Gemini Cli cục bộ (~/.gemini) hoặc tệp JSON.",
-      "localClient": "Nhập từ Gemini Cli cục bộ"
-    },
-    "flowNotice": {
-      "title": "Hướng dẫn tài khoản Gemini Cli (bấm vào để mở rộng/thu gọn)",
-      "desc": "Quản lý tài khoản Gemini Cli bằng cách nhập từ cấu hình Gemini Cli cục bộ, dán mã thông báo JWT hoặc đăng nhập qua OAuth.",
-      "reason": "Phạm vi quyền: đọc và ghi oauth_creds.json, google_accounts.json và settings.json theo mặc định ~/.gemini hoặc đường dẫn phiên bản (GEMINI_CLI_HOME/.gemini) để nhập tài khoản và chèn thông tin xác thực cục bộ (chuyển đổi tài khoản).",
-      "storage": "Phạm vi mạng: OAuth và làm mới cuộc gọi API Google/Gemini chính thức (chẳng hạn như oauth2.googleapis.com và googleapis.com). Chỉ các trường xác thực/hạn ngạch bắt buộc mới được gửi; các tệp tài khoản cục bộ không được tải lên máy chủ của bên thứ ba."
-    },
-    "updated": {
-      "label": "Đã cập nhật {{relative}} trước"
-    },
-    "quota": {
-      "pro": "PRO",
-      "flash": "FLASH",
-      "left": "{{value}}% còn lại",
-      "resetsIn": "Đặt lại sau {{relative}}",
-      "resetsSoon": "Đặt lại sớm",
-      "resetsUnknown": "Đặt lại thời gian không xác định",
-      "onDemand": "Theo yêu cầu",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "instances": {
-      "unsupported": "Quản lý đa phiên bản Gemini Cli chưa được hỗ trợ.",
-      "unsupportedDescPlatform": "Phiên bản đa phiên bản Gemini Cli chỉ được hỗ trợ trên macOS, Windows và Linux.",
-      "launchDialogTitle": "Khởi chạy phiên bản",
-      "launchHint": "Sao chép lệnh và chạy thủ công hoặc thực thi trực tiếp trong terminal.",
-      "runInTerminal": "Chạy trong Terminal",
-      "workingDir": "Thư mục làm việc",
-      "workingDirPlaceholder": "Mặc định là đường dẫn hiện tại",
-      "workingDirDesc": "Sẽ chuyển sang thư mục này trước khi khởi động",
-      "pickWorkingDir": "Chọn thư mục làm việc"
-    },
-    "switch": {
-      "success": "Chuyển đổi tài khoản thành công"
-    },
-    "projectConfig": {
-      "button": "Đặt dự án GCP",
-      "title": "Đặt dự án GCP",
-      "selectLabel": "Chọn dự án",
-      "loading": "Đang tải danh sách dự án...",
-      "auto": "Tự động chọn (không chỉ định thủ công)",
-      "empty": "Không tìm thấy dự án khả dụng. Hãy đảm bảo tài khoản này có quyền truy cập dự án GCP.",
-      "hint": "Sau khi lưu, dự án này sẽ được ưu tiên cho các yêu cầu hạn mức và được chèn thành GOOGLE_CLOUD_PROJECT khi khởi chạy.",
-      "current": "Dự án: {{projectId}}",
-      "saved": "Đã lưu dự án: {{projectId}}",
-      "cleared": "Đã chuyển về tự động xác định dự án",
-      "savedWithRefreshError": "Đã lưu dự án nhưng làm mới hạn mức thất bại: {{error}}"
-    },
-    "identity": {
-      "authMethod": "Phương thức xác thực",
-      "tier": "Gói",
-      "signedInWithGoogle": "Đăng nhập bằng Google",
-      "signedInWithGoogleEmail": "Đăng nhập bằng Google ({{email}})"
-    },
-    "quotaTable": {
-      "model": "Mô hình",
-      "leftOfTotal": "Còn lại / Tổng",
-      "usage": "Đã dùng",
-      "usageResets": "Đặt lại mức dùng",
-      "usedPercent": "{{value}}%​",
-      "remainingOfTotal": "{{remaining}} / {{total}}​",
-      "resetAtWithRelative": "{{absolute}} ({{relative}})​"
-    },
-    "tierText": {
-      "pro": "Gemini Code Assist trong Google One AI Pro",
-      "ultra": "Gemini Code Assist trong Google AI Ultra",
-      "free": "Gemini Code Assist miễn phí"
-    }
-  },
   "codebuddy": {
     "title": "Quản lý tài khoản CodeBuddy",
     "noAccounts": "Chưa có tài khoản CodeBuddy",
@@ -4405,6 +4487,12 @@
     },
     "quota": {
       "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "sessions": {
+      "title": "Tệp phiên cục bộ",
+      "desc": "Tệp phiên cục bộ — Quét cục bộ và mở vị trí.",
+      "empty": "Không thấy tệp phiên",
+      "open": "Mở vị trí"
     }
   },
   "qoder": {
@@ -5124,7 +5212,8 @@
       "installHint": "Chạy lệnh chính thức sau trong terminal, rồi nhấn Làm mới sau khi cài đặt xong.",
       "selectWorkingDir": "Chọn thư mục làm việc Grok CLI",
       "workingDirAccountHint": "Thư mục làm việc được gắn với tài khoản này và sẽ được khôi phục lần khởi chạy sau.",
-      "launchCommandPlaceholder": "Chọn hoặc xác nhận thư mục để tạo lệnh khởi chạy"
+      "launchCommandPlaceholder": "Chọn hoặc xác nhận thư mục để tạo lệnh khởi chạy",
+      "reauthLaunchHint": "Xác thực tài khoản đã hết hạn. Ủy quyền lại; lệnh khởi chạy bên dưới vẫn có sẵn."
     },
     "switch": {
       "success": "Đã chuyển tài khoản"
@@ -5407,5 +5496,23 @@
       "supports1mLabel": "Khai báo hỗ trợ 1M",
       "supports1mShort": "1M ngữ cảnh"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "Quản lý API key OpenRouter, usage và danh sách model.",
+    "tabKeys": "Key và usage",
+    "tabModels": "Mô hình",
+    "modelsLoaded": "Đã tải {{count}} model",
+    "noUsageYet": "Chưa làm mới usage",
+    "loadModels": "Tải mô hình",
+    "searchModels": "Tìm model",
+    "freeOnly": "Chỉ miễn phí",
+    "noModels": "Chưa có model — thêm key rồi tải.",
+    "free": "Miễn phí",
+    "noCtx": "Không có độ dài ngữ cảnh"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "Quản lý key OpenCode Go/Zen và lọc theo tier."
   }
 }

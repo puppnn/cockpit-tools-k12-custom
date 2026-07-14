@@ -2,6 +2,8 @@
   "common": {
     "confirm": "Konfirmasi",
     "cancel": "Batal",
+    "cancelling": "Membatalkan...",
+    "cancelled": "Dibatalkan",
     "save": "Simpan",
     "saving": "Menyimpan...",
     "delete": "Hapus",
@@ -290,7 +292,6 @@
     "codebuddy": "CodeBuddy​",
     "githubCopilot": "GitHub Copilot​",
     "windsurf": "Windsurf​",
-    "gemini": "Gemini Cli​",
     "dashboard": "Dasbor",
     "morePlatforms": "Platform Lainnya",
     "collapseSidebar": "Ciutkan bilah sisi",
@@ -318,7 +319,9 @@
     "switchClassicLayoutConfirm": "Beralih sekarang",
     "2faManager": "2FA​",
     "apiRelay": "Relay API",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "Sponsor",
@@ -801,7 +804,7 @@
       "antigravityDualSwitchNoRestart": "Penggantian ganda tanpa mulai ulang",
       "antigravityDualSwitchNoRestartDesc": "Saat mengganti, tulis data akun lokal dan panggil penggantian mulus ekstensi dalam satu alur, tanpa memulai ulang Antigravity IDE.",
       "defaultTerminal": "Terminal default",
-      "defaultTerminalDesc": "Terminal yang digunakan saat membuka Gemini CLI.",
+      "defaultTerminalDesc": "Terminal yang digunakan saat membuka CLI.",
       "terminalSystem": "Ikuti sistem",
       "currentAccountRefreshRequiresAutoRefresh": "Aktifkan terlebih dahulu \"Penyegaran Kuota Otomatis\" untuk mengatur penyegaran akun saat ini.",
       "codebuddyCnAppPath": "Path Aplikasi CodeBuddy CN",
@@ -854,7 +857,35 @@
       "platformAutoRefresh": "Penyegaran otomatis kuota {{platform}}",
       "traeSoloAppPath": "Jalur peluncuran TRAE SOLO",
       "traeCnAppPath": "Jalur peluncuran Trae CN",
-      "traeSoloCnAppPath": "Jalur peluncuran TRAE SOLO CN"
+      "traeSoloCnAppPath": "Jalur peluncuran TRAE SOLO CN",
+      "reducedMotion": "Kurangi animasi",
+      "reducedMotionDesc": "Kurangi fade, transisi modal, bayangan, blur, dan gulir halus; hanya sisakan umpan balik muat yang perlu",
+      "autoImportFromLocal": "Impor otomatis akun lokal",
+      "autoImportFromLocalDesc": "Saat diaktifkan, langsung pindai dan impor login lokal; lalu saat klien resmi ganti akun. Mungkin minta izin keychain.",
+      "autoImportFromLocalScanning": "Memindai akun lokal… bisa dimatikan kapan saja",
+      "autoImportFromLocalScanDone": "Selesai: {{scanned}} ditemukan, {{imported}} diimpor",
+      "autoImportFromLocalScanEmpty": "Selesai: tidak ada login lokal",
+      "autoImportFromLocalScanPartial": "Selesai: sebagian gagal",
+      "autoImportFromLocalScanFailed": "Pindai gagal: {{error}}",
+      "autoImportFromLocalScanCancelled": "Dimatikan; hasil pindai yang berjalan akan diabaikan",
+      "startupPage": "Halaman awal",
+      "startupPageDesc": "Halaman saat cold start. “Ingat terakhir” memulihkan halaman sebelumnya.",
+      "startupPageLast": "Ingat terakhir",
+      "startupPageCodexApi": "Layanan API Codex",
+      "hermesAuthOverwrite": "Sinkron Hermes saat ganti Codex",
+      "hermesAuthOverwriteDesc": "Hanya OAuth: tulis openai-codex ke ~/.hermes/auth.json (default mati)",
+      "themeColor": "Paket warna",
+      "themeColorDesc": "Terapkan paket warna di atas terang/gelap",
+      "themeColorDefault": "Default",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "Izinkan jaringan eksternal",
+      "externalNetworkDesc": "Mati: memblokir WebDAV, usage OpenRouter, pengumuman, dan cek pembaruan (fitur lokal tetap).",
+      "webdavAllowedDomains": "Daftar domain WebDAV",
+      "webdavAllowedDomainsDesc": "Pisahkan koma; kosong = tanpa batas"
     },
     "network": {
       "apiTitle": "API Antigravity Cockpit",
@@ -919,6 +950,7 @@
       "releaseHistoryLoading": "Memuat catatan rilis...",
       "releaseHistoryEmpty": "Belum ada catatan rilis",
       "releaseHistoryLoadFailed": "Gagal memuat: {{error}}",
+      "releaseHistorySectionHighlights": "Pembaruan utama",
       "releaseHistorySectionAdded": "Ditambahkan",
       "releaseHistorySectionChanged": "Berubah",
       "releaseHistorySectionFixed": "Tetap",
@@ -1083,6 +1115,19 @@
       "retentionUnit": "days",
       "collapseAll": "Collapse remote backups",
       "expandAll": "Expand all remote backups ({{count}} more)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "Simpan API key secara lokal. Segarkan usage OpenRouter jika jaringan eksternal aktif. Bukan platform penuh.",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "Label",
+      "empty": "Belum ada key",
+      "added": "Ditambahkan",
+      "deleted": "Dihapus",
+      "refreshed": "Usage disegarkan",
+      "usage": "Pemakaian",
+      "tierOther": "Lainnya"
     }
   },
   "appPath": {
@@ -1782,7 +1827,8 @@
       "title": "Tambah Akun Codex",
       "oauth": "Otorisasi OAuth",
       "token": "Kunci API",
-      "local": "Impor Lokal"
+      "local": "Impor Lokal",
+      "accessToken": "Token akses"
     },
     "oauth": {
       "desc": "Klik tombol di bawah ini dan selesaikan otorisasi OpenAI di peramban Anda",
@@ -2013,7 +2059,7 @@
       },
       "customRoutingEdit": "Edit routing kustom",
       "customRoutingTitle": "Routing kustom",
-      "customRoutingDesc": "Atur prioritas dan bobot per akun untuk mengontrol urutan pemilihan akun dan pembagian beban pada prioritas yang sama.",
+      "customRoutingDesc": "Atur prioritas dan bobot untuk mengontrol urutan pemilihan akun dan distribusi beban.",
       "customRoutingBackupTitle": "Akun cadangan",
       "customRoutingBackupDesc": "Hanya digunakan saat semua akun biasa tidak tersedia. Permintaan baru otomatis kembali saat akun biasa pulih.",
       "customRoutingBackupShort": "Cadangan",
@@ -2130,6 +2176,20 @@
       "showApiKey": "Tampilkan API Key",
       "hideApiKey": "Sembunyikan API Key",
       "apiKeyHiddenHint": "API Key disembunyikan. Klik untuk menampilkan.",
+      "modelCatalog": {
+        "label": "Daftar model",
+        "fetch": "Ambil dari penyedia",
+        "fetching": "Mengambil...",
+        "count": "{{count}} model",
+        "placeholder": "Masukkan satu ID model per baris atau pisahkan ID dengan koma.",
+        "editHint": "Model yang diambil hanya dimasukkan ke draf ini. Tinjau dan edit sebelum menyimpan.",
+        "syncToggle": "Sinkronkan model penyedia ke Codex",
+        "syncDescription": "Setelah disimpan, daftar ini digunakan untuk membuat katalog model Codex yang dikelola Cockpit. Katalog khusus tidak ditimpa.",
+        "fetchCredentialsRequired": "Masukkan API Key dan Base URL terlebih dahulu.",
+        "fetchEmpty": "Penyedia tidak mengembalikan model. Daftar saat ini tetap dipertahankan.",
+        "fetchFailed": "Gagal mengambil model penyedia: {{error}}",
+        "syncRequiresModels": "Ambil atau masukkan setidaknya satu model sebelum menyinkronkan ke Codex."
+      },
       "actions": {
         "addAndSwitch": "Tambah dan alihkan"
       },
@@ -2297,7 +2357,12 @@
     },
     "list": {
       "showCodeReviewQuota": "Tampilkan kuota Code Review",
-      "showAdditionalQuota": "Kuota khusus model"
+      "showAdditionalQuota": "Kuota khusus model",
+      "planBadgeStyle": "Gaya lencana paket",
+      "planBadgeStyleDefault": "Default",
+      "planBadgeStyleOutline": "Garis",
+      "planBadgeStyleSoft": "Lembut",
+      "planBadgeStyleMono": "Monokrom"
     },
     "time": {
       "today": "Hari ini {{time}}",
@@ -2546,7 +2611,8 @@
         "selectAllSessions": "Pilih semua sesi",
         "clearSelectedSessions": "Batal pilih",
         "copyToInstance": "Salin ke instans",
-        "trash": "Sampah"
+        "trash": "Sampah",
+        "openRollout": "Buka file sesi"
       },
       "confirm": {
         "title": "Pindahkan ke Sampah",
@@ -2748,7 +2814,15 @@
         "removeItem": "Keluarkan",
         "emptyFilteredTitle": "Tidak ada sesi cocok",
         "emptyFilteredDesc": "Ubah pencarian, sumber, atau status pilihan lalu coba lagi."
-      }
+      },
+      "kindFilter": "Jenis sesi",
+      "kind": {
+        "conversation": "Obrolan",
+        "external": "Eksternal",
+        "subagent": "Subagen",
+        "all": "Semua jenis"
+      },
+      "pickInstancePrompt": "Sesi ada di beberapa instance. Masukkan ID instance:"
     },
     "modelProviders": {
       "tab": "Penyedia model",
@@ -3021,7 +3095,10 @@
         "help": "Aktifkan hanya jika penyedia secara eksplisit mendukung Responses melalui WebSocket; pastikan transport melalui log Codex atau layanan proksi.",
         "enabled": "Aktif",
         "disabled": "Nonaktif"
-      }
+      },
+      "renameApiKeyPrompt": "Ganti nama API key",
+      "renameApiKeySuccess": "API key diganti nama",
+      "renameApiKeyFailed": "Gagal ganti nama API key: {{error}}"
     },
     "quickSwitch": {
       "action": "Alih cepat penyedia",
@@ -3203,22 +3280,40 @@
         "rulesSaved": "Aturan model tersimpan",
         "pricingAction": "Harga",
         "pricingTitle": "Harga Model",
-        "pricingDesc": "USD / 1M token, hanya untuk statistik nilai lokal.",
+        "pricingDesc": "USD / 1M token, hanya untuk statistik lokal.",
         "pricingModel": "Nama model",
         "pricingInput": "Masuk",
         "pricingCache": "Input cache",
         "pricingOutput": "Keluar",
         "pricingSource": "Sumber",
         "pricingActions": "Aksi",
-        "pricingCachePlaceholder": "Sama input",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "Kustom",
         "pricingPreset": "Prasetel",
         "pricingUnset": "Belum diatur",
         "pricingReset": "Atur ulang",
         "pricingSaved": "Harga tersimpan",
-        "pricingInvalid": "Harga harus berupa angka lebih besar atau sama dengan 0",
+        "pricingInvalid": "Harga harus ≥ 0 dan ambang token bilangan bulat positif",
         "pricingReprice": "Hitung ulang riwayat",
-        "pricingRepriced": "Estimasi riwayat dihitung ulang dengan harga saat ini"
+        "pricingRepriced": "Estimasi riwayat dihitung ulang dengan harga saat ini",
+        "pricingLongThreshold": "Ambang konteks panjang (tokens)",
+        "pricingStandard": "Standar",
+        "pricingStandardLong": "Standar (panjang)",
+        "pricingPriority": "Prioritas",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "Input standar (panjang)",
+        "pricingStandardLongCache": "Input cache standar (panjang)",
+        "pricingStandardLongOutput": "Output standar (panjang)",
+        "pricingPriorityInput": "Input prioritas",
+        "pricingPriorityCache": "Input cache prioritas",
+        "pricingPriorityOutput": "Output prioritas",
+        "pricingRepriceDone": "Estimasi historis diperbarui; {{updated}} baris berubah",
+        "pricingRepriceFailedWithMessage": "Gagal memperbarui estimasi: {{message}}",
+        "pricingRepriceFailed": "Gagal memperbarui estimasi",
+        "pricingRepriceSuperseded": "Harga baru diterima; beralih ke pekerjaan hitung ulang terbaru",
+        "pricingRepriceRunning": "Memperbarui estimasi {{processed}} / {{total}}; {{updated}} diperbarui",
+        "pricingRepriceCompleted": "Estimasi historis diperbarui",
+        "pricingRepriceSaveBlocked": "Hitung ulang sedang berjalan; simpan setelah selesai"
       },
       "keys": {
         "policyTitle": "Kebijakan Model",
@@ -3355,8 +3450,20 @@
       "previewSubtitle": "Pilih akun untuk disimpan",
       "scanSubtitle": "Mengurai dan memeriksa akun satu per satu",
       "parseSubtitle": "Mengurai file akun",
+      "importSubtitle": "Menyimpan akun yang dipilih",
+      "finalizing": "Menyelesaikan impor",
+      "finalizingSubtitle": "Memperbarui daftar akun dan pengaturan terkait",
+      "cancelImport": "Batalkan impor",
+      "importCancelledSummary": "Impor dibatalkan setelah memproses {{processed}}/{{total}} akun.",
+      "importChecked": "Impor akun yang telah diperiksa",
+      "directImport": "Impor langsung tanpa pemeriksaan",
+      "importCheckedAndAddToApiService": "Impor akun yang diperiksa dan tambahkan ke Layanan API",
+      "directImportAndAddToApiService": "Impor langsung dan tambahkan ke Layanan API",
+      "viewAllTasks": "Lihat semua {{count}} tugas",
+      "collapseTasks": "Ciutkan tugas",
       "cancelling": "Membatalkan...",
       "scanDone": "Pemindaian selesai",
+      "scanCompleteReview": "Pemeriksaan selesai, silakan tinjau hasilnya",
       "parseDone": "Penguraian selesai",
       "scanning": "Memindai",
       "parsing": "Mengurai",
@@ -3365,7 +3472,7 @@
       "failed": "Gagal",
       "quotaOk": "Akun OK",
       "quotaFailed": "Bermasalah",
-      "checkQuotaToggle": "Periksa akun",
+      "checkQuotaToggle": "Periksa sebelum impor",
       "preparing": "Menyiapkan impor...",
       "importSelected": "Impor akun terpilih",
       "noSelection": "Pilih akun terlebih dahulu",
@@ -3388,7 +3495,17 @@
       "taskRunning": "Memproses {{current}} / {{total}}",
       "taskPreview": "{{total}} pratinjau siap",
       "reopen": "Lihat tugas",
-      "dismissTask": "Buang"
+      "dismissTask": "Buang",
+      "queueCount": "{{count}} job dalam antrean",
+      "queued": "Mengantri",
+      "batchLabel": "Batch {{index}}",
+      "runInBackground": "Latar belakang",
+      "cancelQueued": "Batalkan antrian",
+      "importing": "Pengimporan",
+      "checkAccounts": "Periksa akun",
+      "importAndAddToApiService": "Impor + API",
+      "importAndAddToApiServiceSuccess": "Diimpor dan ditambahkan ke layanan API",
+      "addToApiServiceFailed": "Diimpor, tetapi penambahan ke layanan API gagal: {{error}}"
     },
     "autoRepairMode": {
       "label": "Logika perbaikan otomatis",
@@ -3435,6 +3552,71 @@
       "chipSearch": "Cari",
       "chipPlan": "Paket",
       "chipFolder": "Direktori"
+    },
+    "accessTokenImport": {
+      "nameRequired": "Masukkan nama akun",
+      "tokenRequired": "Masukkan access token Codex",
+      "desc": "Simpan akun access token. Tanpa refresh/id memakai personal_access_token.",
+      "nameLabel": "Nama akun",
+      "namePlaceholder": "Nama di daftar",
+      "tokenLabel": "Access token Codex",
+      "hideToken": "Sembunyikan",
+      "showToken": "Tampilkan",
+      "submit": "Impor token",
+      "success": "Akun access token diimpor: {{name}}"
+    },
+    "ssh": {
+      "tab": "Sinkron SSH",
+      "title": "Sinkron SSH Codex",
+      "desc": "Simpan host, uji koneksi, dan kirim auth.json. Sinkron otomatis setelah ganti akun bila host dipilih.",
+      "new": "Baru",
+      "empty": "Belum ada host SSH",
+      "test": "Uji",
+      "sync": "Sinkron",
+      "saved": "Server SSH disimpan",
+      "deleted": "Dihapus",
+      "name": "Nama",
+      "host": "Host",
+      "user": "Pengguna",
+      "port": "Port",
+      "remoteDir": "Direktori Codex jarak jauh",
+      "syncSwitch": "SSH aktif",
+      "syncSwitchDesc": "Aktifkan untuk mengonfigurasi host SSH; Sakelar Codex menyinkronkan akun saat ini dari jarak jauh.",
+      "configure": "Pengaturan",
+      "modalTitle": "Pengaturan sinkronisasi SSH",
+      "modalHint": "Tambahkan dan pilih host SSH dengan sinkronisasi otomatis diaktifkan sehingga sakelar akun Codex memperbarui autentikasi jarak jauh.",
+      "subtitle": "Host yang dipilih menerima paket autentikasi Codex saat ini setelah peralihan akun.",
+      "addServer": "Tambahkan server",
+      "editServer": "Sunting server",
+      "username": "Nama belakang",
+      "codexHome": "Dir. Codex jarak jauh",
+      "authMethod": "Metode autentikasi",
+      "agentAuth": "Agen SSH",
+      "privateKeyAuth": "Kunci pribadi",
+      "privateKeyPath": "Jalur kunci",
+      "syncOnSwitch": "Sinkronkan setelah peralihan",
+      "emptyTitle": "Tidak ada server SSH",
+      "emptyBody": "Isikan host di sebelah kiri dan simpan sebagai target sinkronisasi saklar.",
+      "selected": "Terpilih",
+      "select": "Memilih",
+      "testConnection": "Tes",
+      "syncNow": "Sinkronkan sekarang",
+      "connectionOk": "Terhubung",
+      "syncVerified": "Sinkronisasi SSH diverifikasi",
+      "syncFailed": "Sinkronisasi SSH gagal",
+      "syncedAs": "{{email}} · {{time}} yang disinkronkan",
+      "neverSynced": "Belum disinkronkan",
+      "latestVerified": "Sinkronisasi SSH terakhir diverifikasi",
+      "syncSwitchActive": "Aktif · {{name}} ({{user}}@{{host}})",
+      "footerHint": "Sakelar menyala setelah disimpan; matikan kapan saja untuk menghentikan sinkronisasi otomatis.",
+      "formLead": "Detail host jarak jauh",
+      "namePlaceholder": "misalnya Beranda NAS",
+      "syncOnSwitchHint": "Setelah menyimpan & memilih, Codex mengalihkan push autentikasi ke host ini",
+      "addAndSave": "Tambahkan & simpan",
+      "serverList": "Server",
+      "serverListLead": "Pilih target sinkronisasi",
+      "serverCount": "{{count}} server",
+      "autoSyncBadge": "Mobil"
     }
   },
   "codebuddy": {
@@ -3535,7 +3717,13 @@
     "oauthSuccessCloseNowLabel": "Close WebView​",
     "oauthSuccessCloseLaterLabel": "Later​",
     "oauthSuccessCloseNowStatus": "Ã¢Å“â€¦ Account added. Closing window...",
-    "oauthSuccessCloseLaterStatus": "Ã¢Å“â€¦ Account added. This WebView stays open."
+    "oauthSuccessCloseLaterStatus": "Ã¢Å“â€¦ Account added. This WebView stays open.",
+    "sessions": {
+      "title": "File sesi lokal",
+      "desc": "File sesi lokal — Pindai lokal dan buka lokasi.",
+      "empty": "File sesi tidak ditemukan",
+      "open": "Buka lokasi"
+    }
   },
   "githubCopilot": {
     "title": "Akun GitHub Copilot",
@@ -3769,13 +3957,6 @@
       "title": "CodeBuddy Settings​",
       "appPath": "CodeBuddy Path​"
     },
-    "gemini": {
-      "title": "Gemini Cli Settings​",
-      "appPath": "Gemini Cli Path​",
-      "syncWsl": "Sinkronkan Konfigurasi WSL",
-      "syncWslDesc": "Otomatis menimpa konfigurasi .gemini di WSL saat mengganti akun"
-    },
-    "geminiRefreshInterval": "Quota Auto Refresh​",
     "grok": {
       "title": "Pengaturan Grok CLI",
       "appPath": "Lokasi Grok CLI",
@@ -4061,99 +4242,6 @@
       "desc": "Kelola akun Cursor dengan mengimpor dari instalasi Cursor lokal, menempelkan token JWT, atau masuk melalui OAuth.",
       "reason": "Cakupan izin: baca dan tulis penyimpanan auth lokal Cursor (state.vscdb) untuk impor akun dan injeksi token (penggantian akun).",
       "storage": "Cakupan jaringan: saat menyegarkan kuota, JWT dikirim ke API resmi cursor.com untuk mengambil penggunaan, info pengguna, dan data langganan. Tidak ada data yang dikirim ke server pihak ketiga."
-    }
-  },
-  "gemini": {
-    "injectToGemini": "Switch to Gemini Cli​",
-    "updated": {
-      "label": "Updated {{relative}} ago​"
-    },
-    "quota": {
-      "pro": "Pro​",
-      "flash": "Flash​",
-      "left": "{{value}}% left​",
-      "resetsIn": "Resets in {{relative}}​",
-      "resetsSoon": "Resets soon​",
-      "resetsUnknown": "Reset time unknown​",
-      "onDemand": "On-Demand​",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "title": "Gemini Cli Account​",
-    "instances": {
-      "unsupported": "Gemini Cli multi-instance management is not supported yet.​",
-      "unsupportedDescPlatform": "Gemini Cli multi-instance is supported on macOS, Windows, and Linux only.​",
-      "launchDialogTitle": "Launch Instance​",
-      "launchHint": "Salin perintah dan jalankan secara manual, atau jalankan langsung di terminal.",
-      "runInTerminal": "Jalankan di Terminal",
-      "workingDir": "Direktori kerja",
-      "workingDirPlaceholder": "Gunakan direktori saat ini sebagai default",
-      "workingDirDesc": "Saat startup, Gemini CLI akan berpindah ke direktori ini terlebih dahulu",
-      "pickWorkingDir": "Pilih direktori kerja"
-    },
-    "switch": {
-      "success": "Account switched successfully​"
-    },
-    "empty": {
-      "description": "Klik \"Tambah Akun\" untuk mulai mengelola akun Gemini Cli Anda"
-    },
-    "addModal": {
-      "title": "Tambah Akun Gemini Cli"
-    },
-    "oauth": {
-      "desc": "Klik tombol di bawah ini dan selesaikan otorisasi OAuth Gemini Cli di peramban Anda."
-    },
-    "token": {
-      "desc": "Tempel Token Akses Gemini Cli (JWT) atau data JSON yang diekspor.",
-      "formatHint": "Bidang yang diperlukan & contoh (klik untuk perluas)",
-      "formatRequired": "Token tunggal: tempel JWT langsung; impor batch: gunakan format array JSON",
-      "singleExample": "Single example (JWT)​",
-      "batchExample": "Batch example (JSON)​"
-    },
-    "import": {
-      "localDesc": "Impor data akun Gemini Cli dari direktori konfigurasi Gemini Cli lokal (~/.gemini) atau berkas JSON.",
-      "localClient": "Impor dari Gemini Cli lokal"
-    },
-    "projectConfig": {
-      "button": "Set GCP Project​",
-      "title": "Set GCP Project​",
-      "selectLabel": "Pilih proyek",
-      "loading": "Loading project list...​",
-      "auto": "Auto-select (do not specify manually)​",
-      "empty": "No available project found. Ensure this account has access to GCP projects.​",
-      "hint": "Setelah menyimpan, proyek ini lebih diutamakan untuk permintaan kuota dan diinjeksi sebagai GOOGLE_CLOUD_PROJECT dalam perintah peluncuran.",
-      "current": "Project: {{projectId}}​",
-      "saved": "Project saved: {{projectId}}​",
-      "cleared": "Switched back to automatic project resolution​",
-      "savedWithRefreshError": "Project saved, but quota refresh failed: {{error}}​"
-    },
-    "flowNotice": {
-      "title": "Panduan akun Gemini Cli (klik untuk perluas/ciutkan)",
-      "desc": "Kelola akun Gemini Cli dengan mengimpor dari konfigurasi Gemini Cli lokal, menempelkan token JWT, atau masuk melalui OAuth.",
-      "reason": "Cakupan izin: baca dan tulis oauth_creds.json, google_accounts.json, dan settings.json di bawah ~/.gemini default atau jalur instansi (GEMINI_CLI_HOME/.gemini) untuk impor akun dan injeksi kredensial lokal (penggantian akun).",
-      "storage": "Cakupan jaringan: OAuth dan penyegaran memanggil API resmi Google/Gemini (seperti oauth2.googleapis.com dan googleapis.com). Hanya bidang auth/kuota yang diperlukan yang dikirim; berkas akun lokal tidak diunggah ke server pihak ketiga."
-    },
-    "identity": {
-      "authMethod": "Metode autentikasi",
-      "tier": "Paket",
-      "signedInWithGoogle": "Masuk dengan Google",
-      "signedInWithGoogleEmail": "Masuk dengan Google ({{email}})"
-    },
-    "quotaTable": {
-      "model": "Nama model",
-      "leftOfTotal": "Sisa / Total",
-      "usage": "Terpakai",
-      "usageResets": "Reset penggunaan",
-      "usedPercent": "{{value}}%​",
-      "remainingOfTotal": "{{remaining}} / {{total}}​",
-      "resetAtWithRelative": "{{absolute}} ({{relative}})​"
-    },
-    "tierText": {
-      "pro": "Gemini Code Assist di Google One AI Pro",
-      "ultra": "Gemini Code Assist di Google AI Ultra",
-      "free": "Gemini Code Assist gratis"
     }
   },
   "breakout": {
@@ -5124,7 +5212,8 @@
       "installHint": "Jalankan perintah resmi berikut di terminal, lalu klik Segarkan setelah instalasi selesai.",
       "selectWorkingDir": "Pilih direktori kerja Grok CLI",
       "workingDirAccountHint": "Direktori kerja terikat ke akun ini dan akan dipulihkan pada peluncuran berikutnya.",
-      "launchCommandPlaceholder": "Pilih atau konfirmasi direktori untuk membuat perintah peluncuran"
+      "launchCommandPlaceholder": "Pilih atau konfirmasi direktori untuk membuat perintah peluncuran",
+      "reauthLaunchHint": "Otentikasi akun sudah habis masa berlakunya. Otorisasi ulang; perintah peluncuran di bawah ini masih tersedia."
     },
     "switch": {
       "success": "Akun diganti"
@@ -5407,5 +5496,23 @@
       "supports1mLabel": "Nyatakan dukungan 1M",
       "supports1mShort": "1M konteks"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "Kelola API key OpenRouter, usage, dan model.",
+    "tabKeys": "Key & usage",
+    "tabModels": "Model",
+    "modelsLoaded": "{{count}} model dimuat",
+    "noUsageYet": "Usage belum disegarkan",
+    "loadModels": "Muat model",
+    "searchModels": "Cari model",
+    "freeOnly": "Hanya gratis",
+    "noModels": "Belum ada model — tambah key lalu muat.",
+    "free": "Gratis",
+    "noCtx": "Tidak ada context length"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "Kelola key OpenCode Go/Zen dan filter per tier."
   }
 }

@@ -2,6 +2,8 @@
   "common": {
     "confirm": "확인",
     "cancel": "취소",
+    "cancelling": "취소 중...",
+    "cancelled": "취소됨",
     "save": "저장",
     "saving": "저장 중...",
     "delete": "삭제",
@@ -250,7 +252,6 @@
       "restart": "재시작",
       "installing": "설치 중"
     },
-    "gemini": "Gemini Cli​",
     "codebuddy": "CodeBuddy​",
     "qoder": "Qoder​",
     "trae": "Trae​",
@@ -271,7 +272,9 @@
     "switchClassicLayoutConfirm": "지금 전환",
     "2faManager": "2FA 관리",
     "apiRelay": "중계소",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "스폰서",
@@ -587,7 +590,7 @@
       "uiScale": "UI 배율",
       "uiScaleDesc": "인터페이스 배율 조정",
       "defaultTerminal": "기본 터미널",
-      "defaultTerminalDesc": "Gemini CLI를 열 때 사용되는 터미널",
+      "defaultTerminalDesc": "CLI를 열 때 사용되는 터미널",
       "terminalSystem": "시스템 기본값",
       "accountManagement": "계정 관리",
       "autoRefresh": "Antigravity IDE 자동 새로고침 할당량",
@@ -807,7 +810,35 @@
       "platformAutoRefresh": "{{platform}} 자동 할당량 새로고침",
       "traeSoloAppPath": "TRAE SOLO 실행 경로",
       "traeCnAppPath": "Trae CN 실행 경로",
-      "traeSoloCnAppPath": "TRAE SOLO CN 실행 경로"
+      "traeSoloCnAppPath": "TRAE SOLO CN 실행 경로",
+      "reducedMotion": "모션 줄이기",
+      "reducedMotionDesc": "페이드·모달 전환·그림자·블러·부드러운 스크롤을 줄이고 필수 로딩 피드백만 유지합니다",
+      "autoImportFromLocal": "로컬 계정 자동 가져오기",
+      "autoImportFromLocalDesc": "켜면 로컬 클라이언트 로그인을 즉시 가져오고, 이후 공식 클라이언트 로그인 변경 시 자동 가져옵니다. 처음에는 키체인 권한이 필요할 수 있습니다.",
+      "autoImportFromLocalScanning": "로컬 계정 스캔 중… 언제든 끌 수 있습니다",
+      "autoImportFromLocalScanDone": "완료: {{scanned}}개 발견, {{imported}}개 가져옴",
+      "autoImportFromLocalScanEmpty": "완료: 가져올 로컬 로그인 없음",
+      "autoImportFromLocalScanPartial": "완료: 일부 실패. 계정 페이지에서 수동 가져오기 가능",
+      "autoImportFromLocalScanFailed": "스캔 실패: {{error}}",
+      "autoImportFromLocalScanCancelled": "꺼짐. 진행 중 스캔 결과는 무시됩니다",
+      "startupPage": "시작 페이지",
+      "startupPageDesc": "콜드 스타트 시 열 페이지. “마지막 기억”을 선택하면 이전 페이지를 복원합니다.",
+      "startupPageLast": "마지막 기억",
+      "startupPageCodexApi": "Codex API 서비스",
+      "hermesAuthOverwrite": "Codex 전환 시 Hermes 동기화",
+      "hermesAuthOverwriteDesc": "OAuth만: 전환 후 ~/.hermes/auth.json 의 openai-codex 자격 증명 기록(기본 끔)",
+      "themeColor": "색상 팩",
+      "themeColorDesc": "라이트/다크 위에 색상 팩을 적용",
+      "themeColorDefault": "기본",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "외부 네트워크 허용",
+      "externalNetworkDesc": "끄면 WebDAV, OpenRouter 사용량, 공지, 자동 업데이트 확인을 차단합니다(로컬 기능은 유지).",
+      "webdavAllowedDomains": "WebDAV 도메인 허용 목록",
+      "webdavAllowedDomainsDesc": "쉼표 구분; 비우면 제한 없음"
     },
     "network": {
       "apiTitle": "반중력 조종석 API",
@@ -872,6 +903,7 @@
       "releaseHistoryLoading": "출시 노트 로드 중...",
       "releaseHistoryEmpty": "아직 출시 노트가 없습니다.",
       "releaseHistoryLoadFailed": "로드 실패: {{error}}",
+      "releaseHistorySectionHighlights": "주요 업데이트",
       "releaseHistorySectionAdded": "추가됨",
       "releaseHistorySectionChanged": "변경됨",
       "releaseHistorySectionFixed": "결정된",
@@ -1036,6 +1068,19 @@
       "retentionUnit": "days",
       "collapseAll": "Collapse remote backups",
       "expandAll": "Expand all remote backups ({{count}} more)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "API 키를 앱 데이터에 로컬 저장합니다. 외부 네트워크 ON 시 OpenRouter 사용량을 새로고침할 수 있습니다. 전체 플랫폼이 아닙니다.",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "메모",
+      "empty": "Key 없음",
+      "added": "추가됨",
+      "deleted": "삭제됨",
+      "refreshed": "사용량 새로고침됨",
+      "usage": "사용량",
+      "tierOther": "기타"
     }
   },
   "appPath": {
@@ -1732,7 +1777,8 @@
       "title": "Codex 계정 추가",
       "oauth": "OAuth 인증",
       "token": "JSON 가져오기",
-      "local": "로컬 가져오기"
+      "local": "로컬 가져오기",
+      "accessToken": "액세스 토큰"
     },
     "oauth": {
       "desc": "아래 버튼을 클릭해 브라우저에서 OpenAI 인증을 완료하세요",
@@ -1963,7 +2009,7 @@
       },
       "customRoutingEdit": "사용자 지정 라우팅 편집",
       "customRoutingTitle": "사용자 지정 라우팅",
-      "customRoutingDesc": "계정별 우선순위와 가중치를 설정해 계정 선택 순서와 같은 우선순위 내 부하 분산을 제어합니다.",
+      "customRoutingDesc": "우선순위와 가중치를 설정해 계정 선택 순서와 부하 분산을 제어합니다.",
       "customRoutingBackupTitle": "예비 계정",
       "customRoutingBackupDesc": "모든 일반 계정을 사용할 수 없을 때만 사용합니다. 일반 계정이 복구되면 새 요청은 자동으로 다시 전환됩니다.",
       "customRoutingBackupShort": "예비",
@@ -2122,7 +2168,12 @@
     },
     "list": {
       "showCodeReviewQuota": "Code Review 할당량 표시",
-      "showAdditionalQuota": "모델 전용 할당량 표시"
+      "showAdditionalQuota": "모델 전용 할당량 표시",
+      "planBadgeStyle": "플랜 배지 스타일",
+      "planBadgeStyleDefault": "기본",
+      "planBadgeStyleOutline": "외곽선",
+      "planBadgeStyleSoft": "소프트",
+      "planBadgeStyleMono": "모노"
     },
     "time": {
       "today": "오늘 {{time}}",
@@ -2382,7 +2433,8 @@
         "selectAllSessions": "모든 세션 선택",
         "clearSelectedSessions": "선택 해제",
         "copyToInstance": "인스턴스에 복사",
-        "trash": "휴지통"
+        "trash": "휴지통",
+        "openRollout": "세션 파일 열기"
       },
       "confirm": {
         "title": "휴지통으로 이동",
@@ -2584,7 +2636,15 @@
         "removeItem": "제외",
         "emptyFilteredTitle": "일치하는 세션 없음",
         "emptyFilteredDesc": "검색어, 출처 또는 선택 상태를 조정하세요."
-      }
+      },
+      "kindFilter": "세션 유형",
+      "kind": {
+        "conversation": "대화",
+        "external": "외부",
+        "subagent": "서브에이전트",
+        "all": "전체"
+      },
+      "pickInstancePrompt": "이 세션이 여러 인스턴스에 있습니다. 인스턴스 ID를 입력하세요:"
     },
     "api": {
       "baseUrl": "기본 URL",
@@ -2598,6 +2658,20 @@
       "showApiKey": "API Key 표시",
       "hideApiKey": "API Key 숨기기",
       "apiKeyHiddenHint": "API Key가 숨겨져 있습니다. 클릭하면 표시됩니다.",
+      "modelCatalog": {
+        "label": "모델 목록",
+        "fetch": "공급자에서 가져오기",
+        "fetching": "가져오는 중...",
+        "count": "모델 {{count}}개",
+        "placeholder": "한 줄에 모델 ID 하나를 입력하거나 쉼표로 구분하세요.",
+        "editHint": "가져온 모델은 현재 초안에만 반영됩니다. 저장하기 전에 검토하고 편집할 수 있습니다.",
+        "syncToggle": "공급자 모델을 Codex에 동기화",
+        "syncDescription": "저장 후 이 목록으로 Cockpit 관리 Codex 모델 카탈로그를 생성합니다. 사용자 지정 카탈로그는 덮어쓰지 않습니다.",
+        "fetchCredentialsRequired": "먼저 API Key와 Base URL을 입력하세요.",
+        "fetchEmpty": "공급자가 모델을 반환하지 않았습니다. 현재 목록을 유지했습니다.",
+        "fetchFailed": "공급자 모델을 가져오지 못했습니다: {{error}}",
+        "syncRequiresModels": "Codex에 동기화하기 전에 모델을 하나 이상 가져오거나 입력하세요."
+      },
       "actions": {
         "addAndSwitch": "추가 후 전환"
       },
@@ -2974,7 +3048,10 @@
         "help": "공급자가 WebSocket을 통한 Responses를 명시적으로 지원하는 경우에만 켜세요. 연결 방식은 Codex 또는 프록시 서비스 로그에서 확인할 수 있습니다.",
         "enabled": "사용",
         "disabled": "사용 안 함"
-      }
+      },
+      "renameApiKeyPrompt": "API 키 이름 변경",
+      "renameApiKeySuccess": "API 키 이름 변경됨",
+      "renameApiKeyFailed": "API 키 이름 변경 실패: {{error}}"
     },
     "quickSwitch": {
       "action": "공급자 빠른 전환",
@@ -3156,22 +3233,40 @@
         "rulesSaved": "모델 규칙 저장됨",
         "pricingAction": "가격",
         "pricingTitle": "모델 가격",
-        "pricingDesc": "USD / 1M tokens, 로컬 가치 통계에만 사용됩니다.",
+        "pricingDesc": "단위: USD / 1M tokens. 로컬 통계 전용.",
         "pricingModel": "모델",
         "pricingInput": "입력",
         "pricingCache": "캐시 입력",
         "pricingOutput": "출력",
         "pricingSource": "출처",
         "pricingActions": "작업",
-        "pricingCachePlaceholder": "입력과 동일",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "사용자 지정",
         "pricingPreset": "프리셋",
         "pricingUnset": "미설정",
         "pricingReset": "재설정",
         "pricingSaved": "가격 저장됨",
-        "pricingInvalid": "가격은 0 이상의 숫자여야 합니다",
+        "pricingInvalid": "가격은 0 이상 숫자여야 하며, 토큰 임계값은 양의 정수여야 합니다",
         "pricingReprice": "기록 재계산",
-        "pricingRepriced": "현재 가격으로 기록 추정값을 다시 계산했습니다"
+        "pricingRepriced": "현재 가격으로 기록 추정값을 다시 계산했습니다",
+        "pricingLongThreshold": "긴 컨텍스트 임계값(tokens)",
+        "pricingStandard": "표준",
+        "pricingStandardLong": "표준(긴 컨텍스트)",
+        "pricingPriority": "우선",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "표준(긴 컨텍스트) 입력",
+        "pricingStandardLongCache": "표준(긴 컨텍스트) 캐시 입력",
+        "pricingStandardLongOutput": "표준(긴 컨텍스트) 출력",
+        "pricingPriorityInput": "우선 입력",
+        "pricingPriorityCache": "우선 캐시 입력",
+        "pricingPriorityOutput": "우선 출력",
+        "pricingRepriceDone": "과거 추정치 업데이트됨, {{updated}}건 변경",
+        "pricingRepriceFailedWithMessage": "과거 추정치 업데이트 실패: {{message}}",
+        "pricingRepriceFailed": "과거 추정치 업데이트 실패",
+        "pricingRepriceSuperseded": "새 가격 설정을 받아 최신 재계산 작업으로 전환합니다",
+        "pricingRepriceRunning": "과거 추정치 업데이트 중 {{processed}} / {{total}}, {{updated}}건 갱신",
+        "pricingRepriceCompleted": "과거 추정치가 업데이트됨",
+        "pricingRepriceSaveBlocked": "과거 추정치 업데이트 중 — 완료 후 저장하세요"
       },
       "keys": {
         "policyTitle": "모델 정책",
@@ -3308,8 +3403,20 @@
       "previewSubtitle": "저장할 계정 선택",
       "scanSubtitle": "계정을 하나씩 분석하고 확인 중",
       "parseSubtitle": "계정 파일을 분석하는 중",
+      "importSubtitle": "선택한 계정을 저장하는 중",
+      "finalizing": "가져오기를 마무리하는 중",
+      "finalizingSubtitle": "계정 목록과 관련 설정을 업데이트하는 중",
+      "cancelImport": "가져오기 취소",
+      "importCancelledSummary": "가져오기가 취소되었습니다. {{processed}}/{{total}}개 계정을 처리했습니다.",
+      "importChecked": "검사한 계정 가져오기",
+      "directImport": "검사 없이 바로 가져오기",
+      "importCheckedAndAddToApiService": "검사한 계정을 가져와 API 서비스에 추가",
+      "directImportAndAddToApiService": "바로 가져와 API 서비스에 추가",
+      "viewAllTasks": "작업 {{count}}개 모두 보기",
+      "collapseTasks": "작업 접기",
       "cancelling": "취소 중...",
       "scanDone": "스캔 완료",
+      "scanCompleteReview": "검사가 완료되었습니다. 결과를 확인하세요",
       "parseDone": "분석 완료",
       "scanning": "스캔 중",
       "parsing": "분석 중",
@@ -3318,7 +3425,7 @@
       "failed": "실패",
       "quotaOk": "계정 정상",
       "quotaFailed": "이상",
-      "checkQuotaToggle": "계정 검사",
+      "checkQuotaToggle": "가져오기 전에 검사",
       "preparing": "가져오기 작업 준비 중...",
       "importSelected": "선택한 계정 가져오기",
       "noSelection": "가져올 계정을 먼저 선택하세요",
@@ -3341,7 +3448,17 @@
       "taskRunning": "{{current}} / {{total}} 처리 중",
       "taskPreview": "미리보기 {{total}}개 준비됨",
       "reopen": "작업 보기",
-      "dismissTask": "닫기"
+      "dismissTask": "닫기",
+      "queueCount": "대기열 {{count}}개",
+      "queued": "대기 중",
+      "batchLabel": "배치 {{index}}",
+      "runInBackground": "배경",
+      "cancelQueued": "대기열 취소",
+      "importing": "가져오기",
+      "checkAccounts": "계좌 확인",
+      "importAndAddToApiService": "가져오기 + API",
+      "importAndAddToApiServiceSuccess": "가져오고 API 서비스에 추가됨",
+      "addToApiServiceFailed": "가져왔지만 API 서비스에 추가하지 못했습니다: {{error}}"
     },
     "autoRepairMode": {
       "label": "자동 복구 로직",
@@ -3388,6 +3505,71 @@
       "chipSearch": "검색",
       "chipPlan": "요금제",
       "chipFolder": "폴더"
+    },
+    "accessTokenImport": {
+      "nameRequired": "계정 이름을 입력하세요",
+      "tokenRequired": "Codex 액세스 토큰을 입력하세요",
+      "desc": "계정 이름과 access token을 저장합니다. refresh/id가 없으면 personal_access_token 형식으로 기록합니다.",
+      "nameLabel": "계정 이름",
+      "namePlaceholder": "목록에 표시할 이름",
+      "tokenLabel": "Codex 액세스 토큰",
+      "hideToken": "숨기기",
+      "showToken": "표시",
+      "submit": "토큰 가져오기",
+      "success": "액세스 토큰 계정을 가져왔습니다: {{name}}"
+    },
+    "ssh": {
+      "tab": "SSH 동기화",
+      "title": "Codex SSH 동기화",
+      "desc": "원격 호스트를 저장하고 연결 테스트 후 현재 auth.json을 전송합니다. 전환 후 선택된 호스트로 자동 동기화합니다.",
+      "new": "새로 만들기",
+      "empty": "SSH 호스트 없음",
+      "test": "연결 테스트",
+      "sync": "동기화",
+      "saved": "SSH 서버 저장됨",
+      "deleted": "삭제됨",
+      "name": "이름",
+      "host": "호스트",
+      "user": "사용자",
+      "port": "포트",
+      "remoteDir": "원격 Codex 디렉터리",
+      "syncSwitch": "스위치의 SSH",
+      "syncSwitchDesc": "SSH 호스트를 구성하려면 켜십시오. Codex 스위치는 현재 계정을 원격으로 동기화합니다.",
+      "configure": "설정",
+      "modalTitle": "SSH 동기화 설정",
+      "modalHint": "자동 동기화가 활성화된 SSH 호스트를 추가하고 선택하면 Codex 계정 스위치가 원격 인증을 업데이트합니다.",
+      "subtitle": "선택한 호스트는 계정 전환 후 현재 Codex 인증 번들을 받습니다.",
+      "addServer": "서버 추가",
+      "editServer": "서버 편집",
+      "username": "사용자 이름",
+      "codexHome": "원격 코덱스 디렉토리",
+      "authMethod": "인증 방법",
+      "agentAuth": "SSH 에이전트",
+      "privateKeyAuth": "개인 키",
+      "privateKeyPath": "키 경로",
+      "syncOnSwitch": "전환 후 동기화",
+      "emptyTitle": "SSH 서버 없음",
+      "emptyBody": "왼쪽에 호스트를 입력하고 스위치 동기화 대상으로 저장합니다.",
+      "selected": "선택된",
+      "select": "선택하다",
+      "testConnection": "시험",
+      "syncNow": "지금 동기화",
+      "connectionOk": "연결됨",
+      "syncVerified": "SSH 동기화가 확인되었습니다.",
+      "syncFailed": "SSH 동기화 실패",
+      "syncedAs": "동기화된 {{email}} · {{time}}",
+      "neverSynced": "아직 동기화되지 않음",
+      "latestVerified": "마지막 SSH 동기화가 확인되었습니다.",
+      "syncSwitchActive": "켜짐 · {{name}} ({{user}}@{{host}})",
+      "footerHint": "저장 후 스위치가 켜집니다. 자동 동기화를 중지하려면 언제든지 이 기능을 끄세요.",
+      "formLead": "원격 호스트 세부정보",
+      "namePlaceholder": "예를 들어 홈 NAS",
+      "syncOnSwitchHint": "저장 및 선택 후 Codex는 이 호스트로 푸시 인증을 전환합니다.",
+      "addAndSave": "추가 및 저장",
+      "serverList": "서버",
+      "serverListLead": "동기화 대상 선택",
+      "serverCount": "{{count}}대",
+      "autoSyncBadge": "자동"
     }
   },
   "githubCopilot": {
@@ -3618,13 +3800,6 @@
       "appPath": "Cursor 경로"
     },
     "cursorRefreshInterval": "할당량 자동 새로고침",
-    "gemini": {
-      "title": "Gemini Cli 설정",
-      "appPath": "Gemini Cli 경로",
-      "syncWsl": "WSL 구성 동기화",
-      "syncWslDesc": "계정 전환 시 WSL의 .gemini 구성을 자동으로 덮어씁니다"
-    },
-    "geminiRefreshInterval": "할당량 자동 새로고침",
     "grok": {
       "title": "Grok CLI 설정",
       "appPath": "Grok CLI 경로",
@@ -4214,99 +4389,6 @@
       "title": "웨이크업 작업 및 검증"
     }
   },
-  "gemini": {
-    "injectToGemini": "Gemini Cli로 전환",
-    "updated": {
-      "label": "{{relative}} 전에 업데이트됨"
-    },
-    "quota": {
-      "pro": "PRO",
-      "flash": "FLASH",
-      "left": "{{value}}% 남음",
-      "resetsIn": "{{relative}} 후 재설정",
-      "resetsSoon": "곧 재설정됨",
-      "resetsUnknown": "재설정 시간 알 수 없음",
-      "onDemand": "온디맨드",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "title": "Gemini Cli 계정 관리",
-    "instances": {
-      "unsupported": "Gemini Cli 다중 인스턴스 관리는 아직 지원되지 않습니다.",
-      "unsupportedDescPlatform": "Gemini Cli 다중 인스턴스는 macOS, Windows, Linux에서만 지원됩니다.",
-      "launchDialogTitle": "인스턴스 실행",
-      "launchHint": "명령을 복사해 수동으로 실행하거나 터미널에서 바로 실행하세요.",
-      "runInTerminal": "터미널에서 실행",
-      "workingDir": "작업 디렉토리",
-      "workingDirPlaceholder": "현재 경로 기본값",
-      "workingDirDesc": "시작 시 먼저 이 디렉토리로 전환합니다",
-      "pickWorkingDir": "작업 디렉토리 선택"
-    },
-    "switch": {
-      "success": "계정 전환에 성공했습니다"
-    },
-    "empty": {
-      "description": "\"계정 추가\"를 클릭하여 Gemini Cli 계정 관리를 시작하세요"
-    },
-    "addModal": {
-      "title": "Gemini Cli 계정 추가"
-    },
-    "oauth": {
-      "desc": "아래 버튼을 클릭하고 브라우저에서 Gemini Cli 인증을 완료하세요."
-    },
-    "token": {
-      "desc": "Gemini Cli 액세스 토큰(JWT) 또는 내보낸 JSON 데이터를 붙여넣으세요.",
-      "formatHint": "필수 필드 및 예시 (클릭하여 펼치기)",
-      "formatRequired": "단일 토큰: JWT를 직접 붙여넣기; 일괄 가져오기: JSON 배열 형식 사용",
-      "singleExample": "단일 예시 (JWT)",
-      "batchExample": "일괄 예시 (JSON)"
-    },
-    "import": {
-      "localDesc": "로컬 Gemini Cli 클라이언트 또는 JSON 파일에서 계정 데이터를 가져옵니다.",
-      "localClient": "로컬 Gemini Cli에서 가져오기"
-    },
-    "flowNotice": {
-      "title": "Gemini Cli 계정 안내 (클릭하여 펼치기/접기)",
-      "desc": "로컬 Gemini Cli 설치에서 가져오기 또는 JWT 토큰을 붙여넣어 Gemini Cli 계정을 관리합니다. 데이터는 로컬에서만 처리됩니다.",
-      "reason": "권한 범위: 계정 가져오기 및 로컬 자격 증명 주입(계정 전환)을 위해 기본 ~/.gemini 또는 인스턴스 경로(GEMINI_CLI_HOME/.gemini)의 oauth_creds.json, google_accounts.json, settings.json을 읽고 씁니다.",
-      "storage": "네트워크 범위: OAuth 및 할당량 갱신 시 Google/Gemini 공식 API(oauth2.googleapis.com, googleapis.com 등)를 호출합니다. 필요한 인증/할당량 필드만 전송되며, 로컬 계정 파일은 제3자 서버로 업로드되지 않습니다."
-    },
-    "projectConfig": {
-      "button": "GCP 프로젝트 설정",
-      "title": "GCP 프로젝트 설정",
-      "selectLabel": "프로젝트 선택",
-      "loading": "프로젝트 목록을 불러오는 중...",
-      "auto": "자동 선택(수동 지정 안 함)",
-      "empty": "사용 가능한 프로젝트를 찾지 못했습니다. 이 계정에 GCP 프로젝트 접근 권한이 있는지 확인하세요.",
-      "hint": "저장 후 이 프로젝트가 할당량 요청에 우선 적용되며, 실행 명령에 GOOGLE_CLOUD_PROJECT로 주입됩니다.",
-      "current": "프로젝트: {{projectId}}",
-      "saved": "프로젝트 저장됨: {{projectId}}",
-      "cleared": "자동 프로젝트 확인으로 되돌렸습니다",
-      "savedWithRefreshError": "프로젝트는 저장되었지만 할당량 새로고침에 실패했습니다: {{error}}"
-    },
-    "identity": {
-      "authMethod": "인증 방식",
-      "tier": "요금제",
-      "signedInWithGoogle": "Google로 로그인됨",
-      "signedInWithGoogleEmail": "Google로 로그인됨 ({{email}})"
-    },
-    "quotaTable": {
-      "model": "모델",
-      "leftOfTotal": "남은 양 / 전체",
-      "usage": "사용량",
-      "usageResets": "사용량 재설정",
-      "usedPercent": "{{value}}%​",
-      "remainingOfTotal": "{{remaining}} / {{total}}​",
-      "resetAtWithRelative": "{{absolute}} ({{relative}})​"
-    },
-    "tierText": {
-      "pro": "Google One AI Pro의 Gemini Code Assist",
-      "ultra": "Google AI Ultra의 Gemini Code Assist",
-      "free": "Gemini Code Assist 무료"
-    }
-  },
   "codebuddy": {
     "title": "CodeBuddy 계정 관리",
     "noAccounts": "CodeBuddy 계정이 없습니다",
@@ -4405,6 +4487,12 @@
     },
     "quota": {
       "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "sessions": {
+      "title": "로컬 세션 파일",
+      "desc": "로컬 세션 파일 — 로컬 데이터에서 스캔해 위치를 엽니다.",
+      "empty": "세션 파일을 찾을 수 없음",
+      "open": "위치 열기"
     }
   },
   "qoder": {
@@ -5124,7 +5212,8 @@
       "installHint": "터미널에서 다음 공식 명령을 실행한 뒤 설치가 완료되면 새로 고침하세요.",
       "selectWorkingDir": "Grok CLI 작업 디렉터리 선택",
       "workingDirAccountHint": "작업 디렉터리는 이 계정에 연결되며 다음 실행 시 자동으로 복원됩니다.",
-      "launchCommandPlaceholder": "작업 디렉터리를 선택하거나 확인하면 실행 명령이 생성됩니다"
+      "launchCommandPlaceholder": "작업 디렉터리를 선택하거나 확인하면 실행 명령이 생성됩니다",
+      "reauthLaunchHint": "계정 인증이 만료되었습니다. 재승인 아래 실행 명령은 계속 사용할 수 있습니다."
     },
     "switch": {
       "success": "계정 전환 완료"
@@ -5407,5 +5496,23 @@
       "supports1mLabel": "1M 지원 선언",
       "supports1mShort": "1M지원"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "OpenRouter API 키, 사용량, 모델 목록을 관리합니다.",
+    "tabKeys": "키와 사용량",
+    "tabModels": "모델",
+    "modelsLoaded": "{{count}}개 모델 로드됨",
+    "noUsageYet": "사용량 미갱신",
+    "loadModels": "모델 로드",
+    "searchModels": "모델 검색",
+    "freeOnly": "무료만",
+    "noModels": "모델이 없습니다. Key를 추가하고 로드하세요.",
+    "free": "무료",
+    "noCtx": "컨텍스트 길이 없음"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "OpenCode Go/Zen API 키를 관리하고 티어로 필터합니다."
   }
 }

@@ -63,6 +63,21 @@ pub struct UpdateRuntimeInfo {
     pub updater_target: Option<String>,
 }
 
+/// Map Windows arch + detected installer kind to updater target key.
+/// Unknown/None bundle prefers MSI so MSI installs are not forced onto NSIS packages.
+pub fn windows_updater_target_for_bundle(arch: &str, bundle: Option<&str>) -> String {
+    let arch = match arch {
+        "x86_64" | "aarch64" => arch,
+        _ => "x86_64",
+    };
+    let suffix = match bundle {
+        Some("nsis") => "nsis",
+        Some("msi") => "msi",
+        _ => "msi",
+    };
+    format!("windows-{}-{}", arch, suffix)
+}
+
 #[cfg(target_os = "linux")]
 mod imp {
     use super::{expand_updater_endpoint, LatestManifest, UpdateRuntimeInfo};
@@ -638,19 +653,13 @@ mod imp {
         use tauri::utils::config::BundleType;
         use tauri::utils::platform::bundle_type;
 
-        let arch = match std::env::consts::ARCH {
-            "x86_64" => "x86_64",
-            "aarch64" => "aarch64",
-            _ => "x86_64",
+        let arch = std::env::consts::ARCH;
+        let bundle = match bundle_type() {
+            Some(BundleType::Nsis) => Some("nsis"),
+            Some(BundleType::Msi) => Some("msi"),
+            _ => None,
         };
-        let base = format!("windows-{}", arch);
-        let installer_suffix = match bundle_type() {
-            Some(BundleType::Nsis) => "nsis",
-            Some(BundleType::Msi) => "msi",
-            _ => "nsis",
-        };
-
-        Some(format!("{}-{}", base, installer_suffix))
+        Some(super::windows_updater_target_for_bundle(arch, bundle))
     }
 
     #[cfg(target_os = "macos")]
@@ -697,7 +706,25 @@ pub use imp::{get_update_runtime_info, install_linux_update};
 
 #[cfg(test)]
 mod tests {
-    use super::{expand_updater_endpoint, LatestManifest, LatestPlatform};
+    use super::{
+        expand_updater_endpoint, windows_updater_target_for_bundle, LatestManifest, LatestPlatform,
+    };
+
+    #[test]
+    fn windows_unknown_bundle_prefers_msi_target() {
+        assert_eq!(
+            windows_updater_target_for_bundle("x86_64", None),
+            "windows-x86_64-msi"
+        );
+        assert_eq!(
+            windows_updater_target_for_bundle("x86_64", Some("nsis")),
+            "windows-x86_64-nsis"
+        );
+        assert_eq!(
+            windows_updater_target_for_bundle("x86_64", Some("msi")),
+            "windows-x86_64-msi"
+        );
+    }
 
     #[test]
     fn expands_target_and_current_version_placeholders() {

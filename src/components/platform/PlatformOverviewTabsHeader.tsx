@@ -6,7 +6,6 @@ import { ClaudeIcon } from '../icons/ClaudeIcon';
 import { WindsurfIcon } from '../icons/WindsurfIcon';
 import { KiroIcon } from '../icons/KiroIcon';
 import { CursorIcon } from '../icons/CursorIcon';
-import { GeminiIcon } from '../icons/GeminiIcon';
 import { GrokIcon } from '../icons/GrokIcon';
 import { CodebuddyIcon } from '../icons/CodebuddyIcon';
 import { QoderIcon } from '../icons/QoderIcon';
@@ -25,7 +24,12 @@ import { getPlatformLabel } from '../../utils/platformMeta';
 import { PlatformGroupSwitcher } from './PlatformGroupSwitcher';
 import { useRemoteConfigStore } from '../../stores/useRemoteConfigStore';
 
-export type PlatformOverviewTab = 'overview' | 'wakeup' | 'instances' | 'sessions' | 'providers';
+export type PlatformOverviewTab =
+  | 'overview'
+  | 'wakeup'
+  | 'instances'
+  | 'sessions'
+  | 'providers';
 export type PlatformOverviewHeaderId =
   | 'codex'
   | 'claude'
@@ -34,7 +38,6 @@ export type PlatformOverviewHeaderId =
   | 'windsurf'
   | 'kiro'
   | 'cursor'
-  | 'gemini'
   | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
@@ -92,10 +95,6 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
   cursor: {
     platformLabel: 'Cursor',
     overviewIcon: <CursorIcon className="tab-icon" />,
-  },
-  gemini: {
-    platformLabel: 'Gemini Cli',
-    overviewIcon: <GeminiIcon className="tab-icon" />,
   },
   grok: {
     platformLabel: 'Grok CLI',

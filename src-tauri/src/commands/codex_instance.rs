@@ -839,15 +839,36 @@ pub async fn codex_import_sessions(
 }
 
 #[tauri::command]
-pub async fn codex_open_session_location(app: AppHandle, session_id: String) -> Result<(), String> {
+pub async fn codex_open_session_location(
+    app: AppHandle,
+    session_id: String,
+    instance_id: Option<String>,
+) -> Result<(), String> {
     let location_dir = tauri::async_runtime::spawn_blocking(move || {
-        modules::codex_session_manager::resolve_session_location_dir(session_id)
+        modules::codex_session_manager::resolve_session_location_dir(session_id, instance_id)
     })
     .await
     .map_err(|error| format!("打开 Codex 会话位置失败: {}", error))??;
     app.opener()
         .open_path(location_dir.to_string_lossy().to_string(), None::<String>)
         .map_err(|error| format!("打开 Codex 会话位置失败: {}", error))
+}
+
+/// Open the session rollout JSONL with the OS default application (#1510).
+#[tauri::command]
+pub async fn codex_open_session_rollout(
+    app: AppHandle,
+    session_id: String,
+    instance_id: Option<String>,
+) -> Result<(), String> {
+    let rollout_path = tauri::async_runtime::spawn_blocking(move || {
+        modules::codex_session_manager::resolve_session_rollout_path(session_id, instance_id)
+    })
+    .await
+    .map_err(|error| format!("打开 Codex 会话文件失败: {}", error))??;
+    app.opener()
+        .open_path(rollout_path.to_string_lossy().to_string(), None::<String>)
+        .map_err(|error| format!("打开 Codex 会话文件失败: {}", error))
 }
 
 #[tauri::command]

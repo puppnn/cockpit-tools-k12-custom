@@ -5,7 +5,6 @@ import { useGitHubCopilotAccountStore } from '../stores/useGitHubCopilotAccountS
 import { useWindsurfAccountStore } from '../stores/useWindsurfAccountStore';
 import { useKiroAccountStore } from '../stores/useKiroAccountStore';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
-import { useGeminiAccountStore } from '../stores/useGeminiAccountStore';
 import { useCodebuddyAccountStore } from '../stores/useCodebuddyAccountStore';
 import { useCodebuddyCnAccountStore } from '../stores/useCodebuddyCnAccountStore';
 import { useQoderAccountStore } from '../stores/useQoderAccountStore';
@@ -21,7 +20,6 @@ const ALL_STORES = [
   useWindsurfAccountStore,
   useKiroAccountStore,
   useCursorAccountStore,
-  useGeminiAccountStore,
   useCodebuddyAccountStore,
   useCodebuddyCnAccountStore,
   useQoderAccountStore,

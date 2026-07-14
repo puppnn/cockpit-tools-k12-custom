@@ -3,17 +3,17 @@
 English · [Portuguese (BR)](README.pt-br.md) · [简体中文](README.md)
 
 [![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
-[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.0-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.0)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.1-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.1)
 [![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
 > [!IMPORTANT]
-> This is a custom fork of [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools). It now fully integrates the upstream **v1.3.0** release while adding K12 session routing, long-running task failover, and OAuth quota reserves to the local Codex API service. Upstream features and the custom routing policy are retained together; the custom behavior is not part of official upstream releases.
+> This is a custom fork of [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools). It now fully integrates the upstream **v1.3.1** release while adding K12 session routing, long-running task failover, and OAuth quota reserves to the local Codex API service. Upstream features and the custom routing policy are retained together; the custom behavior is not part of official upstream releases.
 
-A **universal AI IDE account management tool**, currently supporting **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Gemini Cli**, **Grok CLI**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TRAE SOLO**, **Trae CN**, **TRAE SOLO CN**, **Zed**, and **ZCode**, with multi-instance parallel workflows.
+A **universal AI IDE account management tool**, currently supporting **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Grok CLI**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TRAE SOLO**, **Trae CN**, **TRAE SOLO CN**, **Zed**, and **ZCode**, with multi-instance parallel workflows.
 
 > Designed to help users efficiently manage multiple AI IDE accounts, this tool supports one-click switching, quota monitoring, wake-up tasks, and multi-instance parallel runs, helping you fully utilize resources from different accounts.
 
-**Features**: One-click Switch · Multi-account Management · Multi-instance · Quota Monitoring · Wake-up Tasks · Plugin Integration · GitHub Copilot Management · Windsurf Management · Kiro Management · Cursor Management · Gemini Cli Management · Grok CLI Management · CodeBuddy Management · CodeBuddy CN Management · Qoder Management · Trae Suite Management · Zed Management · ZCode Management
+**Features**: One-click Switch · Multi-account Management · Multi-instance · Quota Monitoring · Wake-up Tasks · Plugin Integration · GitHub Copilot Management · Windsurf Management · Kiro Management · Cursor Management · Grok CLI Management · CodeBuddy Management · CodeBuddy CN Management · Qoder Management · Trae Suite Management · Zed Management · ZCode Management
 
 **Languages**: Supports 18 languages
 
@@ -23,9 +23,9 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 ---
 
-## Upstream v1.3.0 Integration
+## Upstream v1.3.1 Integration
 
-- **Full platform set**: Retains the upstream v1.3.0 Grok CLI and ZCode integrations, multi-instance management, and 18-language UI.
+- **Full platform set**: Retains the upstream v1.3.1 Grok CLI and ZCode integrations, multi-instance management, and 18-language UI.
 - **Updated Codex account experience**: Uses dynamic plan filters and quota summaries, optional model-specific quota display, clear-filter actions, improved account names, and the newer import flows.
 - **API service improvements**: Keeps upstream backup accounts, import-to-API-pool support, request-log account names, and proxy connection improvements, with the custom K12 policy layered on top.
 - **Custom configuration compatibility**: Preserves nullable `weeklyPercent`, the preferred pool for new sessions, and persistent K12 session state instead of replacing them with upstream defaults.
@@ -112,7 +112,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 A brand new visual dashboard providing a one-stop status overview:
 
-- **Seventeen-Platform Support**: Simultaneously displays Antigravity IDE, Codex, GitHub Copilot, Windsurf, Kiro, Cursor, Gemini Cli, Grok CLI, CodeBuddy, CodeBuddy CN, Qoder, Trae, TRAE SOLO, Trae CN, TRAE SOLO CN, Zed, and ZCode account status
+- **Sixteen-Platform Support**: Simultaneously displays Antigravity IDE, Codex, GitHub Copilot, Windsurf, Kiro, Cursor, Grok CLI, CodeBuddy, CodeBuddy CN, Qoder, Trae, TRAE SOLO, Trae CN, TRAE SOLO CN, Zed, and ZCode account status
 - **Quota Monitoring**: Real-time view of remaining quotas and reset times for each model
 - **Quick Actions**: One-click refresh, one-click wake-up
 - **Visual Progress**: Intuitive progress bars showing quota consumption
@@ -219,15 +219,8 @@ Manage Cursor instances with isolated profiles and lifecycle controls.
 - **Quick Lifecycle**: Start/stop/force stop instances
 - **Window Control**: Open instance windows and close all instances
 
-### 8. Gemini Cli Account Management
 
-- **Account Import**: OAuth, Token/JSON import, and local import
-- **Quota View**: Shows Total Usage, Auto + Composer, API Usage, On-Demand, and cycle information
-- **Batch Operations**: Tags and bulk actions
-- **Switch Injection**: Supports injecting Gemini Cli local credentials after account switch (`~/.gemini`)
-- **Platform Limitation**: Gemini Cli multi-instance management is not supported yet
-
-### 9. Grok CLI Account Management
+### 8. Grok CLI Account Management
 
 - **OAuth Authorization**: Supports xAI's official OIDC device flow and saves the account after browser verification completes
 - **Import and Redacted Export**: Imports official credentials from the default `~/.grok/auth.json` or supplied JSON; account-page exports and generic account backups omit access/refresh tokens, cannot restore a sign-in, and require a separate official `auth.json` import when migrating
@@ -235,7 +228,7 @@ Manage Cursor instances with isolated profiles and lifecycle controls.
 - **Quota and Plan**: Queries the official billing/user/subscriptions endpoints, displays cycle, usage, product quotas, and the raw plan value, and records Grok Code access
 - **Token Maintenance**: Supports automatic access-token refresh, refresh-token rotation, and quota alerts
 
-#### 9.1 Grok CLI Multi-Instance
+#### 8.1 Grok CLI Multi-Instance
 
 The default Grok CLI instance uses the official `~/.grok` directory directly and starts without setting `GROK_HOME`. Only managed instances use separate directories, with an independent `GROK_HOME` set for each instance.
 
@@ -244,14 +237,14 @@ The default Grok CLI instance uses the official `~/.grok` directory directly and
 - **Terminal Lifecycle**: Generate or execute terminal launch commands, stop instances, and close all instances
 - **Directory Protection**: Non-default instances are confined to the default managed root and moved to the trash when deleted; external paths from legacy configuration are only unregistered and are never written to or deleted
 
-### 10. CodeBuddy Account Management
+### 9. CodeBuddy Account Management
 
 - **Account Import**: OAuth and Token/JSON import
 - **Quota View**: quota query, cycle details, and extra-credit display
 - **Batch Operations**: tags and bulk actions
 - **Switch Injection**: supports injecting and launching CodeBuddy after account switch
 
-#### 10.1 CodeBuddy Multi-Instance
+#### 8.1 CodeBuddy Multi-Instance
 
 Manage CodeBuddy instances with isolated profiles and lifecycle controls.
 
@@ -259,14 +252,14 @@ Manage CodeBuddy instances with isolated profiles and lifecycle controls.
 - **Quick Lifecycle**: Start/stop/force stop instances
 - **Window Control**: Open instance windows and close all instances
 
-### 11. CodeBuddy CN Account Management
+### 10. CodeBuddy CN Account Management
 
 - **Account Import**: supports OAuth, Token/JSON import, and local-client import
 - **Quota View**: shows plan and usage status, with a shortcut to open detailed quota information on the official web page
 - **Batch Operations**: supports tags and bulk actions
 - **Switch Injection**: supports writing local auth state back and launching CodeBuddy CN after account switch
 
-#### 11.1 CodeBuddy CN Multi-Instance
+#### 9.1 CodeBuddy CN Multi-Instance
 
 Manage CodeBuddy CN instances with isolated profiles and lifecycle controls.
 
@@ -274,14 +267,14 @@ Manage CodeBuddy CN instances with isolated profiles and lifecycle controls.
 - **Quick Lifecycle**: start/stop/force stop instances
 - **Window Control**: open instance windows and close all instances
 
-### 12. Qoder Account Management
+### 11. Qoder Account Management
 
 - **Account Import**: supports local import and JSON import
 - **Quota View**: shows Credits usage, remaining credits, and raw plan values
 - **Batch Operations**: supports tags, filters, export, and batch delete/refresh
 - **Switch Injection**: supports injecting and launching Qoder after account switch
 
-#### 12.1 Qoder Multi-Instance
+#### 10.1 Qoder Multi-Instance
 
 Manage Qoder instances with isolated profiles and lifecycle controls.
 
@@ -289,7 +282,7 @@ Manage Qoder instances with isolated profiles and lifecycle controls.
 - **Quick Lifecycle**: start/stop/force stop instances
 - **Window Control**: open instance windows and close all instances
 
-### 13. Trae Account Management
+### 12. Trae Account Management
 
 - **Account Import**: supports local import and JSON import
 - **Quota View**: shows raw plan values, USD spent/total budget, and reset time
@@ -297,7 +290,7 @@ Manage Qoder instances with isolated profiles and lifecycle controls.
 - **Trae Suite**: supports local import and switch injection for the default clients of Trae, TRAE SOLO, Trae CN, and TRAE SOLO CN; they are grouped under Trae by default
 - **Switch Injection**: supports writing back local auth state using each client's real on-disk rules and launching the target client
 
-#### 13.1 Trae Multi-Instance
+#### 11.1 Trae Multi-Instance
 
 Manage original Trae client instances with isolated profiles and lifecycle controls.
 
@@ -305,14 +298,14 @@ Manage original Trae client instances with isolated profiles and lifecycle contr
 - **Quick Lifecycle**: start/stop/force stop instances
 - **Window Control**: open instance windows and close all instances
 
-### 14. Zed Account Management
+### 13. Zed Account Management
 
 - **Account Import**: Supports official OAuth sign-in, JSON import, and importing the current local sign-in state
 - **Usage View**: Shows subscription status, Edit Predictions, Token Spend, Spend Limit, and billing period end
 - **Batch Operations**: Supports tags, filters, export, and batch delete/refresh
 - **Switch Injection**: Applies the selected account back to the official Zed client using the client's real local persistence rules and restarts the client when needed
 
-### 15. ZCode Account Management
+### 14. ZCode Account Management
 
 - **Official Sign-in**: With ZCode closed, complete Z.ai or BigModel OAuth in Cockpit's built-in authorization window; it captures the official `zcode://` callback directly and saves the account
 - **Import and Export**: Read encrypted local credentials from `~/.zcode/v2/credentials.json`, import or export JSON, and back up accounts
@@ -320,7 +313,7 @@ Manage original Trae client instances with isolated profiles and lifecycle contr
 - **Batch Operations**: Tags, search, plan filters, export, and batch delete/refresh
 - **Real Account Switching**: Encrypt and write the selected account back using ZCode's official credential format
 
-#### 15.1 ZCode Multi-Instance
+#### 13.1 ZCode Multi-Instance
 
 Manage ZCode instances with separate Electron user data, session data, and ZCode data directories.
 
@@ -328,7 +321,7 @@ Manage ZCode instances with separate Electron user data, session data, and ZCode
 - **Isolated Runtime**: Instance credentials and application data remain separate
 - **Lifecycle Controls**: Start, stop, focus, and close all managed instances
 
-### 16. General Settings
+### 15. General Settings
 
 - **Personalized Settings**: Theme switching, language settings, auto-refresh interval
 - **Platform Controls**: Centralized Grok CLI/CodeBuddy CN/Qoder/Trae suite/Zed/ZCode platform and quota-alert settings
@@ -345,10 +338,9 @@ These are the most common security questions answered directly:
 - **Data is mainly stored on your machine**:
   - `~/.antigravity_cockpit`: Antigravity IDE accounts, configs, WebSocket status, etc.
   - `~/.codex`: official Codex current login `auth.json`
-  - `~/.gemini`: Gemini Cli local session files (for example `oauth_creds.json`, `google_accounts.json`, `settings.json`)
   - `~/.grok`: the official Grok CLI default instance and current sign-in `auth.json`
   - `~/.zcode/v2`: ZCode encrypted credentials for the current official sign-in and quota cache
-  - local app data folder under `com.antigravity.cockpit-tools`: Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Gemini Cli / Grok CLI / CodeBuddy / CodeBuddy CN / Qoder / Trae suite / Zed / ZCode multi-account data, etc.; Grok CLI account details, managed profiles, and instance configuration are also stored here
+  - local app data folder under `com.antigravity.cockpit-tools`: Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Grok CLI / CodeBuddy / CodeBuddy CN / Qoder / Trae suite / Zed / ZCode multi-account data, etc.; Grok CLI account details, managed profiles, and instance configuration are also stored here
 - **Grok CLI credentials are not encrypted**: access and refresh tokens are stored locally as plaintext JSON and rely primarily on operating-system account isolation and local file permissions. On Unix systems, credential directories are set to `0700` and credential files to `0600`. Redacted exports contain no tokens and cannot serve as sign-in backups.
 - **WebSocket is local-only by default**: binds to `127.0.0.1`, default port `19528`; you can disable it or change the port in Settings.
 - **When network access happens**: OAuth login, token refresh, quota fetching, update checks, and other official API requests.
@@ -375,7 +367,6 @@ If you want a stable setup with minimal tuning, follow the "Recommended" values.
 | Windsurf Auto Refresh | Periodically updates Windsurf quota | 5-10 minutes | Same as above |
 | Kiro Auto Refresh | Periodically updates Kiro quota | 5-10 minutes | Same as above |
 | Cursor Auto Refresh | Periodically updates Cursor quota | 5-10 minutes | Same as above |
-| Gemini Cli Auto Refresh | Periodically updates Gemini Cli quota | 5-10 minutes | Same as above |
 | Grok CLI Auto Refresh | Periodically refreshes tokens and updates quota | 5-10 minutes | Same as above |
 | CodeBuddy Auto Refresh | Periodically updates CodeBuddy quota | 5-10 minutes | Same as above |
 | CodeBuddy CN Auto Refresh | Periodically updates CodeBuddy CN quota | 5-10 minutes | Same as above |
@@ -383,7 +374,7 @@ If you want a stable setup with minimal tuning, follow the "Recommended" values.
 | Trae Auto Refresh | Periodically updates Trae suite account quota | 5-10 minutes | Same as above |
 | Zed Auto Refresh | Periodically updates Zed quota | 5-10 minutes | Same as above |
 | Data Directory | Where account/config files are stored | Keep default | Only for troubleshooting or backups |
-| Antigravity IDE/Codex/VS Code/Windsurf/Kiro/Cursor/Gemini Cli/Grok CLI/CodeBuddy/CodeBuddy CN/Qoder/Trae/Zed/OpenCode App Path | Manually set executable path | Leave empty (auto-detect) | Change only if auto-detect fails or you use custom install paths |
+| Antigravity IDE/Codex/VS Code/Windsurf/Kiro/Cursor/Grok CLI/CodeBuddy/CodeBuddy CN/Qoder/Trae/Zed/OpenCode App Path | Manually set executable path | Leave empty (auto-detect) | Change only if auto-detect fails or you use custom install paths |
 | Auto-restart OpenCode on Codex switch | Sync OpenCode auth after Codex switch | ON if you use OpenCode; otherwise OFF | Enable for frequent Codex switching with OpenCode |
 
 Notes:

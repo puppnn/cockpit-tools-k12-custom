@@ -146,12 +146,32 @@ pub struct CodexLocalAccessModelAlias {
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessModelPricing {
     pub model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_context_threshold_tokens: Option<u64>,
     #[serde(default)]
     pub input_usd_per_million: f64,
     #[serde(default)]
     pub output_usd_per_million: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_input_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard_long_input_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard_long_output_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard_long_cached_input_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_input_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_output_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_cached_input_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_long_input_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_long_output_usd_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_long_cached_input_usd_per_million: Option<f64>,
 }
 
 fn default_session_affinity_ttl_ms() -> i64 {
@@ -588,6 +608,8 @@ pub struct CodexLocalAccessUsageEvent {
     pub gateway_mode: Option<CodexLocalAccessGatewayMode>,
     #[serde(default)]
     pub request_kind: CodexLocalAccessRequestKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
     #[serde(default)]
     pub success: bool,
     #[serde(default)]

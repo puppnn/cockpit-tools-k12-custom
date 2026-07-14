@@ -24,7 +24,8 @@ const CLI_USER_URL: &str = "https://cli-chat-proxy.grok.com/v1/user?include=subs
 const SUBSCRIPTIONS_URL: &str = "https://grok.com/rest/subscriptions";
 const TASK_USAGE_URL: &str = "https://grok.com/rest/tasks/usage";
 const FALLBACK_GROK_CLIENT_VERSION: &str = "0.2.93";
-const TASK_USAGE_MAX_ATTEMPTS: usize = 3;
+/// billing / user / task_usage 传输层瞬时失败（SSL EOF、断连、超时）重试次数
+const TRANSPORT_MAX_ATTEMPTS: usize = 3;
 const FILE_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 static ACCOUNT_LOCK: std::sync::LazyLock<Mutex<()>> = std::sync::LazyLock::new(|| Mutex::new(()));
@@ -303,19 +304,45 @@ pub fn load_account(account_id: &str) -> Option<GrokAccount> {
     load_account_from_path(&path, account_id)
 }
 
+fn write_account_content_to_path(path: &Path, account: &GrokAccount) -> Result<(), String> {
+    let content =
+        crate::modules::secure_account_storage::serialize_account_file("grok", account)?;
+    write_secret_atomic(path, &content)
+}
+
 fn load_account_from_path(path: &Path, account_id: &str) -> Option<GrokAccount> {
-    let content = fs::read_to_string(&path).ok()?;
-    match serde_json::from_str(&content) {
-        Ok(account) => Some(account),
+    let content = fs::read_to_string(path).ok()?;
+    match crate::modules::secure_account_storage::deserialize_account_file::<GrokAccount>(
+        path, &content,
+    ) {
+        Ok((account, needs_rotation)) => {
+            if needs_rotation {
+                // 若 path 即正式账号文件，同步走全量 save（含 index/profile）
+                if account_path(account_id).ok().as_deref() == Some(path) {
+                    let _ = save_account_file(&account);
+                } else {
+                    let _ = write_account_content_to_path(path, &account);
+                }
+            }
+            Some(account)
+        }
         Err(error) => {
             let backup = path.with_extension("json.bak");
             let restored = fs::read_to_string(&backup).ok().and_then(|backup_content| {
-                serde_json::from_str::<GrokAccount>(&backup_content)
-                    .ok()
-                    .map(|account| (account, backup_content))
+                crate::modules::secure_account_storage::deserialize_account_file::<GrokAccount>(
+                    &backup,
+                    &backup_content,
+                )
+                .ok()
+                .map(|(account, _)| account)
             });
-            if let Some((account, backup_content)) = restored {
-                match write_secret_atomic(&path, &backup_content) {
+            if let Some(account) = restored {
+                let write_result = if account_path(account_id).ok().as_deref() == Some(path) {
+                    save_account_file(&account)
+                } else {
+                    write_account_content_to_path(path, &account)
+                };
+                match write_result {
                     Ok(()) => {
                         logger::log_warn(&format!(
                             "[Grok Account] 账号详情损坏，已从备份恢复: account_id={}",
@@ -341,8 +368,8 @@ fn load_account_from_path(path: &Path, account_id: &str) -> Option<GrokAccount> 
 
 fn save_account_file(account: &GrokAccount) -> Result<(), String> {
     let path = account_path(&account.id)?;
-    let content = serde_json::to_string_pretty(account)
-        .map_err(|error| format!("序列化 Grok 账号失败: {}", error))?;
+    let content =
+        crate::modules::secure_account_storage::serialize_account_file("grok", account)?;
     write_secret_atomic(&path, &content)
 }
 
@@ -716,32 +743,28 @@ pub fn write_account_to_profile(account: &GrokAccount, profile_dir: &Path) -> Re
     write_secret_atomic(&auth_path, &content)
 }
 
-pub fn inject_to_default(account_id: &str) -> Result<String, String> {
+/// 准备账号独立运行目录（GROK_HOME），不写官方默认 `~/.grok`，也不维护「当前账号」。
+pub fn prepare_account_home(account_id: &str) -> Result<(String, PathBuf), String> {
     let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
     let _store_guard = acquire_store_lock()?;
     let mut account =
         load_account(account_id).ok_or_else(|| format!("Grok 账号不存在: {}", account_id))?;
     account.last_used = now_ms();
     save_account_locked(&account)?;
+    let home = managed_profile_dir(&account.id)?;
+    write_account_to_profile(&account, &home)?;
+    Ok((account.email, home))
+}
 
-    let home = default_grok_home()?;
-    ensure_secret_dir(&home)?;
-    let auth_path = home.join(AUTH_FILE);
-    if account.is_api_key_auth() {
-        if account.resolved_api_key().is_none() {
-            return Err("Grok API Key 账号缺少 api_key".to_string());
-        }
-        write_empty_auth_file(&auth_path)?;
-    } else {
-        let existing = fs::read_to_string(&auth_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Value>(&content).ok());
-        let content = serde_json::to_string_pretty(&auth_registry_for(&account, existing))
-            .map_err(|error| format!("序列化 Grok 默认凭据失败: {}", error))?;
-        write_secret_atomic(&auth_path, &content)?;
-    }
-    provider_current_state::set_current_account_id("grok", Some(account_id))?;
-    Ok(account.email)
+/// 兼容旧调用名：仅准备独立 profile，不再注入官方默认 auth.json。
+pub fn inject_to_default(account_id: &str) -> Result<String, String> {
+    let (email, home) = prepare_account_home(account_id)?;
+    logger::log_info(&format!(
+        "[Grok Account] 已准备独立 GROK_HOME: account_id={}, home={}",
+        account_id,
+        home.display()
+    ));
+    Ok(email)
 }
 
 fn account_from_auth_object(value: &Value) -> Result<GrokAccount, String> {
@@ -882,10 +905,7 @@ fn accounts_match_for_upsert(candidate: &GrokAccount, existing: &GrokAccount) ->
         return false;
     }
     if candidate.is_api_key_auth() {
-        return match (
-            candidate.resolved_api_key(),
-            existing.resolved_api_key(),
-        ) {
+        return match (candidate.resolved_api_key(), existing.resolved_api_key()) {
             (Some(left), Some(right)) => left == right,
             _ => false,
         };
@@ -1145,9 +1165,6 @@ pub fn import_from_local() -> Result<Vec<GrokAccountView>, String> {
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("读取本机 Grok auth.json 失败: {}", error))?;
     let accounts = import_from_json(&content)?;
-    if let Some(account) = accounts.first() {
-        provider_current_state::set_current_account_id("grok", Some(&account.id))?;
-    }
     Ok(accounts)
 }
 
@@ -1208,9 +1225,6 @@ pub fn remove_account(account_id: &str) -> Result<(), String> {
     ensure_account_not_bound(&id, &instance_store)?;
     let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
     let _store_guard = acquire_store_lock()?;
-    let reconciled_current_id = reconcile_current_account_id()?;
-    let account = load_account(&id);
-    let was_current = reconciled_current_id.as_deref() == Some(id.as_str());
     let path = account_path(&id)?;
     let backup_path = path.with_extension("json.bak");
     if backup_path.exists() {
@@ -1228,17 +1242,6 @@ pub fn remove_account(account_id: &str) -> Result<(), String> {
     let mut index = load_index()?;
     index.accounts.retain(|item| item.id != id);
     save_index(&index)?;
-    if was_current {
-        if let Some(account) = account.as_ref() {
-            if let Err(error) = remove_matching_default_auth(account) {
-                logger::log_warn(&format!(
-                    "[Grok Account] 删除当前账号后清理默认 auth.json 失败: account_id={}, error={}",
-                    id, error
-                ));
-            }
-        }
-        provider_current_state::set_current_account_id("grok", None)?;
-    }
     Ok(())
 }
 
@@ -1568,12 +1571,7 @@ fn quota_from_payload(
     let products = config
         .get("productUsage")
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(product_usage_from_value)
-                .collect()
-        })
+        .map(|items| items.iter().filter_map(product_usage_from_value).collect())
         .unwrap_or_default();
     let (weekly_used, weekly_total) = credit_usage_amounts(billing, config);
     GrokQuota {
@@ -1605,10 +1603,12 @@ fn cli_proxy_get(
     access_token: &str,
     client_version: &str,
 ) -> reqwest::RequestBuilder {
+    // 与官方 Grok CLI / task_usage 一致：cli-chat-proxy 的 billing/user 需要 x-xai-token-auth
     client
         .get(url)
         .header(AUTHORIZATION, format!("Bearer {}", access_token))
         .header(ACCEPT, "application/json")
+        .header("x-xai-token-auth", "xai-grok-cli")
         .header("x-grok-cli-version", client_version)
         .header("x-grok-client-version", client_version)
         .header("x-grok-client-surface", "grok-cli")
@@ -1616,15 +1616,47 @@ fn cli_proxy_get(
         .header(USER_AGENT, format!("grok-cli/{}", client_version))
 }
 
+/// 传输层瞬时错误（SSL EOF / 断连 / 超时）重试；RequestBuilder 不可复用，需每次重建。
+async fn send_with_transport_retry<F>(
+    label: &str,
+    max_attempts: usize,
+    mut build: F,
+) -> Result<reqwest::Response, String>
+where
+    F: FnMut() -> reqwest::RequestBuilder,
+{
+    let mut attempt = 0_usize;
+    loop {
+        attempt += 1;
+        match build().send().await {
+            Ok(response) => return Ok(response),
+            Err(error) if attempt < max_attempts => {
+                logger::log_warn(&format!(
+                    "[Grok Account] {} 传输失败，第 {}/{} 次: {}",
+                    label, attempt, max_attempts, error
+                ));
+                // 线性退避：0.5s / 1s / 1.5s…
+                tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+            }
+            Err(error) => {
+                return Err(format!("{}失败: {}", label, error));
+            }
+        }
+    }
+}
+
 async fn cli_user_for(
     client: &reqwest::Client,
     account: &GrokAccount,
     client_version: &str,
 ) -> Option<Value> {
-    let response = cli_proxy_get(client, CLI_USER_URL, &account.access_token, client_version)
-        .send()
-        .await
-        .ok()?;
+    let access_token = account.access_token.clone();
+    let client_version = client_version.to_string();
+    let response = send_with_transport_retry("查询 Grok 用户信息", TRANSPORT_MAX_ATTEMPTS, || {
+        cli_proxy_get(client, CLI_USER_URL, &access_token, &client_version)
+    })
+    .await
+    .ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -1637,17 +1669,24 @@ async fn subscriptions_for(account: &GrokAccount, client_version: &str) -> Optio
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .ok()?;
-    let mut request = client
-        .get(SUBSCRIPTIONS_URL)
-        .header(AUTHORIZATION, format!("Bearer {}", account.access_token))
-        .header(ACCEPT, "application/json,text/plain,*/*")
-        .header("x-xai-token-auth", "xai-grok-cli")
-        .header("x-grok-client-version", client_version)
-        .header(USER_AGENT, format!("grok-cli/{}", client_version));
-    if let Some(user_id) = account.user_id.as_deref() {
-        request = request.header("x-userid", user_id);
-    }
-    let response = request.send().await.ok()?;
+    let access_token = account.access_token.clone();
+    let client_version = client_version.to_string();
+    let user_id = account.user_id.clone();
+    let response = send_with_transport_retry("查询 Grok 订阅", TRANSPORT_MAX_ATTEMPTS, || {
+        let mut request = client
+            .get(SUBSCRIPTIONS_URL)
+            .header(AUTHORIZATION, format!("Bearer {}", access_token))
+            .header(ACCEPT, "application/json,text/plain,*/*")
+            .header("x-xai-token-auth", "xai-grok-cli")
+            .header("x-grok-client-version", &client_version)
+            .header(USER_AGENT, format!("grok-cli/{}", client_version));
+        if let Some(user_id) = user_id.as_deref() {
+            request = request.header("x-userid", user_id);
+        }
+        request
+    })
+    .await
+    .ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -1660,29 +1699,17 @@ async fn task_usage_for(account: &GrokAccount) -> Result<Value, String> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| format!("创建 Grok 任务配额客户端失败: {}", error))?;
-    let mut attempt = 0_usize;
-    let response = loop {
-        attempt += 1;
-        match client
-            .get(TASK_USAGE_URL)
-            .header(AUTHORIZATION, format!("Bearer {}", account.access_token))
-            .header(ACCEPT, "application/json")
-            .header("x-xai-token-auth", "xai-grok-cli")
-            .header(USER_AGENT, "Grok Build")
-            .send()
-            .await
-        {
-            Ok(response) => break response,
-            Err(error) if attempt < TASK_USAGE_MAX_ATTEMPTS => {
-                logger::log_warn(&format!(
-                    "[Grok Account] 任务配额请求传输失败，第 {}/{} 次: {}",
-                    attempt, TASK_USAGE_MAX_ATTEMPTS, error
-                ));
-                tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
-            }
-            Err(error) => return Err(format!("查询 Grok 任务配额失败: {}", error)),
-        }
-    };
+    let access_token = account.access_token.clone();
+    let response =
+        send_with_transport_retry("查询 Grok 任务配额", TRANSPORT_MAX_ATTEMPTS, || {
+            client
+                .get(TASK_USAGE_URL)
+                .header(AUTHORIZATION, format!("Bearer {}", access_token))
+                .header(ACCEPT, "application/json")
+                .header("x-xai-token-auth", "xai-grok-cli")
+                .header(USER_AGENT, "Grok Build")
+        })
+        .await?;
     let status = response.status();
     let body = response
         .text()
@@ -1694,7 +1721,67 @@ async fn task_usage_for(account: &GrokAccount) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|error| format!("解析 Grok 任务配额失败: {}", error))
 }
 
+/// 从账号独立 GROK_HOME 的 auth.json 吸收 CLI 已轮换的 access/refresh。
+fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool, String> {
+    if account.is_api_key_auth() {
+        return Ok(false);
+    }
+    let auth_path = managed_profile_dir(&account.id)?.join(AUTH_FILE);
+    let Some(registry) = read_auth_registry(&auth_path)? else {
+        return Ok(false);
+    };
+    let Some(entry) = auth_registry_entry(&registry) else {
+        return Ok(false);
+    };
+    if !auth_entry_matches_account(&Value::Object(entry.clone()), account) {
+        return Ok(false);
+    }
+
+    let mut changed = false;
+    if let Some(access_token) = string_field(entry, "key") {
+        if access_token != account.access_token {
+            account.access_token = access_token;
+            changed = true;
+        }
+    }
+    if let Some(refresh_token) = string_field(entry, "refresh_token") {
+        if account.refresh_token.as_deref() != Some(refresh_token.as_str()) {
+            account.refresh_token = Some(refresh_token);
+            changed = true;
+        }
+    }
+    if let Some(expires_at) = entry.get("expires_at").and_then(parse_timestamp) {
+        if account.expires_at != Some(expires_at) {
+            account.expires_at = Some(expires_at);
+            account.expires_at_raw = entry
+                .get("expires_at")
+                .filter(|value| !value.is_null())
+                .cloned();
+            changed = true;
+        }
+    }
+    if changed {
+        let mut merged = account
+            .auth_raw
+            .as_ref()
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        for (key, value) in entry {
+            merged.insert(key.clone(), value.clone());
+        }
+        account.auth_raw = Some(Value::Object(merged));
+        logger::log_info(&format!(
+            "[Grok Account] 已从账号独立 auth.json 同步 CLI 最新凭据: account_id={}, email={}",
+            account.id, account.email
+        ));
+    }
+    Ok(changed)
+}
+
 async fn refresh_credentials(account: &mut GrokAccount, force: bool) -> Result<(), String> {
+    // 刷新前先读账号独立 home：该实例 CLI 若已轮换 refresh_token，用最新值再请求
+    let _ = adopt_live_tokens_from_account_home(account);
     let should_refresh = force
         || account
             .expires_at
@@ -1707,14 +1794,39 @@ async fn refresh_credentials(account: &mut GrokAccount, force: bool) -> Result<(
         .refresh_token
         .clone()
         .ok_or_else(|| "Grok refresh_token 为空，请重新授权".to_string())?;
-    let token = grok_oauth::refresh_token(
+    match grok_oauth::refresh_token(
         &refresh_token,
         account.token_endpoint.as_deref(),
         account.oidc_client_id.as_deref(),
     )
-    .await?;
-    apply_refreshed_token(account, token);
-    Ok(())
+    .await
+    {
+        Ok(token) => {
+            apply_refreshed_token(account, token);
+            Ok(())
+        }
+        Err(error) => {
+            // invalid_grant 常见于该账号 home 内 CLI 已抢先轮换：再吸一次 auth.json，token 变了则重试一次
+            let normalized = error.to_ascii_lowercase();
+            if normalized.contains("invalid_grant") || normalized.contains("401") {
+                if adopt_live_tokens_from_account_home(account).unwrap_or(false) {
+                    if let Some(rotated) = account.refresh_token.clone() {
+                        if rotated != refresh_token {
+                            let token = grok_oauth::refresh_token(
+                                &rotated,
+                                account.token_endpoint.as_deref(),
+                                account.oidc_client_id.as_deref(),
+                            )
+                            .await?;
+                            apply_refreshed_token(account, token);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            Err(error)
+        }
+    }
 }
 
 fn apply_refreshed_token(account: &mut GrokAccount, token: grok_oauth::GrokTokenResponse) {
@@ -1749,10 +1861,18 @@ async fn query_quota(account: &mut GrokAccount) -> Result<(), String> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| format!("创建 Grok 配额客户端失败: {}", error))?;
-    let response = cli_proxy_get(&client, BILLING_URL, &account.access_token, &client_version)
-        .send()
-        .await
-        .map_err(|error| format!("查询 Grok 配额失败: {}", error))?;
+    // billing 是主数据源：补上与 task_usage 相同的传输重试，降低 SSL EOF 等偶发失败
+    let access_token = account.access_token.clone();
+    let client_version_for_billing = client_version.clone();
+    let response = send_with_transport_retry("查询 Grok 配额", TRANSPORT_MAX_ATTEMPTS, || {
+        cli_proxy_get(
+            &client,
+            BILLING_URL,
+            &access_token,
+            &client_version_for_billing,
+        )
+    })
+    .await?;
     let status = response.status();
     let body = response
         .text()
@@ -1818,42 +1938,12 @@ async fn query_quota(account: &mut GrokAccount) -> Result<(), String> {
 
 fn save_refreshed_account(
     account: &GrokAccount,
-    expected_default_access_token: &str,
+    _expected_default_access_token: &str,
 ) -> Result<(), String> {
-    let reconciled_current_id = match reconcile_current_account_id() {
-        Ok(current_id) => current_id,
-        Err(error) => {
-            logger::log_warn(&format!(
-                "[Grok Account] 对账默认账号失败，本次刷新不回写默认 auth.json: {}",
-                error
-            ));
-            None
-        }
-    };
-    let should_update_default = reconciled_current_id.as_deref() == Some(account.id.as_str());
+    // 每账号独立 home：刷新只回写 Cockpit 详情 + 该账号 managed profile，不写官方默认 ~/.grok。
     let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
     let _store_guard = acquire_store_lock()?;
     save_account_locked(account)?;
-    let default_updated = if should_update_default {
-        write_account_to_auth_path_if_token_matches(
-            account,
-            &default_grok_home()?.join(AUTH_FILE),
-            expected_default_access_token,
-        )?
-    } else {
-        false
-    };
-    drop(_store_guard);
-    drop(_guard);
-
-    if should_update_default && !default_updated {
-        if let Err(error) = reconcile_current_account_id() {
-            logger::log_warn(&format!(
-                "[Grok Account] 默认凭据已变化，重新对账当前账号失败: {}",
-                error
-            ));
-        }
-    }
     Ok(())
 }
 
@@ -1954,10 +2044,11 @@ async fn refresh_account_inner(
         }
     }
     if let Err(error) = quota_result {
+        // 软失败：保留上次成功的 quota/plan 缓存，仅记录错误，避免后台刷新把界面刷成空
         account.quota_query_last_error = Some(error.clone());
         account.quota_query_last_error_at = Some(now_ms());
         logger::log_warn(&format!(
-            "[Grok Account] 配额查询失败: account_id={}, error={}",
+            "[Grok Account] 配额查询失败（保留缓存展示）: account_id={}, error={}",
             account.id, error
         ));
     }
@@ -2000,21 +2091,51 @@ pub async fn force_refresh_account(account_id: &str) -> Result<GrokAccountView, 
 
 pub async fn refresh_all_accounts() -> Result<Vec<(String, Result<GrokAccountView, String>)>, String>
 {
+    use futures::future::join_all;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    // 多账号时全串行易拖垮 IPC/超时；过高并发会触发上游限流与 token 旋转压力。
+    // 每账号有独立 token 锁，跨账号限流并发是安全的。
+    const MAX_CONCURRENT: usize = 3;
     let ids: Vec<String> = load_index()?
         .accounts
         .into_iter()
         .map(|item| item.id)
         .collect();
-    let mut results = Vec::new();
-    for id in ids {
-        let result = refresh_account(&id).await;
-        results.push((id, result));
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
+    let tasks: Vec<_> = ids
+        .into_iter()
+        .map(|account_id| {
+            let semaphore = semaphore.clone();
+            async move {
+                let _permit = semaphore
+                    .acquire_owned()
+                    .await
+                    .map_err(|error| format!("获取 Grok 刷新并发许可失败: {}", error))?;
+                let result = refresh_account(&account_id).await;
+                Ok::<(String, Result<GrokAccountView, String>), String>((account_id, result))
+            }
+        })
+        .collect();
+
+    let mut results = Vec::with_capacity(tasks.len());
+    for task in join_all(tasks).await {
+        match task {
+            Ok(item) => results.push(item),
+            Err(error) => return Err(error),
+        }
     }
     Ok(results)
 }
 
+/// Grok 账号彼此独立（各用自己的 GROK_HOME），不再维护「当前账号」。
 pub fn current_account_id() -> Result<Option<String>, String> {
-    reconcile_current_account_id()
+    Ok(None)
 }
 
 pub fn accounts_index_path_string() -> Result<String, String> {
@@ -2033,12 +2154,23 @@ fn remaining_percent_from_used_pct(used_percent: f64) -> i32 {
     (100.0 - used_percent.clamp(0.0, 100.0)).round() as i32
 }
 
-/// Mirrors the visible Grok overview buckets (no weekly-only metric).
+/// 与账号页/概览可见桶对齐：周额度 + productUsage + 任务/按量。
 fn quota_remaining_metrics(account: &GrokAccountView) -> Vec<(String, i32)> {
     let Some(quota) = account.quota.as_ref() else {
         return Vec::new();
     };
     let mut metrics = Vec::new();
+    // 周总池（creditUsagePercent / weeklyCredits）剩余
+    if let Some(used_pct) = quota.weekly_limit_percent {
+        metrics.push((
+            "weekly".to_string(),
+            remaining_percent_from_used_pct(used_pct),
+        ));
+    } else if let (Some(used), Some(total)) = (quota.weekly_used, quota.weekly_total) {
+        if let Some(remaining) = remaining_percent_from_used_total(used, total) {
+            metrics.push(("weekly".to_string(), remaining));
+        }
+    }
     for product in &quota.products {
         let remaining = match (product.used, product.total) {
             (Some(used), Some(total)) => remaining_percent_from_used_total(used, total),
@@ -2086,81 +2218,79 @@ pub fn run_quota_alert_if_needed() -> Result<(), String> {
         return Ok(());
     }
     let threshold = config.grok_quota_alert_threshold.clamp(0, 100);
-    let Some(current_id) = current_account_id()? else {
-        return Ok(());
-    };
     let accounts = list_accounts_checked()?;
-    let Some(current) = accounts.iter().find(|account| account.id == current_id) else {
-        return Ok(());
-    };
-    let metrics = quota_remaining_metrics(current);
-    if metrics.is_empty() {
-        clear_quota_alert_cooldown(&current.id, threshold);
-        return Ok(());
-    }
-    let lowest = metrics
-        .iter()
-        .map(|(_, remaining)| *remaining)
-        .min()
-        .unwrap_or(100);
-    let low_products: Vec<String> = metrics
-        .iter()
-        .filter(|(_, remaining)| *remaining <= threshold)
-        .map(|(name, _)| name.clone())
-        .collect();
-    if low_products.is_empty() {
-        clear_quota_alert_cooldown(&current.id, threshold);
-        return Ok(());
-    }
-
-    let cooldown_key = format!("{}:{}", current.id, threshold);
     let now = now_ts();
-    if let Ok(mut state) = QUOTA_ALERT_LAST_SENT.lock() {
-        if state
-            .get(&cooldown_key)
-            .map(|sent_at| now - *sent_at < QUOTA_ALERT_COOLDOWN_SECONDS)
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-        state.insert(cooldown_key, now);
-    }
 
-    let recommendation = accounts
-        .iter()
-        .filter(|account| account.id != current.id)
-        .filter(|account| {
-            account.quota_query_last_error.is_none()
-                && account
-                    .status
-                    .as_deref()
-                    .map(|status| matches!(status, "normal" | "ok"))
-                    .unwrap_or(true)
-        })
-        .filter_map(|account| {
-            let minimum = quota_remaining_metrics(account)
-                .into_iter()
-                .map(|(_, remaining)| remaining)
-                .min()?;
-            if minimum <= 0 {
-                return None;
+    // 无全局「当前账号」：对每个已有配额数据的账号独立预警。
+    for current in &accounts {
+        let metrics = quota_remaining_metrics(current);
+        if metrics.is_empty() {
+            clear_quota_alert_cooldown(&current.id, threshold);
+            continue;
+        }
+        let lowest = metrics
+            .iter()
+            .map(|(_, remaining)| *remaining)
+            .min()
+            .unwrap_or(100);
+        let low_products: Vec<String> = metrics
+            .iter()
+            .filter(|(_, remaining)| *remaining <= threshold)
+            .map(|(name, _)| name.clone())
+            .collect();
+        if low_products.is_empty() {
+            clear_quota_alert_cooldown(&current.id, threshold);
+            continue;
+        }
+
+        let cooldown_key = format!("{}:{}", current.id, threshold);
+        if let Ok(mut state) = QUOTA_ALERT_LAST_SENT.lock() {
+            if state
+                .get(&cooldown_key)
+                .map(|sent_at| now - *sent_at < QUOTA_ALERT_COOLDOWN_SECONDS)
+                .unwrap_or(false)
+            {
+                continue;
             }
-            Some((account, minimum))
-        })
-        .max_by_key(|(_, minimum)| *minimum)
-        .map(|(account, _)| account);
-    crate::modules::account::dispatch_quota_alert(&crate::modules::account::QuotaAlertPayload {
-        platform: "grok".to_string(),
-        current_account_id: current.id.clone(),
-        current_email: current.email.clone(),
-        threshold,
-        threshold_display: None,
-        lowest_percentage: lowest,
-        low_models: low_products,
-        recommended_account_id: recommendation.map(|account| account.id.clone()),
-        recommended_email: recommendation.map(|account| account.email.clone()),
-        triggered_at: now,
-    });
+            state.insert(cooldown_key, now);
+        }
+
+        let recommendation = accounts
+            .iter()
+            .filter(|account| account.id != current.id)
+            .filter(|account| {
+                account.quota_query_last_error.is_none()
+                    && account
+                        .status
+                        .as_deref()
+                        .map(|status| matches!(status, "normal" | "ok"))
+                        .unwrap_or(true)
+            })
+            .filter_map(|account| {
+                let minimum = quota_remaining_metrics(account)
+                    .into_iter()
+                    .map(|(_, remaining)| remaining)
+                    .min()?;
+                if minimum <= 0 {
+                    return None;
+                }
+                Some((account, minimum))
+            })
+            .max_by_key(|(_, minimum)| *minimum)
+            .map(|(account, _)| account);
+        crate::modules::account::dispatch_quota_alert(&crate::modules::account::QuotaAlertPayload {
+            platform: "grok".to_string(),
+            current_account_id: current.id.clone(),
+            current_email: current.email.clone(),
+            threshold,
+            threshold_display: None,
+            lowest_percentage: lowest,
+            low_models: low_products,
+            recommended_account_id: recommendation.map(|account| account.id.clone()),
+            recommended_email: recommendation.map(|account| account.email.clone()),
+            triggered_at: now,
+        });
+    }
     Ok(())
 }
 
@@ -2168,14 +2298,17 @@ pub fn run_quota_alert_if_needed() -> Result<(), String> {
 mod tests {
     use super::{
         account_from_auth_object, accounts_match_for_upsert, acquire_secret_lock,
-        apply_refreshed_token, auth_registry_for, default_grok_home, ensure_secret_dir,
-        load_account_from_path, load_index_from_paths, parse_auth_registry, quota_from_payload,
-        remove_account, remove_matching_auth_scope, resolve_account_id_from_registry,
-        save_account_locked, should_retry_quota_after_unauthorized,
+        apply_refreshed_token, auth_entry_matches_account, auth_registry_entry, auth_registry_for,
+        default_grok_home, ensure_secret_dir, load_account_from_path, load_index_from_paths,
+        parse_auth_registry, quota_from_payload, quota_remaining_metrics, remove_account,
+        remove_matching_auth_scope, resolve_account_id_from_registry, save_account_locked,
+        should_retry_quota_after_unauthorized, string_field,
         write_account_to_auth_path_if_token_matches, write_account_to_profile,
     };
-    use crate::models::grok::{GrokAccount, GrokAuthMode};
-    use serde_json::json;
+    use crate::models::grok::{
+        GrokAccount, GrokAccountView, GrokAuthMode, GrokProductUsage, GrokQuota,
+    };
+    use serde_json::{json, Value};
     use std::path::PathBuf;
 
     fn sample_account() -> GrokAccount {
@@ -2545,7 +2678,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn removing_account_reconciles_default_auth_before_checking_current_account() {
+    fn removing_account_deletes_managed_profile_without_touching_unrelated_default_home() {
         let _env_lock = crate::modules::test_support::env_lock()
             .lock()
             .expect("lock test environment");
@@ -2553,23 +2686,18 @@ mod tests {
         let _environment = EnvironmentGuard::new(&temp.0);
         let account = sample_account();
         save_account_locked(&account).expect("save account fixture");
+        let profile = super::managed_profile_dir(&account.id).expect("profile dir");
+        assert!(profile.join("auth.json").exists());
+        // 官方默认 home 若另有无关文件，删除账号不应要求清理它
         let default_home = default_grok_home().expect("resolve test Grok home");
-        write_account_to_profile(&account, &default_home).expect("write default auth fixture");
-        crate::modules::provider_current_state::set_current_account_id(
-            "grok",
-            Some("stale-account"),
-        )
-        .expect("seed stale current account cache");
+        ensure_secret_dir(&default_home).expect("create default home");
+        std::fs::write(default_home.join("auth.json"), "{}").expect("seed unrelated default auth");
 
-        remove_account(&account.id).expect("remove reconciled current account");
+        remove_account(&account.id).expect("remove account");
 
-        assert!(!default_home.join("auth.json").exists());
         assert!(super::load_account(&account.id).is_none());
-        assert_eq!(
-            crate::modules::provider_current_state::get_current_account_id("grok")
-                .expect("read current account state"),
-            None
-        );
+        assert!(!profile.exists());
+        assert!(default_home.join("auth.json").exists());
     }
 
     #[cfg(unix)]
@@ -2669,10 +2797,9 @@ mod tests {
                 & 0o777,
             0o600
         );
-        serde_json::from_str::<GrokAccount>(
-            &std::fs::read_to_string(&path).expect("read restored account"),
-        )
-        .expect("restored account should be valid JSON");
+        let reloaded = load_account_from_path(&path, "account-1").expect("reload restored account");
+        assert_eq!(reloaded.id, "account-1");
+        assert_eq!(reloaded.access_token, restored.access_token);
     }
 
     #[test]
@@ -2768,5 +2895,57 @@ mod tests {
         assert_eq!(quota.frequent_limit, Some(10.0));
         assert_eq!(quota.occasional_usage, Some(3.0));
         assert_eq!(quota.occasional_limit, Some(30.0));
+    }
+
+    #[test]
+    fn remaining_metrics_include_weekly_and_products() {
+        let mut account = sample_account();
+        account.quota = Some(GrokQuota {
+            weekly_limit_percent: Some(40.0),
+            products: vec![GrokProductUsage {
+                product: "GrokBuild".to_string(),
+                usage_percent: Some(25.0),
+                used: None,
+                total: None,
+                remaining: None,
+            }],
+            ..Default::default()
+        });
+        let view = GrokAccountView::from(&account);
+        let metrics = quota_remaining_metrics(&view);
+        assert!(metrics
+            .iter()
+            .any(|(name, remaining)| { name == "weekly" && *remaining == 60 }));
+        assert!(metrics
+            .iter()
+            .any(|(name, remaining)| { name == "GrokBuild" && *remaining == 75 }));
+    }
+
+    #[test]
+    fn adopts_rotated_tokens_from_default_auth_when_identity_matches() {
+        let mut account = sample_account();
+        account.access_token = "old-access".to_string();
+        account.refresh_token = Some("old-refresh".to_string());
+        let registry = json!({
+            "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {
+                "key": "new-access",
+                "refresh_token": "new-refresh",
+                "email": "person@example.com",
+                "user_id": "user-1",
+                "principal_id": "principal-1",
+                "expires_at": "2030-01-01T00:00:00Z"
+            }
+        });
+        // 身份匹配 + 字段读取：刷新前吸收 CLI 已轮换凭据的前置条件
+        let entry = auth_registry_entry(&registry).expect("entry");
+        assert!(auth_entry_matches_account(
+            &Value::Object(entry.clone()),
+            &account
+        ));
+        assert_eq!(string_field(entry, "key").as_deref(), Some("new-access"));
+        assert_eq!(
+            string_field(entry, "refresh_token").as_deref(),
+            Some("new-refresh")
+        );
     }
 }

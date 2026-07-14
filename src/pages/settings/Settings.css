@@ -288,6 +288,14 @@
   line-height: 1.45;
 }
 
+.settings-app-path-error {
+  width: 100%;
+  margin: 0;
+  color: var(--danger, #ef4444);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* Controls */
 .settings-select {
   padding: 6px 12px;
@@ -507,7 +515,7 @@ input:checked + .slider:before {
 }
 
 .settings-release-history-modal {
-  max-width: min(920px, calc(100vw - 56px));
+  max-width: min(690px, calc(100vw - 56px));
   max-height: min(86vh, 860px);
 }
 

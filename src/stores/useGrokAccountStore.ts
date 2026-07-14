@@ -27,8 +27,9 @@ export const useGrokAccountStore = createProviderAccountStore<GrokAccount>(
   },
   {
     platformId: 'grok',
+    // Grok 账号彼此独立（各用 GROK_HOME），不再维护全局「当前账号」。
     currentAccountIdKey: 'agtools.grok.current_account_id',
-    resolveCurrentAccountId: grokService.getGrokCurrentAccountId,
+    resolveCurrentAccountId: async () => null,
     preserveSourceQuota: true,
   },
 );

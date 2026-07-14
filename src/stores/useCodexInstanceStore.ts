@@ -57,7 +57,14 @@ type CodexInstanceStoreState = InstanceStoreState & {
     sessionIds: string[],
     transferId?: string | null,
   ) => Promise<CodexSessionImportSummary>;
-  openSessionLocation: (sessionId: string) => Promise<void>;
+  openSessionLocation: (
+    sessionId: string,
+    instanceId?: string | null,
+  ) => Promise<void>;
+  openSessionRollout: (
+    sessionId: string,
+    instanceId?: string | null,
+  ) => Promise<void>;
 };
 
 type CodexInstanceStoreHook = {
@@ -181,8 +188,18 @@ const importSessions = async (
   return summary;
 };
 
-const openSessionLocation = async (sessionId: string): Promise<void> => {
-  await codexInstanceService.openSessionLocation(sessionId);
+const openSessionLocation = async (
+  sessionId: string,
+  instanceId?: string | null,
+): Promise<void> => {
+  await codexInstanceService.openSessionLocation(sessionId, instanceId);
+};
+
+const openSessionRollout = async (
+  sessionId: string,
+  instanceId?: string | null,
+): Promise<void> => {
+  await codexInstanceService.openSessionRollout(sessionId, instanceId);
 };
 
 typedBaseStore.setState({
@@ -203,6 +220,7 @@ typedBaseStore.setState({
   previewSessionImport,
   importSessions,
   openSessionLocation,
+  openSessionRollout,
 });
 
 export const useCodexInstanceStore = typedBaseStore;

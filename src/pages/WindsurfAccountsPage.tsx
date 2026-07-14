@@ -45,6 +45,7 @@ import {
   getWindsurfUsage,
 } from '../types/windsurf';
 import { buildWindsurfAccountPresentation } from '../presentation/platformAccountPresentation';
+import { scrollElementIntoView } from '../utils/reducedMotion';
 
 import { WindsurfOverviewTabsHeader, WindsurfTab } from '../components/WindsurfOverviewTabsHeader';
 import { WindsurfInstancesContent } from './WindsurfInstancesPage';
@@ -431,7 +432,7 @@ export function WindsurfAccountsPage() {
 
   const scrollModalFeedbackIntoView = useCallback((ref: { current: HTMLDivElement | null }) => {
     requestAnimationFrame(() => {
-      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      scrollElementIntoView(ref.current, { block: 'nearest' });
     });
   }, []);
 

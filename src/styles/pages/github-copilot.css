@@ -999,12 +999,6 @@
   letter-spacing: normal;
 }
 
-.gemini-accounts-page .ghcp-account-card .tier-badge,
-.gemini-accounts-page .account-table .tier-badge {
-  text-transform: none;
-  letter-spacing: normal;
-}
-
 .windsurf-accounts-page .ghcp-account-card .tier-badge,
 .windsurf-accounts-page .account-table .tier-badge {
   text-transform: none;
@@ -1220,45 +1214,6 @@
   padding: 12px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
-}
-
-.ghcp-quota-section.gemini-quota-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.ghcp-quota-section.gemini-quota-columns.table-layout {
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  min-width: 320px;
-}
-
-.gemini-quota-column {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: var(--radius-sm);
-  padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.gemini-quota-column-header {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 4px;
-}
-
-.gemini-accounts-page .ghcp-account-card {
-  min-height: 260px;
-}
-
-.gemini-accounts-page .gemini-quota-table-cell {
-  min-width: 0;
 }
 
 .trae-accounts-page .ghcp-account-card {
@@ -3272,4 +3227,33 @@
 
 .ghcp-instances-content .empty-state .btn {
   margin-top: 8px;
+}
+
+html[data-reduced-motion="true"] .ghcp-accounts-page .ghcp-accounts-grid .ghcp-account-card {
+  background: var(--bg-surface);
+  backdrop-filter: none;
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-reduced-motion="true"] .ghcp-accounts-page .ghcp-accounts-grid .ghcp-account-card:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-reduced-motion="true"] .ghcp-accounts-page .ghcp-accounts-grid .ghcp-account-card.current {
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+html[data-reduced-motion="true"] .ghcp-accounts-page .ghcp-accounts-grid .ghcp-account-card.selected {
+  background: color-mix(in srgb, var(--bg-surface) 88%, var(--primary) 12%);
+}
+
+html[data-reduced-motion="true"] .ghcp-accounts-page .ghcp-accounts-grid .ghcp-account-card.disabled {
+  background: color-mix(in srgb, var(--bg-surface) 92%, var(--danger) 8%);
+}
+
+html[data-reduced-motion="true"] .claude-accounts-page .codex-account-card.sponsor-api-account,
+html[data-reduced-motion="true"] .claude-accounts-page .ghcp-account-card.sponsor-api-account {
+  background: var(--bg-surface);
 }

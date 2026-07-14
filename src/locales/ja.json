@@ -2,6 +2,8 @@
   "common": {
     "confirm": "確認",
     "cancel": "キャンセル",
+    "cancelling": "キャンセル中...",
+    "cancelled": "キャンセル済み",
     "save": "保存",
     "saving": "保存中...",
     "delete": "削除",
@@ -250,7 +252,6 @@
       "restart": "再起動",
       "installing": "インストール中"
     },
-    "gemini": "Gemini Cli​",
     "codebuddy": "CodeBuddy​",
     "qoder": "Qoder​",
     "trae": "Trae​",
@@ -271,7 +272,9 @@
     "switchClassicLayoutConfirm": "今すぐ切り替える",
     "2faManager": "2FA管理",
     "apiRelay": "リレー",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "スポンサー",
@@ -582,7 +585,7 @@
       "theme": "テーマ",
       "themeDesc": "ダークモードとライトモードを切り替えます",
       "defaultTerminal": "デフォルトのターミナル",
-      "defaultTerminalDesc": "Gemini CLIを開くときに使用されるターミナル",
+      "defaultTerminalDesc": "CLIを開くときに使用されるターミナル",
       "terminalSystem": "システムデフォルト",
       "themeLight": "ライト",
       "themeDark": "ダーク",
@@ -807,7 +810,35 @@
       "platformAutoRefresh": "{{platform}} クォータ自動更新",
       "traeSoloAppPath": "TRAE SOLO 起動パス",
       "traeCnAppPath": "Trae CN 起動パス",
-      "traeSoloCnAppPath": "TRAE SOLO CN 起動パス"
+      "traeSoloCnAppPath": "TRAE SOLO CN 起動パス",
+      "reducedMotion": "アニメ軽減",
+      "reducedMotionDesc": "フェード・モーダル遷移・影・ぼかし・スムーズスクロールを抑え、必要な読み込み表示のみ残します",
+      "autoImportFromLocal": "ローカルアカウント自動取り込み",
+      "autoImportFromLocalDesc": "有効にすると本機クライアントのログインを即時取り込み、以降は公式クライアントのログイン変更時に自動取り込みます。初回はキーチェーン許可が必要な場合があります。",
+      "autoImportFromLocalScanning": "ローカルアカウントをスキャン中…いつでもオフにできます",
+      "autoImportFromLocalScanDone": "完了：{{scanned}} 件検出、{{imported}} 件取り込み",
+      "autoImportFromLocalScanEmpty": "完了：取り込めるログインがありません",
+      "autoImportFromLocalScanPartial": "完了：一部失敗。アカウントページから手動取り込みできます",
+      "autoImportFromLocalScanFailed": "スキャン失敗：{{error}}",
+      "autoImportFromLocalScanCancelled": "オフにしました。進行中のスキャン結果は無視されます",
+      "startupPage": "起動ページ",
+      "startupPageDesc": "コールドスタート時に開くページ。「前回を記憶」で前回のページを復元します。",
+      "startupPageLast": "前回を記憶",
+      "startupPageCodexApi": "Codex API サービス",
+      "hermesAuthOverwrite": "Codex 切替時に Hermes を同期",
+      "hermesAuthOverwriteDesc": "OAuth のみ：切替後に ~/.hermes/auth.json の openai-codex 資格情報を更新（既定オフ）",
+      "themeColor": "カラーパック",
+      "themeColorDesc": "明暗テーマに配色パックを重ねます",
+      "themeColorDefault": "標準",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "外部通信を許可",
+      "externalNetworkDesc": "オフ時は WebDAV・OpenRouter 使用量・お知らせ・自動更新チェックを遮断します（ローカル機能は継続）。",
+      "webdavAllowedDomains": "WebDAV ドメイン許可リスト",
+      "webdavAllowedDomainsDesc": "カンマ区切り。空なら制限なし"
     },
     "network": {
       "apiTitle": "反重力コックピット API",
@@ -872,6 +903,7 @@
       "releaseHistoryLoading": "リリースノートを読み込んでいます...",
       "releaseHistoryEmpty": "リリースノートはまだありません",
       "releaseHistoryLoadFailed": "ロードに失敗しました: {{error}}",
+      "releaseHistorySectionHighlights": "重要な更新",
       "releaseHistorySectionAdded": "追加した",
       "releaseHistorySectionChanged": "変更されました",
       "releaseHistorySectionFixed": "修理済み",
@@ -1036,6 +1068,19 @@
       "retentionUnit": "days",
       "collapseAll": "Collapse remote backups",
       "expandAll": "Expand all remote backups ({{count}} more)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "API キーをアプリデータにローカル保存します。外連 ON で OpenRouter 使用量を更新できます。完全なプラットフォームではありません。",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "ラベル",
+      "empty": "Key がありません",
+      "added": "追加しました",
+      "deleted": "削除しました",
+      "refreshed": "使用量を更新しました",
+      "usage": "使用量",
+      "tierOther": "その他"
     }
   },
   "appPath": {
@@ -1732,7 +1777,8 @@
       "title": "Codex アカウントを追加",
       "oauth": "OAuth 認証",
       "token": "JSON インポート",
-      "local": "ローカルインポート"
+      "local": "ローカルインポート",
+      "accessToken": "アクセストークン"
     },
     "oauth": {
       "desc": "下のボタンをクリックしてブラウザで OpenAI 認可を完了してください",
@@ -1963,7 +2009,7 @@
       },
       "customRoutingEdit": "カスタムルーティングを編集",
       "customRoutingTitle": "カスタムルーティング",
-      "customRoutingDesc": "アカウントごとに優先度と重みを設定し、選択順と同じ優先度内の負荷配分を制御します。",
+      "customRoutingDesc": "優先度と重みを設定し、アカウント選択順と負荷分散を制御します。",
       "customRoutingBackupTitle": "予備アカウント",
       "customRoutingBackupDesc": "通常アカウントがすべて利用できない場合のみ使用します。通常アカウントが復旧すると、新しいリクエストは自動的に切り戻されます。",
       "customRoutingBackupShort": "予備",
@@ -2122,7 +2168,12 @@
     },
     "list": {
       "showCodeReviewQuota": "Code Review 配額を表示",
-      "showAdditionalQuota": "モデル専用枠を表示"
+      "showAdditionalQuota": "モデル専用枠を表示",
+      "planBadgeStyle": "プランバッジ様式",
+      "planBadgeStyleDefault": "標準",
+      "planBadgeStyleOutline": "枠線",
+      "planBadgeStyleSoft": "ソフト",
+      "planBadgeStyleMono": "モノクロ"
     },
     "time": {
       "today": "今日 {{time}}",
@@ -2382,7 +2433,8 @@
         "selectAllSessions": "全セッションを選択",
         "clearSelectedSessions": "選択解除",
         "copyToInstance": "インスタンスへコピー",
-        "trash": "ゴミ箱"
+        "trash": "ゴミ箱",
+        "openRollout": "セッションファイルを開く"
       },
       "confirm": {
         "title": "ゴミ箱へ移動",
@@ -2584,7 +2636,15 @@
         "removeItem": "外す",
         "emptyFilteredTitle": "一致する会話がありません",
         "emptyFilteredDesc": "検索、ソース、選択状態を調整してください。"
-      }
+      },
+      "kindFilter": "セッション種別",
+      "kind": {
+        "conversation": "会話",
+        "external": "外部",
+        "subagent": "サブエージェント",
+        "all": "すべて"
+      },
+      "pickInstancePrompt": "このセッションは複数インスタンスにあります。インスタンス ID を入力:"
     },
     "api": {
       "baseUrl": "ベース URL",
@@ -2598,6 +2658,20 @@
       "showApiKey": "API Keyを表示",
       "hideApiKey": "API Keyを非表示",
       "apiKeyHiddenHint": "API Keyは非表示です。クリックすると表示します。",
+      "modelCatalog": {
+        "label": "モデル一覧",
+        "fetch": "プロバイダーから取得",
+        "fetching": "取得中...",
+        "count": "{{count}} 件のモデル",
+        "placeholder": "1 行に 1 つのモデル ID を入力するか、カンマで区切ってください。",
+        "editHint": "取得したモデルはこの下書きにのみ反映されます。保存前に確認・編集できます。",
+        "syncToggle": "プロバイダーのモデルを Codex に同期",
+        "syncDescription": "保存後、この一覧から Cockpit 管理の Codex モデルカタログを生成します。ユーザー独自のカタログは上書きしません。",
+        "fetchCredentialsRequired": "先に API Key と Base URL を入力してください。",
+        "fetchEmpty": "プロバイダーからモデルが返されませんでした。現在の一覧を保持します。",
+        "fetchFailed": "プロバイダーのモデルを取得できませんでした：{{error}}",
+        "syncRequiresModels": "Codex に同期する前に、モデルを 1 件以上取得または入力してください。"
+      },
       "actions": {
         "addAndSwitch": "追加して切り替える"
       },
@@ -2974,7 +3048,10 @@
         "help": "プロバイダーが Responses WebSocket を明示的にサポートしている場合のみ有効にしてください。接続方式は Codex またはプロキシサービスのログで確認できます。",
         "enabled": "有効",
         "disabled": "無効"
-      }
+      },
+      "renameApiKeyPrompt": "API キー名を変更",
+      "renameApiKeySuccess": "API キーを変更しました",
+      "renameApiKeyFailed": "API キー名の変更に失敗：{{error}}"
     },
     "quickSwitch": {
       "action": "プロバイダーをクイック切り替え",
@@ -3156,22 +3233,40 @@
         "rulesSaved": "モデルルールを保存しました",
         "pricingAction": "価格設定",
         "pricingTitle": "モデル価格設定",
-        "pricingDesc": "USD / 100万 tokens。ローカルの価値統計にのみ使用します。",
+        "pricingDesc": "単位は USD / 1M tokens。ローカル統計のみ。",
         "pricingModel": "モデル",
         "pricingInput": "入力",
         "pricingCache": "キャッシュ入力",
         "pricingOutput": "出力",
         "pricingSource": "ソース",
         "pricingActions": "操作",
-        "pricingCachePlaceholder": "入力と同じ",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "カスタム",
         "pricingPreset": "プリセット",
         "pricingUnset": "未設定",
         "pricingReset": "リセット",
         "pricingSaved": "価格設定を保存しました",
-        "pricingInvalid": "価格は 0 以上の数値で入力してください",
+        "pricingInvalid": "価格は 0 以上の数値、トークンしきい値は正の整数である必要があります",
         "pricingReprice": "履歴を再計算",
-        "pricingRepriced": "履歴の見積もりを現在の価格で再計算しました"
+        "pricingRepriced": "履歴の見積もりを現在の価格で再計算しました",
+        "pricingLongThreshold": "長文脈しきい値（tokens）",
+        "pricingStandard": "標準",
+        "pricingStandardLong": "標準（長文脈）",
+        "pricingPriority": "優先",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "標準（長文脈）入力",
+        "pricingStandardLongCache": "標準（長文脈）キャッシュ入力",
+        "pricingStandardLongOutput": "標準（長文脈）出力",
+        "pricingPriorityInput": "優先入力",
+        "pricingPriorityCache": "優先キャッシュ入力",
+        "pricingPriorityOutput": "優先出力",
+        "pricingRepriceDone": "履歴見積もりを更新しました（変更 {{updated}} 件）",
+        "pricingRepriceFailedWithMessage": "履歴見積もりの更新に失敗: {{message}}",
+        "pricingRepriceFailed": "履歴見積もりの更新に失敗しました",
+        "pricingRepriceSuperseded": "新しい料金設定を受信。最新の再計算ジョブに切り替えます",
+        "pricingRepriceRunning": "履歴見積もり更新中 {{processed}} / {{total}}（更新 {{updated}} 件）",
+        "pricingRepriceCompleted": "履歴見積もりを更新しました",
+        "pricingRepriceSaveBlocked": "履歴見積もり更新中です。完了後に保存してください"
       },
       "keys": {
         "policyTitle": "モデルポリシー",
@@ -3308,8 +3403,20 @@
       "previewSubtitle": "保存するアカウントを選択",
       "scanSubtitle": "アカウントを1件ずつ解析して確認中",
       "parseSubtitle": "アカウントファイルを解析中",
+      "importSubtitle": "選択したアカウントを保存中",
+      "finalizing": "インポートを完了処理中",
+      "finalizingSubtitle": "アカウント一覧と関連設定を更新中",
+      "cancelImport": "インポートをキャンセル",
+      "importCancelledSummary": "インポートをキャンセルしました。{{processed}}/{{total}} 件を処理済みです。",
+      "importChecked": "確認済みアカウントをインポート",
+      "directImport": "確認せず直接インポート",
+      "importCheckedAndAddToApiService": "確認済みアカウントをインポートして API サービスに追加",
+      "directImportAndAddToApiService": "直接インポートして API サービスに追加",
+      "viewAllTasks": "全 {{count}} 件のタスクを表示",
+      "collapseTasks": "タスクを折りたたむ",
       "cancelling": "キャンセル中...",
       "scanDone": "スキャン完了",
+      "scanCompleteReview": "確認が完了しました。結果を確認してください",
       "parseDone": "解析完了",
       "scanning": "スキャン中",
       "parsing": "解析中",
@@ -3318,7 +3425,7 @@
       "failed": "失敗",
       "quotaOk": "アカウント正常",
       "quotaFailed": "異常",
-      "checkQuotaToggle": "アカウントを検査",
+      "checkQuotaToggle": "インポート前に確認",
       "preparing": "インポートタスクを準備中...",
       "importSelected": "選択したアカウントをインポート",
       "noSelection": "インポートするアカウントを選択してください",
@@ -3341,7 +3448,17 @@
       "taskRunning": "{{current}} / {{total}} 件を処理中",
       "taskPreview": "{{total}} 件のプレビューを作成済み",
       "reopen": "タスクを表示",
-      "dismissTask": "破棄"
+      "dismissTask": "破棄",
+      "queueCount": "キューに {{count}} 件",
+      "queued": "キューに入れられました",
+      "batchLabel": "バッチ {{index}}",
+      "runInBackground": "背景",
+      "cancelQueued": "キューをキャンセルする",
+      "importing": "インポート中",
+      "checkAccounts": "小切手口座",
+      "importAndAddToApiService": "インポート + API",
+      "importAndAddToApiServiceSuccess": "インポートされ、API サービスに追加されました",
+      "addToApiServiceFailed": "インポートされましたが、API サービスへの追加に失敗しました: {{error}}"
     },
     "autoRepairMode": {
       "label": "自動修復ロジック",
@@ -3388,6 +3505,71 @@
       "chipSearch": "検索",
       "chipPlan": "プラン",
       "chipFolder": "フォルダ"
+    },
+    "accessTokenImport": {
+      "nameRequired": "アカウント名を入力",
+      "tokenRequired": "Codex アクセストークンを入力してください",
+      "desc": "アカウント名と access token を保存します。refresh/id がない場合は personal_access_token 形式で書き出します。",
+      "nameLabel": "アカウント名",
+      "namePlaceholder": "一覧表示用の名前",
+      "tokenLabel": "Codex アクセストークン",
+      "hideToken": "非表示",
+      "showToken": "表示",
+      "submit": "トークンをインポート",
+      "success": "アクセストークンアカウントを取り込みました: {{name}}"
+    },
+    "ssh": {
+      "tab": "SSH 同期",
+      "title": "Codex SSH 同期",
+      "desc": "リモートホストを保存し、接続テスト後に現在の auth.json を転送します。切替後、選択中ホストへ自動同期します。",
+      "new": "新規",
+      "empty": "SSH ホストがありません",
+      "test": "接続テスト",
+      "sync": "同期",
+      "saved": "SSH サーバーを保存しました",
+      "deleted": "削除しました",
+      "name": "名前",
+      "host": "ホスト",
+      "user": "ユーザー",
+      "port": "ポート",
+      "remoteDir": "リモート Codex ディレクトリ",
+      "syncSwitch": "スイッチ上の SSH",
+      "syncSwitchDesc": "SSH ホストを構成するにはオンにします。 Codex スイッチは、現在のアカウントをリモートで同期します。",
+      "configure": "設定",
+      "modalTitle": "SSH同期セットアップ",
+      "modalHint": "自動同期が有効になっている SSH ホストを追加して選択し、Codex アカウントの切り替えによってリモート認証が更新されるようにします。",
+      "subtitle": "選択したホストは、アカウントの切り替え後に現在の Codex 認証バンドルを受け取ります。",
+      "addServer": "サーバーの追加",
+      "editServer": "サーバーの編集",
+      "username": "ユーザー名",
+      "codexHome": "リモートコーデックスディレクトリ",
+      "authMethod": "認証方法",
+      "agentAuth": "SSHエージェント",
+      "privateKeyAuth": "秘密鍵",
+      "privateKeyPath": "キーパス",
+      "syncOnSwitch": "切り替え後の同期",
+      "emptyTitle": "SSHサーバーがありません",
+      "emptyBody": "左側にホストを入力し、スイッチ同期ターゲットとして保存します。",
+      "selected": "選択済み",
+      "select": "選択",
+      "testConnection": "テスト",
+      "syncNow": "今すぐ同期する",
+      "connectionOk": "接続済み",
+      "syncVerified": "SSH同期が確認されました",
+      "syncFailed": "SSH同期に失敗しました",
+      "syncedAs": "同期済み {{email}} · {{time}}",
+      "neverSynced": "まだ同期されていません",
+      "latestVerified": "最後に確認された SSH 同期",
+      "syncSwitchActive": "オン · {{name}} ({{user}}@{{host}})",
+      "footerHint": "保存後にスイッチがオンになります。いつでもオフにして自動同期を停止できます。",
+      "formLead": "リモートホストの詳細",
+      "namePlaceholder": "例えばホームNAS",
+      "syncOnSwitchHint": "保存して選択した後、Codex スイッチは認証をこのホストにプッシュします",
+      "addAndSave": "追加して保存",
+      "serverList": "サーバー",
+      "serverListLead": "同期ターゲットを選択",
+      "serverCount": "{{count}} 台",
+      "autoSyncBadge": "自動"
     }
   },
   "githubCopilot": {
@@ -3618,13 +3800,6 @@
       "appPath": "Cursor パス"
     },
     "cursorRefreshInterval": "クォータ自動更新",
-    "gemini": {
-      "title": "Gemini Cli 設定",
-      "appPath": "Gemini Cli パス",
-      "syncWsl": "WSL 設定を同期",
-      "syncWslDesc": "アカウント切り替え時に WSL 内の .gemini 設定を自動で上書きします"
-    },
-    "geminiRefreshInterval": "クォータ自動更新",
     "grok": {
       "title": "Grok CLI 設定",
       "appPath": "Grok CLI のパス",
@@ -4214,99 +4389,6 @@
       "title": "起動タスクと検証"
     }
   },
-  "gemini": {
-    "injectToGemini": "Gemini Cli に切り替え",
-    "updated": {
-      "label": "{{relative}}前に更新"
-    },
-    "quota": {
-      "pro": "PRO",
-      "flash": "FLASH",
-      "left": "{{value}}% 残り",
-      "resetsIn": "{{relative}}後にリセット",
-      "resetsSoon": "まもなくリセット",
-      "resetsUnknown": "リセット時刻不明",
-      "onDemand": "オンデマンド",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "title": "Gemini Cli アカウント管理",
-    "instances": {
-      "unsupported": "Gemini Cli のマルチインスタンス管理は現在未対応です。",
-      "unsupportedDescPlatform": "Gemini Cli のマルチインスタンスは macOS、Windows、Linux のみ対応しています。",
-      "launchDialogTitle": "インスタンスを起動",
-      "launchHint": "コマンドをコピーして手動で実行するか、直接ターミナルで実行してください。",
-      "runInTerminal": "ターミナルで実行",
-      "workingDir": "作業ディレクトリ",
-      "workingDirPlaceholder": "デフォルトは現在のパス",
-      "workingDirDesc": "起動時にまずこのディレクトリに切り替えます",
-      "pickWorkingDir": "作業ディレクトリを選択"
-    },
-    "switch": {
-      "success": "アカウントの切り替えに成功しました"
-    },
-    "empty": {
-      "description": "「アカウント追加」をクリックして Gemini Cli アカウントの管理を開始してください"
-    },
-    "addModal": {
-      "title": "Gemini Cli アカウントを追加"
-    },
-    "oauth": {
-      "desc": "下のボタンをクリックして、ブラウザで Gemini Cli の認可を完了してください。"
-    },
-    "token": {
-      "desc": "Gemini Cli アクセストークン（JWT）またはエクスポートされた JSON データを貼り付けてください。",
-      "formatHint": "必須フィールドと例（クリックで展開）",
-      "formatRequired": "単一トークン：JWT を直接貼り付け；一括インポート：JSON 配列形式を使用",
-      "singleExample": "単一の例（JWT）",
-      "batchExample": "一括の例（JSON）"
-    },
-    "import": {
-      "localDesc": "ローカルの Gemini Cli クライアントまたは JSON ファイルからアカウントデータをインポートします。",
-      "localClient": "ローカル Gemini Cli からインポート"
-    },
-    "flowNotice": {
-      "title": "Gemini Cli アカウントガイド（クリックで展開/折りたたみ）",
-      "desc": "ローカルの Gemini Cli インストールからのインポートまたは JWT トークンの貼り付けで Gemini Cli アカウントを管理します。データはローカルでのみ処理されます。",
-      "reason": "権限範囲: デフォルトの ~/.gemini またはインスタンスパス (GEMINI_CLI_HOME/.gemini) 配下の oauth_creds.json、google_accounts.json、settings.json を読み書きし、アカウントのインポートとローカル認証情報の注入（アカウント切り替え）を行います。",
-      "storage": "ネットワーク範囲: OAuth とクォータ更新では Google/Gemini の公式 API（oauth2.googleapis.com、googleapis.com など）を呼び出します。送信されるのは必要な認証/クォータ項目のみで、ローカルのアカウントファイルは第三者サーバーへアップロードされません。"
-    },
-    "projectConfig": {
-      "button": "GCP プロジェクトを設定",
-      "title": "GCP プロジェクトを設定",
-      "selectLabel": "プロジェクトを選択",
-      "loading": "プロジェクト一覧を読み込み中...",
-      "auto": "自動選択（手動指定しない）",
-      "empty": "利用可能なプロジェクトが見つかりません。このアカウントに GCP プロジェクトへのアクセス権があるか確認してください。",
-      "hint": "保存後、このプロジェクトがクォータ取得で優先され、起動コマンドでは GOOGLE_CLOUD_PROJECT として注入されます。",
-      "current": "プロジェクト: {{projectId}}",
-      "saved": "プロジェクトを保存しました: {{projectId}}",
-      "cleared": "プロジェクト自動解決に戻しました",
-      "savedWithRefreshError": "プロジェクトは保存されましたが、クォータ更新に失敗しました: {{error}}"
-    },
-    "identity": {
-      "authMethod": "認証方法",
-      "tier": "プラン",
-      "signedInWithGoogle": "Google でサインイン",
-      "signedInWithGoogleEmail": "Google でサインイン（{{email}}）"
-    },
-    "quotaTable": {
-      "model": "モデル",
-      "leftOfTotal": "残量 / 総量",
-      "usage": "使用量",
-      "usageResets": "使用量のリセット",
-      "usedPercent": "{{value}}%​",
-      "remainingOfTotal": "{{remaining}} / {{total}}​",
-      "resetAtWithRelative": "{{absolute}}（{{relative}}）"
-    },
-    "tierText": {
-      "pro": "Google One AI Pro の Gemini Code Assist",
-      "ultra": "Google AI Ultra の Gemini Code Assist",
-      "free": "Gemini Code Assist 無料版"
-    }
-  },
   "codebuddy": {
     "title": "CodeBuddyアカウント管理",
     "noAccounts": "CodeBuddy アカウントがありません",
@@ -4405,6 +4487,12 @@
     },
     "quota": {
       "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "sessions": {
+      "title": "ローカルセッション",
+      "desc": "ローカルセッション — ローカルデータからスキャンして場所を開きます。",
+      "empty": "セッションファイルが見つかりません",
+      "open": "場所を開く"
     }
   },
   "qoder": {
@@ -5124,7 +5212,8 @@
       "installHint": "ターミナルで次の公式コマンドを実行し、インストール完了後に更新してください。",
       "selectWorkingDir": "Grok CLI の作業ディレクトリを選択",
       "workingDirAccountHint": "作業ディレクトリはこのアカウントに紐づき、次回起動時に復元されます。",
-      "launchCommandPlaceholder": "作業ディレクトリを選択または確認すると起動コマンドを生成します"
+      "launchCommandPlaceholder": "作業ディレクトリを選択または確認すると起動コマンドを生成します",
+      "reauthLaunchHint": "アカウント認証の有効期限が切れました。再認証します。以下の起動コマンドは引き続き使用できます。"
     },
     "switch": {
       "success": "アカウントを切り替えました"
@@ -5407,5 +5496,23 @@
       "supports1mLabel": "1M 対応を宣言",
       "supports1mShort": "1M対応"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "OpenRouter の API キー、使用量、モデル一覧を管理します。",
+    "tabKeys": "キーと使用量",
+    "tabModels": "モデル",
+    "modelsLoaded": "{{count}} 件のモデルを読み込みました",
+    "noUsageYet": "使用量は未更新",
+    "loadModels": "モデルを読み込む",
+    "searchModels": "モデル検索",
+    "freeOnly": "無料のみ",
+    "noModels": "モデルがありません。Key を追加して読み込んでください。",
+    "free": "無料",
+    "noCtx": "コンテキスト長なし"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "OpenCode の Go/Zen API キーを管理し、ティアで絞り込みます。"
   }
 }

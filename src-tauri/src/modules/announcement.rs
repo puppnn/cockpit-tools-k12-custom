@@ -1050,6 +1050,18 @@ async fn load_announcements_raw() -> Result<AnnouncementResponse, String> {
         .map(|cache| Utc::now().timestamp_millis() - cache.time < CACHE_TTL_MS)
         .unwrap_or(false);
 
+    let external_network_enabled =
+        crate::modules::config::get_user_config().external_network_enabled;
+
+    // #1104: when external network is disabled, never hit remote announcement URLs.
+    if !external_network_enabled {
+        if let Some(cache) = cached {
+            logger::log_info("[Announcement] 外连已关闭，使用本地缓存公告");
+            return Ok(cache.data);
+        }
+        return Err("外连已关闭，无法拉取远端公告".to_string());
+    }
+
     if let Some(payload) =
         try_load_force_refreshed_announcements(current_version, cache_is_fresh).await?
     {

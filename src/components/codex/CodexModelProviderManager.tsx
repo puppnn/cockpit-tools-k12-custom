@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -73,12 +74,14 @@ import {
 } from "../../services/codexInstanceService";
 import {
   addApiKeyToCodexModelProvider,
+  cancelCodexModelProviderChatTest,
   countCodexModelProviderReferences,
   createCodexModelProvider,
   deleteCodexModelProvider,
   listCodexModelProviders,
   normalizeCodexModelProviderBaseUrl,
   removeApiKeyFromCodexModelProvider,
+  renameApiKeyOnCodexModelProvider,
   queryCodexModelProviderUsage,
   saveCodexModelProviderDetectedIntegrationType,
   testCodexModelProviderConnection,
@@ -422,7 +425,12 @@ interface ProviderPreviewPaths {
   codexAuthPath: string;
 }
 
-type ProviderBatchTestStatus = "pending" | "running" | "success" | "error";
+type ProviderBatchTestStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "error"
+  | "cancelled";
 type ProviderBatchTestFilter = "all" | ProviderBatchTestStatus;
 
 type ProviderBatchTestRecordView = CodexModelProviderChatTestRecord & {
@@ -436,6 +444,7 @@ interface ProviderBatchTestSession {
   successCount: number;
   failureCount: number;
   running: boolean;
+  cancelled: boolean;
   startedAt: number;
   records: ProviderBatchTestRecordView[];
   errorText?: string;
@@ -672,8 +681,10 @@ export function CodexModelProviderManager({
     useState<ProviderBatchTestFilter>("all");
   const [batchTestError, setBatchTestError] = useState<string | null>(null);
   const [batchTestDeleting, setBatchTestDeleting] = useState(false);
+  const [batchTestCancelling, setBatchTestCancelling] = useState(false);
   const [batchTestResultSelectedProviderIds, setBatchTestResultSelectedProviderIds] =
     useState<Set<string>>(() => new Set());
+  const cancelledBatchTestRunIdsRef = useRef<Set<string>>(new Set());
 
   const sponsorProviderTemplates = useMemo<SponsorProviderTemplate[]>(() => {
     const sponsors = sponsorModule?.sponsors ?? [];
@@ -1044,8 +1055,22 @@ export function CodexModelProviderManager({
         const payload = event.payload;
         setBatchTestSession((current) => {
           if (!current || current.runId !== payload.runId) return current;
+          const cancellationRequested = cancelledBatchTestRunIdsRef.current.has(
+            payload.runId,
+          );
+          const batchCancelled = payload.phase === "batch_cancelled";
+          if (cancellationRequested && !batchCancelled) return current;
 
           const nextRecords = current.records.map((record) => {
+            if (
+              batchCancelled &&
+              (record.status === "pending" || record.status === "running")
+            ) {
+              return {
+                ...record,
+                status: "cancelled" as ProviderBatchTestStatus,
+              };
+            }
             if (
               payload.phase === "provider_started" &&
               record.providerId === payload.currentProviderId
@@ -1076,6 +1101,7 @@ export function CodexModelProviderManager({
             successCount: payload.successCount,
             failureCount: payload.failureCount,
             running: payload.running,
+            cancelled: current.cancelled || batchCancelled,
             records: nextRecords,
           };
         });
@@ -1258,16 +1284,62 @@ export function CodexModelProviderManager({
     setBatchTestSearchQuery("");
     setBatchTestFilter("all");
     setBatchTestError(null);
+    setBatchTestCancelling(false);
     setBatchTestSession(null);
     setBatchTestStep("select");
     setBatchTestModalOpen(true);
   }, [filteredProviders, getSelectedProviderApiKey, selectedProviderIds]);
 
+  const markBatchTestCancelled = useCallback((runId: string) => {
+    setBatchTestSession((current) => {
+      if (!current || current.runId !== runId) return current;
+      const records = current.records.map((record) =>
+        record.status === "pending" || record.status === "running"
+          ? { ...record, status: "cancelled" as ProviderBatchTestStatus }
+          : record,
+      );
+      return {
+        ...current,
+        completed: records.filter(
+          (record) => record.status === "success" || record.status === "error",
+        ).length,
+        running: false,
+        cancelled: true,
+        records,
+      };
+    });
+  }, []);
+
+  const requestBatchTestCancellation = useCallback(
+    async (runId: string) => {
+      if (cancelledBatchTestRunIdsRef.current.has(runId)) return;
+      cancelledBatchTestRunIdsRef.current.add(runId);
+      setBatchTestCancelling(true);
+      try {
+        const accepted = await cancelCodexModelProviderChatTest(runId);
+        if (accepted) {
+          markBatchTestCancelled(runId);
+        } else {
+          cancelledBatchTestRunIdsRef.current.delete(runId);
+        }
+      } catch (err) {
+        cancelledBatchTestRunIdsRef.current.delete(runId);
+        setBatchTestError(String(err));
+      } finally {
+        setBatchTestCancelling(false);
+      }
+    },
+    [markBatchTestCancelled],
+  );
+
   const closeBatchTestModal = useCallback(() => {
-    if (batchTestSession?.running || batchTestDeleting) return;
+    const runId = batchTestSession?.running ? batchTestSession.runId : null;
+    if (runId) {
+      void requestBatchTestCancellation(runId);
+    }
     setBatchTestModalOpen(false);
     setBatchTestError(null);
-  }, [batchTestDeleting, batchTestSession?.running]);
+  }, [batchTestSession?.runId, batchTestSession?.running, requestBatchTestCancellation]);
 
   useEscClose(batchTestModalOpen, closeBatchTestModal);
 
@@ -1673,6 +1745,7 @@ export function CodexModelProviderManager({
       running: records.filter((record) => record.status === "running").length,
       success: records.filter((record) => record.status === "success").length,
       error: records.filter((record) => record.status === "error").length,
+      cancelled: records.filter((record) => record.status === "cancelled").length,
     };
   }, [batchTestSession?.records]);
 
@@ -1707,6 +1780,12 @@ export function CodexModelProviderManager({
         label: t("codex.modelProviders.batchTest.status.pending", "等待中"),
         count: providerBatchTestCounts.pending,
         tone: "pending",
+      },
+      {
+        key: "cancelled" as const,
+        label: t("common.cancelled", "已取消"),
+        count: providerBatchTestCounts.cancelled,
+        tone: "cancelled",
       },
     ],
     [providerBatchTestCounts, t],
@@ -1805,6 +1884,8 @@ export function CodexModelProviderManager({
       return;
     }
     const runId = createProviderBatchTestRunId();
+    cancelledBatchTestRunIdsRef.current.delete(runId);
+    setBatchTestCancelling(false);
     setNotice(null);
     setBatchTestError(null);
     setBatchTestResultSelectedProviderIds(new Set());
@@ -1817,6 +1898,7 @@ export function CodexModelProviderManager({
       successCount: 0,
       failureCount: 0,
       running: true,
+      cancelled: false,
       startedAt,
       records: pendingRecords,
     });
@@ -1825,6 +1907,10 @@ export function CodexModelProviderManager({
         targets,
         runId,
       });
+      if (cancelledBatchTestRunIdsRef.current.has(result.runId)) {
+        cancelledBatchTestRunIdsRef.current.delete(result.runId);
+        return;
+      }
       setBatchTestSession((current) => {
         if (!current || current.runId !== result.runId) return current;
         return {
@@ -1834,10 +1920,15 @@ export function CodexModelProviderManager({
           successCount: result.successCount,
           failureCount: result.failureCount,
           running: false,
+          cancelled: false,
           records: result.records.map(toProviderBatchTestRecordView),
         };
       });
     } catch (err) {
+      if (cancelledBatchTestRunIdsRef.current.has(runId)) {
+        cancelledBatchTestRunIdsRef.current.delete(runId);
+        return;
+      }
       const errorText = parseServiceError(err);
       setBatchTestError(errorText);
       setBatchTestSession((current) =>
@@ -1845,6 +1936,7 @@ export function CodexModelProviderManager({
           ? {
               ...current,
               running: false,
+              cancelled: false,
               errorText,
               records: current.records.map((record) =>
                 record.status === "running"
@@ -2158,6 +2250,33 @@ export function CodexModelProviderManager({
           tone: "error",
           text: t("codex.modelProviders.deleteApiKeyFailed", {
             defaultValue: "删除 API Key 失败：{{error}}",
+            error: parseServiceError(err),
+          }),
+        });
+      }
+    },
+    [parseServiceError, reloadProviders, t],
+  );
+
+  const handleRenameApiKey = useCallback(
+    async (provider: CodexModelProvider, apiKey: CodexModelProviderApiKey) => {
+      const next = window.prompt(
+        t("codex.modelProviders.renameApiKeyPrompt", "重命名 API Key"),
+        apiKey.name || "",
+      );
+      if (next === null) return;
+      try {
+        await renameApiKeyOnCodexModelProvider(provider.id, apiKey.id, next);
+        await reloadProviders();
+        setNotice({
+          tone: "success",
+          text: t("codex.modelProviders.renameApiKeySuccess", "API Key 已重命名"),
+        });
+      } catch (err) {
+        setNotice({
+          tone: "error",
+          text: t("codex.modelProviders.renameApiKeyFailed", {
+            defaultValue: "重命名 API Key 失败：{{error}}",
             error: parseServiceError(err),
           }),
         });
@@ -3572,7 +3691,6 @@ export function CodexModelProviderManager({
                 className="modal-close"
                 onClick={closeBatchTestModal}
                 aria-label={t("common.close", "关闭")}
-                disabled={batchTestSession?.running || batchTestDeleting}
               >
                 <X />
               </button>
@@ -3703,7 +3821,9 @@ export function CodexModelProviderManager({
                           </div>
                           <div className="codex-wakeup-results-summary-meta">
                             <span>
-                              {batchTestSession.running
+                              {batchTestSession.cancelled
+                                ? t("common.cancelled", "已取消")
+                                : batchTestSession.running
                                 ? t(
                                     "codex.modelProviders.batchTest.status.running",
                                     "测试中",
@@ -3726,7 +3846,9 @@ export function CodexModelProviderManager({
                             {batchTestSession.completed}/{batchTestSession.total}
                           </strong>
                           <span>
-                            {batchTestSession.running
+                            {batchTestSession.cancelled
+                              ? t("common.cancelled", "已取消")
+                              : batchTestSession.running
                               ? t(
                                   "codex.modelProviders.batchTest.status.running",
                                   "测试中",
@@ -3851,7 +3973,9 @@ export function CodexModelProviderManager({
                                     "codex.modelProviders.batchTest.runningDesc",
                                     "正在发送对话请求。",
                                   )
-                                : record.status === "success"
+                              : record.status === "cancelled"
+                                ? t("common.cancelled", "已取消")
+                              : record.status === "success"
                                   ? record.reply ||
                                     t(
                                       "codex.modelProviders.batchTest.noReply",
@@ -3871,7 +3995,9 @@ export function CodexModelProviderManager({
                                     "codex.modelProviders.batchTest.status.error",
                                     "失败",
                                   )
-                                : record.status === "running"
+                              : record.status === "cancelled"
+                                ? t("common.cancelled", "已取消")
+                              : record.status === "running"
                                   ? t(
                                       "codex.modelProviders.batchTest.status.running",
                                       "测试中",
@@ -3996,10 +4122,26 @@ export function CodexModelProviderManager({
                 type="button"
                 className="btn btn-secondary"
                 onClick={closeBatchTestModal}
-                disabled={batchTestSession?.running || batchTestDeleting}
               >
                 {t("common.close", "关闭")}
               </button>
+              {batchTestStep === "results" && batchTestSession?.running && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() =>
+                    void requestBatchTestCancellation(batchTestSession.runId)
+                  }
+                  disabled={batchTestCancelling}
+                >
+                  {batchTestCancelling && (
+                    <RefreshCw size={14} className="loading-spinner" />
+                  )}
+                  {batchTestCancelling
+                    ? t("common.cancelling", "正在取消...")
+                    : t("common.cancel", "取消")}
+                </button>
+              )}
               {batchTestStep === "select" && (
                 <button
                   type="button"
@@ -4651,6 +4793,19 @@ export function CodexModelProviderManager({
                             </span>
                             <code>{maskApiKey(item.apiKey)}</code>
                           </div>
+                          <button
+                            className="action-btn"
+                            onClick={() =>
+                              void handleRenameApiKey(
+                                currentEditingProvider,
+                                item,
+                              )
+                            }
+                            disabled={saving}
+                            title={t("common.rename", "重命名")}
+                          >
+                            <Pencil size={12} />
+                          </button>
                           <button
                             className="action-btn danger"
                             onClick={() =>

@@ -2,6 +2,8 @@
   "common": {
     "confirm": "Подтвердить",
     "cancel": "Отмена",
+    "cancelling": "Отмена...",
+    "cancelled": "Отменено",
     "save": "Сохранить",
     "saving": "Сохранение...",
     "delete": "Удалить",
@@ -250,7 +252,6 @@
       "restart": "Перезапустить",
       "installing": "Установка"
     },
-    "gemini": "Gemini Cli​",
     "codebuddy": "CodeBuddy​",
     "qoder": "Qoder​",
     "trae": "Trae​",
@@ -271,7 +272,9 @@
     "switchClassicLayoutConfirm": "Переключить сейчас",
     "2faManager": "Управление 2FA",
     "apiRelay": "Релей",
-    "claude": "Claude"
+    "claude": "Claude",
+    "openrouter": "OpenRouter",
+    "opencode": "OpenCode"
   },
   "sponsors": {
     "pageTitle": "Спонсоры",
@@ -587,7 +590,7 @@
       "uiScale": "Масштаб интерфейса",
       "uiScaleDesc": "Настройте масштаб интерфейса",
       "defaultTerminal": "Терминал по умолчанию",
-      "defaultTerminalDesc": "Терминал, используемый при открытии Gemini CLI",
+      "defaultTerminalDesc": "Терминал, используемый при открытии CLI",
       "terminalSystem": "Системный по умолчанию",
       "accountManagement": "Управление аккаунтами",
       "autoRefresh": "Автообновление квоты Antigravity IDE",
@@ -807,7 +810,35 @@
       "platformAutoRefresh": "Автообновление квоты {{platform}}",
       "traeSoloAppPath": "Путь запуска TRAE SOLO",
       "traeCnAppPath": "Путь запуска Trae CN",
-      "traeSoloCnAppPath": "Путь запуска TRAE SOLO CN"
+      "traeSoloCnAppPath": "Путь запуска TRAE SOLO CN",
+      "reducedMotion": "Меньше анимации",
+      "reducedMotionDesc": "Уменьшает затухания, переходы модалок, тени, размытие и плавную прокрутку; оставляет только нужную индикацию загрузки",
+      "autoImportFromLocal": "Автоимпорт локальных аккаунтов",
+      "autoImportFromLocalDesc": "При включении сразу сканирует и импортирует локальные входы; далее при смене аккаунта в официальном клиенте. Может запросить доступ к связке ключей.",
+      "autoImportFromLocalScanning": "Сканирование локальных аккаунтов… можно выключить",
+      "autoImportFromLocalScanDone": "Готово: найдено {{scanned}}, импортировано {{imported}}",
+      "autoImportFromLocalScanEmpty": "Готово: нет локальных входов",
+      "autoImportFromLocalScanPartial": "Готово: частичные ошибки",
+      "autoImportFromLocalScanFailed": "Ошибка сканирования: {{error}}",
+      "autoImportFromLocalScanCancelled": "Выключено; текущий скан будет проигнорирован",
+      "startupPage": "Стартовая страница",
+      "startupPageDesc": "Страница при холодном запуске. «Запомнить последнюю» восстанавливает предыдущую.",
+      "startupPageLast": "Запомнить последнюю",
+      "startupPageCodexApi": "Сервис API Codex",
+      "hermesAuthOverwrite": "Синхр. Hermes при смене Codex",
+      "hermesAuthOverwriteDesc": "Только OAuth: пишет openai-codex в ~/.hermes/auth.json (по умолчанию выкл.)",
+      "themeColor": "Цветовой набор",
+      "themeColorDesc": "Наложение палитры на светлую/тёмную тему",
+      "themeColorDefault": "По умолчанию",
+      "themeColorNord": "Nord",
+      "themeColorTokyoNight": "Tokyo Night",
+      "themeColorCatppuccin": "Catppuccin",
+      "themeColorGruvbox": "Gruvbox",
+      "themeColorEverforest": "Everforest",
+      "externalNetwork": "Разрешить внешнюю сеть",
+      "externalNetworkDesc": "Выкл.: блокирует WebDAV, usage OpenRouter, объявления и автопроверку обновлений (локальное работает).",
+      "webdavAllowedDomains": "Белый список WebDAV",
+      "webdavAllowedDomainsDesc": "Через запятую; пусто = без ограничений"
     },
     "network": {
       "apiTitle": "API антигравитационной кабины",
@@ -872,6 +903,7 @@
       "releaseHistoryLoading": "Загрузка примечаний к выпуску...",
       "releaseHistoryEmpty": "Примечаний к выпуску пока нет",
       "releaseHistoryLoadFailed": "Не удалось загрузить: {{error}}",
+      "releaseHistorySectionHighlights": "Важные обновления",
       "releaseHistorySectionAdded": "Добавлен",
       "releaseHistorySectionChanged": "Измененный",
       "releaseHistorySectionFixed": "Зафиксированный",
@@ -1036,6 +1068,19 @@
       "retentionUnit": "days",
       "collapseAll": "Collapse remote backups",
       "expandAll": "Expand all remote backups ({{count}} more)"
+    },
+    "keysVault": {
+      "title": "OpenRouter / OpenCode Key",
+      "desc": "Хранит API-ключи локально. Обновляет usage OpenRouter при внешней сети. Это не полная платформа.",
+      "openRouter": "OpenRouter",
+      "openCode": "OpenCode Go / Zen",
+      "label": "Метка",
+      "empty": "Нет ключей",
+      "added": "Добавлено",
+      "deleted": "Удалено",
+      "refreshed": "Использование обновлено",
+      "usage": "Использование",
+      "tierOther": "Другое"
     }
   },
   "appPath": {
@@ -1732,7 +1777,8 @@
       "title": "Добавить аккаунт Codex",
       "oauth": "OAuth авторизация",
       "token": "Импорт JSON",
-      "local": "Локальный импорт"
+      "local": "Локальный импорт",
+      "accessToken": "Токен доступа"
     },
     "oauth": {
       "desc": "Нажмите ниже и завершите авторизацию OpenAI в браузере",
@@ -1963,7 +2009,7 @@
       },
       "customRoutingEdit": "Изменить настраиваемую маршрутизацию",
       "customRoutingTitle": "Настраиваемая маршрутизация",
-      "customRoutingDesc": "Задайте приоритет и вес для каждой учетной записи, чтобы управлять порядком выбора и распределением нагрузки на одном уровне.",
+      "customRoutingDesc": "Задайте приоритет и вес, чтобы управлять порядком выбора и распределением нагрузки.",
       "customRoutingBackupTitle": "Резервный аккаунт",
       "customRoutingBackupDesc": "Используется только тогда, когда все обычные аккаунты недоступны. Новые запросы автоматически возвращаются после восстановления обычного аккаунта.",
       "customRoutingBackupShort": "Резерв",
@@ -2122,7 +2168,12 @@
     },
     "list": {
       "showCodeReviewQuota": "Показать квоту Code Review",
-      "showAdditionalQuota": "Квоты по моделям"
+      "showAdditionalQuota": "Квоты по моделям",
+      "planBadgeStyle": "Стиль бейджа",
+      "planBadgeStyleDefault": "По умолчанию",
+      "planBadgeStyleOutline": "Контур",
+      "planBadgeStyleSoft": "Мягкий",
+      "planBadgeStyleMono": "Моно"
     },
     "time": {
       "today": "Сегодня {{time}}",
@@ -2382,7 +2433,8 @@
         "selectAllSessions": "Выбрать все сессии",
         "clearSelectedSessions": "Снять выбор",
         "copyToInstance": "Копировать в экземпляр",
-        "trash": "Корзина"
+        "trash": "Корзина",
+        "openRollout": "Открыть файл сеанса"
       },
       "confirm": {
         "title": "Переместить в корзину",
@@ -2584,7 +2636,15 @@
         "removeItem": "Убрать",
         "emptyFilteredTitle": "Подходящих сеансов нет",
         "emptyFilteredDesc": "Измените поиск, источник или состояние выбора."
-      }
+      },
+      "kindFilter": "Тип сессии",
+      "kind": {
+        "conversation": "Чаты",
+        "external": "Внешние",
+        "subagent": "Субагент",
+        "all": "Все типы"
+      },
+      "pickInstancePrompt": "Сеанс есть на нескольких экземплярах. Введите ID экземпляра:"
     },
     "api": {
       "baseUrl": "Базовый URL",
@@ -2598,6 +2658,20 @@
       "showApiKey": "Показать API Key",
       "hideApiKey": "Скрыть API Key",
       "apiKeyHiddenHint": "API Key скрыт. Нажмите, чтобы показать.",
+      "modelCatalog": {
+        "label": "Список моделей",
+        "fetch": "Получить у поставщика",
+        "fetching": "Получение...",
+        "count": "Моделей: {{count}}",
+        "placeholder": "Укажите по одному ID модели в строке или разделите ID запятыми.",
+        "editHint": "Полученные модели добавляются только в этот черновик. Проверьте и измените их перед сохранением.",
+        "syncToggle": "Синхронизировать модели поставщика с Codex",
+        "syncDescription": "После сохранения этот список используется для создания каталога моделей Codex под управлением Cockpit. Пользовательские каталоги не перезаписываются.",
+        "fetchCredentialsRequired": "Сначала укажите API Key и Base URL.",
+        "fetchEmpty": "Поставщик не вернул модели. Текущий список сохранён.",
+        "fetchFailed": "Не удалось получить модели поставщика: {{error}}",
+        "syncRequiresModels": "Перед синхронизацией с Codex получите или укажите хотя бы одну модель."
+      },
       "actions": {
         "addAndSwitch": "Добавить и переключить"
       },
@@ -2974,7 +3048,10 @@
         "help": "Включайте только при явной поддержке Responses через WebSocket поставщиком; тип соединения можно проверить в журналах Codex или прокси-сервиса.",
         "enabled": "Включено",
         "disabled": "Отключено"
-      }
+      },
+      "renameApiKeyPrompt": "Переименовать API key",
+      "renameApiKeySuccess": "API key переименован",
+      "renameApiKeyFailed": "Не удалось переименовать API key: {{error}}"
     },
     "quickSwitch": {
       "action": "Быстрое переключение провайдера",
@@ -3156,22 +3233,40 @@
         "rulesSaved": "Правила моделей сохранены",
         "pricingAction": "Цены",
         "pricingTitle": "Цены моделей",
-        "pricingDesc": "USD / 1M токенов, только для локальной статистики стоимости.",
+        "pricingDesc": "USD / 1M tokens, только для локальной статистики.",
         "pricingModel": "Модель",
         "pricingInput": "Вход",
         "pricingCache": "Кэш-вход",
         "pricingOutput": "Выход",
         "pricingSource": "Источник",
         "pricingActions": "Действие",
-        "pricingCachePlaceholder": "Как вход",
+        "pricingCachePlaceholder": "-",
         "pricingCustom": "Своя",
         "pricingPreset": "Шаблон",
         "pricingUnset": "Не задано",
         "pricingReset": "Сброс",
         "pricingSaved": "Цены сохранены",
-        "pricingInvalid": "Цены должны быть числами больше или равны 0",
+        "pricingInvalid": "Цены должны быть ≥ 0, порог токенов — положительное целое",
         "pricingReprice": "Пересчитать историю",
-        "pricingRepriced": "Исторические оценки пересчитаны по текущим ценам"
+        "pricingRepriced": "Исторические оценки пересчитаны по текущим ценам",
+        "pricingLongThreshold": "Порог длинного контекста (tokens)",
+        "pricingStandard": "Стандарт",
+        "pricingStandardLong": "Стандарт (длинный)",
+        "pricingPriority": "Приоритет",
+        "pricingOfficialMissing": "-",
+        "pricingStandardLongInput": "Вход стандарт (длинный)",
+        "pricingStandardLongCache": "Кэш-вход стандарт (длинный)",
+        "pricingStandardLongOutput": "Выход стандарт (длинный)",
+        "pricingPriorityInput": "Вход приоритет",
+        "pricingPriorityCache": "Кэш-вход приоритет",
+        "pricingPriorityOutput": "Выход приоритет",
+        "pricingRepriceDone": "Исторические оценки обновлены; изменено {{updated}}",
+        "pricingRepriceFailedWithMessage": "Не удалось обновить оценки: {{message}}",
+        "pricingRepriceFailed": "Не удалось обновить исторические оценки",
+        "pricingRepriceSuperseded": "Получены новые цены; переключаемся на последний пересчёт",
+        "pricingRepriceRunning": "Обновление оценок {{processed}} / {{total}}; обновлено {{updated}}",
+        "pricingRepriceCompleted": "Исторические оценки обновлены",
+        "pricingRepriceSaveBlocked": "Идёт пересчёт; сохраните после завершения"
       },
       "keys": {
         "policyTitle": "Политика моделей",
@@ -3308,8 +3403,20 @@
       "previewSubtitle": "Выберите аккаунты для сохранения",
       "scanSubtitle": "Поочередный разбор и проверка аккаунтов",
       "parseSubtitle": "Разбор файлов аккаунтов",
+      "importSubtitle": "Сохранение выбранных аккаунтов",
+      "finalizing": "Завершение импорта",
+      "finalizingSubtitle": "Обновление списка аккаунтов и связанных настроек",
+      "cancelImport": "Отменить импорт",
+      "importCancelledSummary": "Импорт отменён после обработки {{processed}}/{{total}} аккаунтов.",
+      "importChecked": "Импортировать проверенные аккаунты",
+      "directImport": "Импортировать напрямую без проверки",
+      "importCheckedAndAddToApiService": "Импортировать проверенные аккаунты и добавить в службу API",
+      "directImportAndAddToApiService": "Импортировать напрямую и добавить в службу API",
+      "viewAllTasks": "Показать все задачи ({{count}})",
+      "collapseTasks": "Свернуть задачи",
       "cancelling": "Отмена...",
       "scanDone": "Сканирование завершено",
+      "scanCompleteReview": "Проверка завершена — откройте результат",
       "parseDone": "Разбор завершен",
       "scanning": "Сканирование",
       "parsing": "Разбор",
@@ -3318,7 +3425,7 @@
       "failed": "Ошибки",
       "quotaOk": "Аккаунт OK",
       "quotaFailed": "Ошибка",
-      "checkQuotaToggle": "Проверять аккаунты",
+      "checkQuotaToggle": "Проверить перед импортом",
       "preparing": "Подготовка импорта...",
       "importSelected": "Импортировать выбранные",
       "noSelection": "Сначала выберите аккаунты",
@@ -3341,7 +3448,17 @@
       "taskRunning": "Обработка {{current}} / {{total}}",
       "taskPreview": "Предпросмотр готов: {{total}}",
       "reopen": "Открыть задачу",
-      "dismissTask": "Сбросить"
+      "dismissTask": "Сбросить",
+      "queueCount": "В очереди: {{count}}",
+      "queued": "В очереди",
+      "batchLabel": "Пакет {{index}}",
+      "runInBackground": "Фон",
+      "cancelQueued": "Отменить очередь",
+      "importing": "Импорт",
+      "checkAccounts": "Проверить счета",
+      "importAndAddToApiService": "Импорт + API",
+      "importAndAddToApiServiceSuccess": "Импортировано и добавлено в сервис API.",
+      "addToApiServiceFailed": "Импортировано, но не удалось добавить в службу API: {{error}}."
     },
     "autoRepairMode": {
       "label": "Логика автоисправления",
@@ -3388,6 +3505,71 @@
       "chipSearch": "Поиск",
       "chipPlan": "План",
       "chipFolder": "Папка"
+    },
+    "accessTokenImport": {
+      "nameRequired": "Введите имя аккаунта",
+      "tokenRequired": "Введите access token Codex",
+      "desc": "Сохранить аккаунт по access token. Без refresh/id пишется personal_access_token.",
+      "nameLabel": "Имя аккаунта",
+      "namePlaceholder": "Имя в списке",
+      "tokenLabel": "Access token Codex",
+      "hideToken": "Скрыть",
+      "showToken": "Показать",
+      "submit": "Импорт токена",
+      "success": "Аккаунт access token импортирован: {{name}}"
+    },
+    "ssh": {
+      "tab": "SSH-синхр.",
+      "title": "SSH-синхронизация Codex",
+      "desc": "Сохраните хосты, проверьте связь и отправьте auth.json. После смены аккаунта — автосинхр. выбранного хоста.",
+      "new": "Создать",
+      "empty": "Нет SSH-хостов",
+      "test": "Проверить",
+      "sync": "Синхр.",
+      "saved": "SSH-сервер сохранён",
+      "deleted": "Удалено",
+      "name": "Имя",
+      "host": "Хост",
+      "user": "Пользователь",
+      "port": "Порт",
+      "remoteDir": "Удалённый каталог Codex",
+      "syncSwitch": "SSH на коммутаторе",
+      "syncSwitchDesc": "Включите, чтобы настроить хост SSH; Переключатели Кодекса синхронизируют текущую учетную запись удаленно.",
+      "configure": "Настраивать",
+      "modalTitle": "Настройка синхронизации SSH",
+      "modalHint": "Добавьте и выберите хост SSH с включенной автоматической синхронизацией, чтобы переключатели учетных записей Кодекса обновляли удаленную аутентификацию.",
+      "subtitle": "Выбранный хост получает текущий пакет аутентификации Кодекса после переключения учетной записи.",
+      "addServer": "Добавить сервер",
+      "editServer": "Редактировать сервер",
+      "username": "Имя пользователя",
+      "codexHome": "Удаленный каталог Кодекса",
+      "authMethod": "Метод аутентификации",
+      "agentAuth": "SSH-агент",
+      "privateKeyAuth": "Закрытый ключ",
+      "privateKeyPath": "Ключевой путь",
+      "syncOnSwitch": "Синхронизация после переключения",
+      "emptyTitle": "Нет SSH-серверов",
+      "emptyBody": "Заполните хост слева и сохраните его как цель синхронизации коммутатора.",
+      "selected": "Выбрано",
+      "select": "Выбирать",
+      "testConnection": "Тест",
+      "syncNow": "Синхронизировать сейчас",
+      "connectionOk": "Подключено",
+      "syncVerified": "Синхронизация по SSH проверена",
+      "syncFailed": "SSH-синхронизация не удалась",
+      "syncedAs": "Синхронизировано {{email}} · {{time}}",
+      "neverSynced": "Еще не синхронизировано",
+      "latestVerified": "Последняя синхронизация SSH проверена",
+      "syncSwitchActive": "Включено · {{name}} ({{user}}@{{host}})",
+      "footerHint": "Переключатель включается после сохранения; выключите его в любое время, чтобы остановить автоматическую синхронизацию.",
+      "formLead": "Сведения об удаленном хосте",
+      "namePlaceholder": "например Домашний NAS",
+      "syncOnSwitchHint": "После сохранения и выбора переключатели Кодекса отправляют авторизацию на этот хост.",
+      "addAndSave": "Добавить и сохранить",
+      "serverList": "Серверы",
+      "serverListLead": "Выберите цель синхронизации",
+      "serverCount": "{{count}} серверов",
+      "autoSyncBadge": "Авто"
     }
   },
   "githubCopilot": {
@@ -3618,13 +3800,6 @@
       "appPath": "Путь к Cursor"
     },
     "cursorRefreshInterval": "Автообновление квоты",
-    "gemini": {
-      "title": "Настройки Gemini Cli",
-      "appPath": "Путь Gemini Cli",
-      "syncWsl": "Синхронизировать конфигурацию WSL",
-      "syncWslDesc": "Автоматически перезаписывать конфигурацию .gemini в WSL при переключении аккаунта"
-    },
-    "geminiRefreshInterval": "Автоматическое обновление квоты",
     "grok": {
       "title": "Настройки Grok CLI",
       "appPath": "Путь к Grok CLI",
@@ -4214,99 +4389,6 @@
       "title": "Wakeup-задачи и проверка"
     }
   },
-  "gemini": {
-    "injectToGemini": "Переключиться на Gemini Cli",
-    "title": "Управление аккаунтами Gemini Cli",
-    "empty": {
-      "description": "Нажмите «Добавить учетную запись», чтобы начать управлять своими учетными записями Gemini Cli."
-    },
-    "addModal": {
-      "title": "Добавить учетную запись Gemini Cli"
-    },
-    "oauth": {
-      "desc": "Нажмите кнопку ниже и завершите авторизацию Gemini Cli OAuth в своем браузере."
-    },
-    "token": {
-      "desc": "Вставьте свой токен доступа Gemini Cli (JWT) или экспортированные данные JSON.",
-      "formatHint": "Обязательные поля и примеры (нажмите, чтобы развернуть)",
-      "formatRequired": "Один токен: вставьте JWT напрямую; пакетный импорт: используйте формат массива JSON",
-      "singleExample": "Одиночный пример (JWT)",
-      "batchExample": "Пример пакетной обработки (JSON)"
-    },
-    "import": {
-      "localDesc": "Импортируйте данные учетной записи Gemini Cli из локального каталога конфигурации Gemini Cli (~/.gemini) или файла JSON.",
-      "localClient": "Импорт из локального Gemini Cli"
-    },
-    "flowNotice": {
-      "title": "Руководство по учетной записи Gemini Cli (нажмите, чтобы развернуть/свернуть)",
-      "desc": "Управляйте учетными записями Gemini Cli, импортируя их из локальной конфигурации Gemini Cli, вставляя токен JWT или входя в систему через OAuth.",
-      "reason": "Область разрешений: чтение и запись oauth_creds.json, google_accounts.json и settings.json по умолчанию ~/.gemini или пути экземпляра (GEMINI_CLI_HOME/.gemini) для импорта учетной записи и локального внедрения учетных данных (переключение учетной записи).",
-      "storage": "Область сети: OAuth и обновление вызывают официальные API Google/Gemini (например, oauth2.googleapis.com и googleapis.com). Отправляются только обязательные поля аутентификации/квоты; файлы локальной учетной записи не загружаются на сторонние серверы."
-    },
-    "updated": {
-      "label": "Обновлено {{relative}} назад"
-    },
-    "quota": {
-      "pro": "PRO",
-      "flash": "FLASH",
-      "left": "Осталось {{value}}%",
-      "resetsIn": "Сбрасывается в {{relative}}",
-      "resetsSoon": "Скоро сброс",
-      "resetsUnknown": "Время сброса неизвестно",
-      "onDemand": "По требованию",
-      "gemini5h": "5h",
-      "geminiWeekly": "Weekly",
-      "claude5h": "5h",
-      "claudeWeekly": "Weekly"
-    },
-    "instances": {
-      "unsupported": "Управление несколькими экземплярами Gemini Cli пока не поддерживается.",
-      "unsupportedDescPlatform": "Мультиэкземпляр Gemini Cli поддерживается только в macOS, Windows и Linux.",
-      "launchDialogTitle": "Запустить экземпляр",
-      "launchHint": "Скопируйте команду и запустите вручную или выполните ее непосредственно в терминале.",
-      "runInTerminal": "Запустить в терминале",
-      "workingDir": "Рабочий каталог",
-      "workingDirPlaceholder": "По умолчанию текущий путь",
-      "workingDirDesc": "Сначала переключится на этот каталог при запуске",
-      "pickWorkingDir": "Выбрать рабочий каталог"
-    },
-    "switch": {
-      "success": "Аккаунт успешно переключен"
-    },
-    "projectConfig": {
-      "button": "Настроить проект GCP",
-      "title": "Настроить проект GCP",
-      "selectLabel": "Выберите проект",
-      "loading": "Загрузка списка проектов...",
-      "auto": "Автовыбор (без ручного указания)",
-      "empty": "Доступные проекты не найдены. Убедитесь, что у этой учетной записи есть доступ к проектам GCP.",
-      "hint": "После сохранения этот проект будет приоритетным для запросов квоты и будет подставляться как GOOGLE_CLOUD_PROJECT при запуске.",
-      "current": "Проект: {{projectId}}",
-      "saved": "Проект сохранен: {{projectId}}",
-      "cleared": "Возврат к автоматическому определению проекта",
-      "savedWithRefreshError": "Проект сохранен, но обновление квоты не удалось: {{error}}"
-    },
-    "identity": {
-      "authMethod": "Способ входа",
-      "tier": "Тариф",
-      "signedInWithGoogle": "Вход через Google",
-      "signedInWithGoogleEmail": "Вход через Google ({{email}})"
-    },
-    "quotaTable": {
-      "model": "Модель",
-      "leftOfTotal": "Осталось / Всего",
-      "usage": "Использовано",
-      "usageResets": "Сброс использования",
-      "usedPercent": "{{value}}%​",
-      "remainingOfTotal": "{{remaining}} / {{total}}​",
-      "resetAtWithRelative": "{{absolute}} ({{relative}})​"
-    },
-    "tierText": {
-      "pro": "Gemini Code Assist в Google One AI Pro",
-      "ultra": "Gemini Code Assist в Google AI Ultra",
-      "free": "Бесплатный Gemini Code Assist"
-    }
-  },
   "codebuddy": {
     "title": "Управление аккаунтами CodeBuddy",
     "noAccounts": "Нет аккаунтов CodeBuddy",
@@ -4405,6 +4487,12 @@
     },
     "quota": {
       "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "sessions": {
+      "title": "Локальные файлы сессий",
+      "desc": "Локальные файлы сессий — Локальное сканирование и открытие папки.",
+      "empty": "Файлы сессий не найдены",
+      "open": "Открыть папку"
     }
   },
   "qoder": {
@@ -5124,7 +5212,8 @@
       "installHint": "Выполните указанную ниже официальную команду в терминале, а после установки нажмите «Обновить».",
       "selectWorkingDir": "Выберите рабочую папку Grok CLI",
       "workingDirAccountHint": "Рабочая папка привязана к этому аккаунту и будет восстановлена при следующем запуске.",
-      "launchCommandPlaceholder": "Выберите или подтвердите папку, чтобы сформировать команду запуска"
+      "launchCommandPlaceholder": "Выберите или подтвердите папку, чтобы сформировать команду запуска",
+      "reauthLaunchHint": "Срок действия аутентификации аккаунта истек. Повторная авторизация; приведенная ниже команда запуска все еще доступна."
     },
     "switch": {
       "success": "Аккаунт переключён"
@@ -5407,5 +5496,23 @@
       "supports1mLabel": "Заявить 1M",
       "supports1mShort": "1M контекст"
     }
+  },
+  "openrouter": {
+    "title": "OpenRouter",
+    "desc": "Управление ключами OpenRouter, usage и моделями.",
+    "tabKeys": "Ключи и usage",
+    "tabModels": "Модели",
+    "modelsLoaded": "Загружено моделей: {{count}}",
+    "noUsageYet": "Usage ещё не обновлён",
+    "loadModels": "Загрузить модели",
+    "searchModels": "Поиск моделей",
+    "freeOnly": "Только free",
+    "noModels": "Нет моделей — добавьте key и загрузите.",
+    "free": "Бесплатно",
+    "noCtx": "Нет длины контекста"
+  },
+  "opencode": {
+    "title": "OpenCode",
+    "desc": "Управление ключами OpenCode Go/Zen и фильтр по tier."
   }
 }

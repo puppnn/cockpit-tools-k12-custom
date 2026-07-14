@@ -353,6 +353,13 @@ pub fn is_backup_file_name(file_name: &str) -> bool {
 }
 
 pub fn connection_from_config(config: &UserConfig) -> Result<WebdavConnectionSettings, String> {
+    if !config.external_network_enabled {
+        return Err("已关闭外连：WebDAV 同步不可用".to_string());
+    }
+    crate::modules::webdav_domain::validate_webdav_url(
+        &config.webdav_sync_url,
+        &config.webdav_allowed_domains,
+    )?;
     connection_from_parts(
         &config.webdav_sync_url,
         &config.webdav_sync_username,

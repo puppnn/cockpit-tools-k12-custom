@@ -299,8 +299,23 @@ export async function importSessions(
   });
 }
 
-export async function openSessionLocation(sessionId: string): Promise<void> {
+export async function openSessionLocation(
+  sessionId: string,
+  instanceId?: string | null,
+): Promise<void> {
   return await invoke("codex_open_session_location", {
+    instanceId: instanceId ?? null,
+    sessionId,
+  });
+}
+
+/** Open rollout JSONL with the OS default app (#1510). */
+export async function openSessionRollout(
+  sessionId: string,
+  instanceId?: string | null,
+): Promise<void> {
+  return await invoke("codex_open_session_rollout", {
+    instanceId: instanceId ?? null,
     sessionId,
   });
 }

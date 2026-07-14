@@ -1296,11 +1296,11 @@ func TestK12Tentative429PrefersSpillover(t *testing.T) {
 	}
 }
 
-func TestK12Confirmed429ReleasesBindingForFailover(t *testing.T) {
+func TestK12Confirmed429PreservesBindingDuringTemporarySpillover(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
-	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b")}
+	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b"), testPlusAuth("plus-a")}
 	opts := promptCacheOptions("confirmed-failover-session")
 
 	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
@@ -1322,13 +1322,81 @@ func TestK12Confirmed429ReleasesBindingForFailover(t *testing.T) {
 	}
 
 	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
-	if err != nil || retry == nil || retry.ID == selected.ID {
-		t.Fatalf("confirmed 429 did not move to another K12: first=%s retry=%v err=%v", selected.ID, retry, err)
+	if err != nil || retry == nil || retry.ID != "plus-a" {
+		t.Fatalf("confirmed 429 spillover = %v, %v; want plus-a", retry, err)
 	}
 	selector.OnSelectionResult(context.Background(), Result{AuthID: retry.ID, Success: true}, opts)
 	bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
 	if err != nil || !handled || bound == nil || bound.ID != retry.ID {
-		t.Fatalf("successful failover was not rebound: auth=%v handled=%v err=%v", bound, handled, err)
+		t.Fatalf("temporary spillover was not reused: auth=%v handled=%v err=%v", bound, handled, err)
+	}
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	binding, ok := selector.k12.store.binding(digest, time.Now())
+	if !ok || binding.AuthID != selected.ID {
+		t.Fatalf("temporary spillover replaced K12 binding: binding=%#v ok=%v", binding, ok)
+	}
+}
+
+func TestK12Confirmed429WithoutPaidSpilloverDoesNotSwitchK12(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(20), "k12-b": intPtr(20)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	auths := []*Auth{testK12Auth("k12-a"), testK12Auth("k12-b")}
+	opts := promptCacheOptions("confirmed-no-cross-k12")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+	selector.OnSelectionResult(context.Background(), Result{
+		AuthID:  selected.ID,
+		Success: false,
+		Error:   &Error{HTTPStatus: http.StatusTooManyRequests, Message: "quota"},
+	}, opts)
+
+	retry, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if retry != nil {
+		t.Fatalf("confirmed session switched K12 accounts: first=%s retry=%s", selected.ID, retry.ID)
+	}
+	var cooldownErr *k12SessionCooldownError
+	if !errors.As(err, &cooldownErr) {
+		t.Fatalf("confirmed session error = %T %v; want cooldown", err, err)
+	}
+}
+
+func TestK12ConfirmedUsageLimitUsesProviderRetryAfterForTemporarySpillover(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(20)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	k12 := testK12Auth("k12-a")
+	plus := testPlusAuth("plus-a")
+	auths := []*Auth{k12, plus}
+	opts := promptCacheOptions("confirmed-provider-retry-after")
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || selected == nil || selected.ID != k12.ID {
+		t.Fatalf("initial selection = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: k12.ID, Success: true}, opts)
+	retryAfter := 2 * time.Hour
+	selector.OnSelectionResult(context.Background(), Result{
+		AuthID:     k12.ID,
+		Success:    false,
+		Error:      &Error{HTTPStatus: http.StatusTooManyRequests, Message: "usage limit"},
+		RetryAfter: &retryAfter,
+	}, opts)
+
+	spillover, err := selector.Pick(context.Background(), "codex", "gpt-5", opts, auths)
+	if err != nil || spillover == nil || spillover.ID != plus.ID {
+		t.Fatalf("provider retry-after spillover = %#v, %v", spillover, err)
+	}
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	remainingCooldown := selector.k12.store.cooldownRemaining(digest, k12.ID, time.Now())
+	if remainingCooldown < retryAfter-time.Minute {
+		t.Fatalf("provider retry-after cooldown = %s, want about %s", remainingCooldown, retryAfter)
 	}
 }
 
@@ -1606,8 +1674,8 @@ func TestK12StreamOpenTimeoutCauseReleasesBindingForNextAttempt(t *testing.T) {
 	selector.OnSelectionResult(context.Background(), Result{AuthID: retry.ID, Success: true}, opts)
 	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
 	digest := selector.k12.store.digest(identity.ID)
-	if binding, ok := selector.k12.store.binding(digest, time.Now()); ok {
-		t.Fatalf("successful spillover kept suspended K12 binding: %#v", binding)
+	if binding, ok := selector.k12.store.binding(digest, time.Now()); !ok || binding.AuthID != selected.ID {
+		t.Fatalf("successful spillover did not preserve K12 binding: binding=%#v ok=%v", binding, ok)
 	}
 	reused, err := selector.Pick(context.Background(), "codex", "gpt-5-mini", opts, auths)
 	if err != nil || reused == nil || reused.ID != retry.ID {
@@ -1672,7 +1740,7 @@ func TestK12ConcurrentSuccessCommitsSingleAffinity(t *testing.T) {
 		wantAuth  string
 	}{
 		{name: "K12 success arrives first", firstAuth: "k12-a", lastAuth: "plus-a", wantAuth: "k12-a"},
-		{name: "Plus success arrives first", firstAuth: "plus-a", lastAuth: "k12-a", wantAuth: "plus-a"},
+		{name: "Plus success arrives first", firstAuth: "plus-a", lastAuth: "k12-a", wantAuth: "k12-a"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1713,14 +1781,12 @@ func TestK12ConcurrentSuccessCommitsSingleAffinity(t *testing.T) {
 				if !bound || binding.AuthID != k12.ID || spilloverAuthID != "" {
 					t.Fatalf("K12 winner left dual state: binding=%#v bound=%v spillover=%q", binding, bound, spilloverAuthID)
 				}
-			} else if bound || spilloverAuthID != plus.ID {
-				t.Fatalf("Plus winner left dual state: binding=%#v bound=%v spillover=%q", binding, bound, spilloverAuthID)
 			}
 		})
 	}
 }
 
-func TestK12SpilloverSuccessRequiresPersistedBindingRemoval(t *testing.T) {
+func TestK12SpilloverSuccessDoesNotRewritePersistedBinding(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(20)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -1754,16 +1820,16 @@ func TestK12SpilloverSuccessRequiresPersistedBindingRemoval(t *testing.T) {
 	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
 	digest := selector.k12.store.digest(identity.ID)
 	if binding, ok := selector.k12.store.binding(digest, time.Now()); !ok || binding.AuthID != k12.ID {
-		t.Fatalf("failed binding removal did not roll back original K12 binding: binding=%#v ok=%v", binding, ok)
+		t.Fatalf("spillover success changed original K12 binding: binding=%#v ok=%v", binding, ok)
 	}
 	if remaining := selector.k12.store.cooldownRemaining(digest, k12.ID, time.Now()); remaining <= 0 {
-		t.Fatalf("failed binding removal did not restore original cooldown: %s", remaining)
+		t.Fatalf("spillover success cleared original cooldown: %s", remaining)
 	}
-	if spilloverAuthID := selector.k12.spilloverAuth(digest, time.Now()); spilloverAuthID != "" {
-		t.Fatalf("spillover affinity survived failed binding persistence: %s", spilloverAuthID)
+	if spilloverAuthID := selector.k12.spilloverAuth(digest, time.Now()); spilloverAuthID != plus.ID {
+		t.Fatalf("temporary spillover affinity = %s, want %s", spilloverAuthID, plus.ID)
 	}
-	if rebound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths); err != nil || handled || rebound != nil {
-		t.Fatalf("failed spillover commit remained authoritative: auth=%v handled=%v err=%v", rebound, handled, err)
+	if rebound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths); err != nil || !handled || rebound == nil || rebound.ID != plus.ID {
+		t.Fatalf("temporary spillover was not authoritative: auth=%v handled=%v err=%v", rebound, handled, err)
 	}
 }
 
@@ -1809,7 +1875,7 @@ func TestK12Confirmed429FailsOverWithinSameStreamRequest(t *testing.T) {
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
 	manager := NewManager(nil, selector, nil)
 	manager.SetRetryConfig(3, time.Second, 0)
-	auths := []*Auth{testK12Auth("k12-failover-a"), testK12Auth("k12-failover-b")}
+	auths := []*Auth{testK12Auth("k12-failover-a"), testK12Auth("k12-failover-b"), testPlusAuth("plus-failover")}
 	modelRegistry := registry.GetGlobalRegistry()
 	for _, auth := range auths {
 		if _, err := manager.Register(context.Background(), auth); err != nil {
@@ -1853,6 +1919,11 @@ func TestK12Confirmed429FailsOverWithinSameStreamRequest(t *testing.T) {
 	bound, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", opts, auths)
 	if err != nil || !handled || bound == nil || bound.ID != executor.streamCalls[1] {
 		t.Fatalf("stream failover binding = %v handled=%v err=%v", bound, handled, err)
+	}
+	identity, _ := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
+	digest := selector.k12.store.digest(identity.ID)
+	if binding, ok := selector.k12.store.binding(digest, time.Now()); !ok || binding.AuthID != selected.ID {
+		t.Fatalf("stream spillover replaced original K12 binding: binding=%#v ok=%v", binding, ok)
 	}
 }
 

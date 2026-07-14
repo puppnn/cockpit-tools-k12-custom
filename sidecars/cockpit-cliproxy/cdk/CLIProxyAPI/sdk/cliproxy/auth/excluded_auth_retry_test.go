@@ -197,12 +197,12 @@ func TestK12ExcludedBindingSpillsOverWithAnotherAttemptStillActive(t *testing.T)
 	}
 	selector.OnSelectionResult(context.Background(), Result{AuthID: plus.ID, Success: true}, retryOpts)
 	lateOther := selector.OnSelectionResult(context.Background(), Result{AuthID: k12A.ID, Success: true}, otherOpts)
-	if !lateOther.SuppressAvailabilityUpdate || lateOther.StopAuthAttempt {
+	if lateOther.SuppressAvailabilityUpdate || lateOther.StopAuthAttempt {
 		t.Fatalf("late other success directive = %#v", lateOther)
 	}
 	winner, handled, err := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", baseOpts, auths)
-	if err != nil || !handled || winner == nil || winner.ID != plus.ID {
-		t.Fatalf("parallel attempt displaced Plus spillover: auth=%v handled=%v err=%v", winner, handled, err)
+	if err != nil || !handled || winner == nil || winner.ID != k12A.ID {
+		t.Fatalf("successful K12 recovery did not replace temporary Plus spillover: auth=%v handled=%v err=%v", winner, handled, err)
 	}
 }
 

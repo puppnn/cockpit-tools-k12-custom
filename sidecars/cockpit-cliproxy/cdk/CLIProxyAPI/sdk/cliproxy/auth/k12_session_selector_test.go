@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -598,6 +599,7 @@ func TestK12IdleConfirmedBindingsDoNotConsumeNewSessionCapacity(t *testing.T) {
 		t.Fatalf("new session after idle bindings = %#v, %v; want k12-a", selected, err)
 	}
 }
+
 func TestK12TentativeSessionsReserveLoadBeforeFirstSuccess(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(80), "k12-b": intPtr(60)}
@@ -1338,6 +1340,12 @@ type k12FailoverExecutor struct {
 	streamCalls []string
 }
 
+type semanticEmptyFailoverExecutor struct {
+	k12BootstrapExecutor
+	emptyAuthID string
+	streamCalls []string
+}
+
 type k12CancelableBootstrapExecutor struct {
 	k12BootstrapExecutor
 	started chan string
@@ -1364,6 +1372,19 @@ func (e *k12FailoverExecutor) ExecuteStream(_ context.Context, auth *Auth, _ cli
 	return &cliproxyexecutor.StreamResult{Chunks: chunks}, nil
 }
 
+func (e *semanticEmptyFailoverExecutor) ExecuteStream(_ context.Context, auth *Auth, _ cliproxyexecutor.Request, _ cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
+	e.streamCalls = append(e.streamCalls, auth.ID)
+	chunks := make(chan cliproxyexecutor.StreamChunk, 2)
+	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.created"}`)}
+	if auth.ID == e.emptyAuthID {
+		chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"output":[]}}`)}
+	} else {
+		chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.output_text.delta","delta":"ok"}`)}
+	}
+	close(chunks)
+	return &cliproxyexecutor.StreamResult{Chunks: chunks}, nil
+}
+
 func TestK12StreamFirstPayloadConfirmsBinding(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-a": intPtr(20)}
@@ -1375,9 +1396,11 @@ func TestK12StreamFirstPayloadConfirmsBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chunks := make(chan cliproxyexecutor.StreamChunk, 1)
-	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`{"type":"response.created"}`)}
+	chunks := make(chan cliproxyexecutor.StreamChunk, 2)
+	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.created"}`)}
+	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.output_text.delta","delta":"ok"}`)}
 	executor := &k12BootstrapExecutor{chunks: chunks}
+	opts.SourceFormat = "openai-response"
 	stream, err := manager.executeStreamWithModelPool(context.Background(), executor, selected, "codex", cliproxyexecutor.Request{Model: "gpt-5"}, opts, "gpt-5", []string{"gpt-5"}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -1388,6 +1411,104 @@ func TestK12StreamFirstPayloadConfirmsBinding(t *testing.T) {
 	}
 	close(chunks)
 	for range stream.Chunks {
+	}
+}
+
+func TestOpenAIResponsesSemanticStreamBootstrap(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{name: "created prelude", payload: `data: {"type":"response.created"}`, want: false},
+		{name: "empty completion", payload: `data: {"type":"response.completed","response":{"output":[]}}`, want: false},
+		{name: "text delta", payload: `data: {"type":"response.output_text.delta","delta":"hello"}`, want: true},
+		{name: "reasoning summary", payload: `data: {"type":"response.reasoning_summary_text.delta","delta":"checking"}`, want: true},
+		{name: "function call", payload: `data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"lookup"}}`, want: true},
+		{name: "completed text", payload: `data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}}`, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := openAIResponsesEventHasSemanticOutput([]byte(tt.payload)); got != tt.want {
+				t.Fatalf("semantic output = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOpenAIResponsesPreludeOnlyStreamIsRetryableEmpty(t *testing.T) {
+	t.Parallel()
+	chunks := make(chan cliproxyexecutor.StreamChunk, 2)
+	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.created"}`)}
+	chunks <- cliproxyexecutor.StreamChunk{Payload: []byte(`data: {"type":"response.completed","response":{"output":[]}}`)}
+	close(chunks)
+
+	executor := &k12BootstrapExecutor{chunks: chunks}
+	opts := promptCacheOptions("semantic-empty-stream")
+	opts.SourceFormat = "openai-response"
+	manager := NewManager(nil, nil, nil)
+	_, err := manager.executeStreamWithModelPool(
+		context.Background(), executor, testPlusAuth("plus-empty"), "codex",
+		cliproxyexecutor.Request{Model: "gpt-5"}, opts, "gpt-5", []string{"gpt-5"}, false,
+	)
+	if err == nil || !strings.Contains(err.Error(), "meaningful output") {
+		t.Fatalf("prelude-only stream error = %v", err)
+	}
+}
+
+func TestOpenAIResponsesSemanticEmptyStreamFailsOverBeforeBinding(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-empty": intPtr(80)}
+	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
+	manager := NewManager(nil, selector, nil)
+	manager.SetRetryConfig(3, time.Second, 0)
+	auths := []*Auth{testK12Auth("k12-empty"), testPlusAuth("plus-output")}
+	modelRegistry := registry.GetGlobalRegistry()
+	for _, auth := range auths {
+		if _, err := manager.Register(context.Background(), auth); err != nil {
+			t.Fatal(err)
+		}
+		modelRegistry.RegisterClient(auth.ID, "codex", []*registry.ModelInfo{{ID: "gpt-5"}})
+		authID := auth.ID
+		t.Cleanup(func() { modelRegistry.UnregisterClient(authID) })
+	}
+	executor := &semanticEmptyFailoverExecutor{emptyAuthID: "k12-empty"}
+	manager.RegisterExecutor(executor)
+	opts := promptCacheOptions("semantic-failover-session")
+	opts.SourceFormat = "openai-response"
+
+	stream, err := manager.ExecuteStream(
+		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5"}, opts,
+	)
+	if err != nil {
+		t.Fatalf("semantic empty stream did not fail over: %v", err)
+	}
+	var payload []byte
+	for chunk := range stream.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("failover stream error: %v", chunk.Err)
+		}
+		payload = append(payload, chunk.Payload...)
+	}
+	if !bytes.Contains(payload, []byte(`"delta":"ok"`)) {
+		t.Fatalf("failover payload = %q", payload)
+	}
+	if len(executor.streamCalls) != 2 || executor.streamCalls[0] != "k12-empty" || executor.streamCalls[1] != "plus-output" {
+		t.Fatalf("semantic failover calls = %#v", executor.streamCalls)
+	}
+	emptyAuth, ok := manager.GetByID("k12-empty")
+	if !ok || emptyAuth == nil {
+		t.Fatal("empty-stream K12 auth missing")
+	}
+	if emptyAuth.Unavailable || emptyAuth.Quota.Exceeded || len(emptyAuth.ModelStates) != 0 {
+		t.Fatalf("semantic empty stream changed K12 availability: %#v", emptyAuth)
+	}
+	selector.k12.store.mu.Lock()
+	bindingCount := len(selector.k12.store.bindings)
+	selector.k12.store.mu.Unlock()
+	if bindingCount != 0 {
+		t.Fatalf("semantically empty K12 stream created %d persistent bindings", bindingCount)
 	}
 }
 

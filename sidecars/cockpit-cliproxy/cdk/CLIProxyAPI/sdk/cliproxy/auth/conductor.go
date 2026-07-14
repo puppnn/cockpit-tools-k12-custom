@@ -439,7 +439,7 @@ func (m *Manager) notifySelectionResult(ctx context.Context, result Result, opts
 
 func (m *Manager) markSelectionResult(ctx context.Context, result Result, opts cliproxyexecutor.Options) SelectionResultDirective {
 	directive := m.notifySelectionResult(ctx, result, opts)
-	result.SuppressAvailabilityUpdate = directive.SuppressAvailabilityUpdate
+	result.SuppressAvailabilityUpdate = result.SuppressAvailabilityUpdate || directive.SuppressAvailabilityUpdate
 	m.MarkResult(ctx, result)
 	return directive
 }
@@ -942,7 +942,111 @@ func streamErrorResult(headers http.Header, err error) *cliproxyexecutor.StreamR
 	}
 }
 
-func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamChunk) ([]cliproxyexecutor.StreamChunk, bool, error) {
+func openAIResponsesItemHasSemanticOutput(raw json.RawMessage) bool {
+	var item struct {
+		Type      string `json:"type"`
+		Name      string `json:"name"`
+		CallID    string `json:"call_id"`
+		Arguments string `json:"arguments"`
+		Input     string `json:"input"`
+		Content   []struct {
+			Type    string `json:"type"`
+			Text    string `json:"text"`
+			Refusal string `json:"refusal"`
+		} `json:"content"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &item) != nil {
+		return false
+	}
+	itemType := strings.ToLower(strings.TrimSpace(item.Type))
+	if itemType == "message" {
+		for _, content := range item.Content {
+			if strings.TrimSpace(content.Text) != "" || strings.TrimSpace(content.Refusal) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	if itemType == "reasoning" || itemType == "" {
+		return false
+	}
+	// Function, built-in, MCP, shell and custom tool output items all use a
+	// call-shaped type. The item itself is meaningful even before arguments
+	// begin streaming because the client must execute or display that call.
+	return strings.Contains(itemType, "call")
+}
+
+func openAIResponsesEventHasSemanticOutput(payload []byte) bool {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return false
+	}
+
+	// Executors normally emit one SSE data line per chunk. Also accept plain
+	// JSON and multi-line SSE payloads so the bootstrap check stays independent
+	// of the upstream transport framing.
+	if bytes.Contains(payload, []byte("\n")) {
+		for _, line := range bytes.Split(payload, []byte("\n")) {
+			if openAIResponsesEventHasSemanticOutput(line) {
+				return true
+			}
+		}
+		return false
+	}
+	if bytes.HasPrefix(payload, []byte("data:")) {
+		payload = bytes.TrimSpace(payload[len("data:"):])
+	}
+	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+		return false
+	}
+	if bytes.HasPrefix(payload, []byte("event:")) {
+		return false
+	}
+
+	var event struct {
+		Type     string          `json:"type"`
+		Delta    string          `json:"delta"`
+		Text     string          `json:"text"`
+		Refusal  string          `json:"refusal"`
+		Item     json.RawMessage `json:"item"`
+		Response struct {
+			Output     []json.RawMessage `json:"output"`
+			OutputText string            `json:"output_text"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(payload, &event) != nil {
+		// Leave malformed or provider-specific payload validation to the handler.
+		// Only recognized Responses protocol events are safe to buffer here.
+		return true
+	}
+
+	eventType := strings.ToLower(strings.TrimSpace(event.Type))
+	switch eventType {
+	case "response.output_text.delta", "response.output_text.done",
+		"response.refusal.delta", "response.refusal.done",
+		"response.reasoning_summary_text.delta", "response.reasoning_summary_text.done",
+		"response.reasoning_text.delta", "response.reasoning_text.done":
+		return strings.TrimSpace(event.Delta) != "" || strings.TrimSpace(event.Text) != "" || strings.TrimSpace(event.Refusal) != ""
+	case "response.output_item.added", "response.output_item.done":
+		return openAIResponsesItemHasSemanticOutput(event.Item)
+	case "response.function_call_arguments.delta", "response.function_call_arguments.done",
+		"response.custom_tool_call_input.delta", "response.custom_tool_call_input.done",
+		"response.mcp_call_arguments.delta", "response.mcp_call_arguments.done":
+		return strings.TrimSpace(event.Delta) != ""
+	case "response.completed":
+		if strings.TrimSpace(event.Response.OutputText) != "" {
+			return true
+		}
+		for _, item := range event.Response.Output {
+			if openAIResponsesItemHasSemanticOutput(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamChunk, requireSemanticOutput bool) ([]cliproxyexecutor.StreamChunk, bool, error) {
 	if ch == nil {
 		return nil, true, nil
 	}
@@ -968,7 +1072,7 @@ func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamC
 			return nil, false, chunk.Err
 		}
 		buffered = append(buffered, chunk)
-		if len(chunk.Payload) > 0 {
+		if len(chunk.Payload) > 0 && (!requireSemanticOutput || openAIResponsesEventHasSemanticOutput(chunk.Payload)) {
 			return buffered, false, nil
 		}
 	}
@@ -1067,10 +1171,24 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		resultModel := m.stateModelForExecution(auth, routeModel, execModel, pooled)
 		markFailure := func(executionErr error) SelectionResultDirective {
 			rerr := &Error{Message: executionErr.Error()}
+			suppressAvailabilityUpdate := false
+			var managerErr *Error
+			if errors.As(executionErr, &managerErr) && managerErr != nil {
+				rerr.Code = managerErr.Code
+				rerr.Retryable = managerErr.Retryable
+				suppressAvailabilityUpdate = managerErr.Code == "empty_stream"
+			}
 			if se, ok := errors.AsType[cliproxyexecutor.StatusError](executionErr); ok && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, Success: false, Error: rerr}
+			result := Result{
+				AuthID:                     auth.ID,
+				Provider:                   provider,
+				Model:                      resultModel,
+				Success:                    false,
+				Error:                      rerr,
+				SuppressAvailabilityUpdate: suppressAvailabilityUpdate,
+			}
 			result.RetryAfter = retryAfterFromError(executionErr)
 			return m.markSelectionResult(ctx, result, opts)
 		}
@@ -1102,7 +1220,8 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			continue
 		}
 
-		buffered, closed, bootstrapErr := readStreamBootstrap(ctx, streamResult.Chunks)
+		requireSemanticOutput := opts.SourceFormat == "openai-response" && !cliproxyexecutor.DownstreamWebsocket(ctx)
+		buffered, closed, bootstrapErr := readStreamBootstrap(ctx, streamResult.Chunks, requireSemanticOutput)
 		if bootstrapErr != nil {
 			if errCtx := ctx.Err(); errCtx != nil {
 				discardStreamChunks(streamResult.Chunks)
@@ -1143,8 +1262,8 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			return nil, newStreamBootstrapError(bootstrapErr, streamResult.Headers)
 		}
 
-		if closed && !streamChunksHavePayload(buffered) {
-			emptyErr := &Error{Code: "empty_stream", Message: "upstream stream closed before first payload", Retryable: true}
+		if closed && (requireSemanticOutput || !streamChunksHavePayload(buffered)) {
+			emptyErr := &Error{Code: "empty_stream", Message: "upstream stream closed before meaningful output", Retryable: true}
 			directive := markFailure(emptyErr)
 			if directive.StopCredentialFallback {
 				return nil, newSelectionFailureError(newStreamBootstrapError(emptyErr, streamResult.Headers))

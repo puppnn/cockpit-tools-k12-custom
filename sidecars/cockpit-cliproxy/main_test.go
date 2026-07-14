@@ -235,6 +235,56 @@ func TestK12QuotaSnapshotForAuthPreservesKnownWeeklyQuotaWhenStale(t *testing.T)
 			t.Fatalf("unknown weekly window returned remaining %v", got.WeeklyRemainingPercent)
 		}
 	})
+
+	t.Run("auth plan type recovers missing manifest plan type", func(t *testing.T) {
+		k12.PlanType = ""
+		auth.Attributes = map[string]string{"plan_type": "K12"}
+		quota := newQuotaReserveStateStore("", m)
+		quota.snapshot.Store(quotaReserveRuntimeState{accounts: map[string]quotaReserveSnapshot{
+			k12.ID: {
+				SnapshotUpdatedAtUnixSeconds: &freshUpdatedAt,
+				HourlyRemainingPercent:       &hourlyRemaining,
+				HourlyWindowPresent:          &windowPresent,
+			},
+		}})
+
+		got := k12QuotaSnapshotForAuth(m, quota, auth, now)
+		if !got.Fresh || got.HourlyRemainingPercent == nil || *got.HourlyRemainingPercent != hourlyRemaining {
+			t.Fatalf("auth-derived K12 quota snapshot = %#v", got)
+		}
+	})
+}
+
+func TestBuildCoreAuthSelectorRecoversK12PlanFromAuthAttributes(t *testing.T) {
+	t.Parallel()
+	paidRank := 300
+	k12 := &accountSpec{ID: "k12", AuthID: "k12.json"}
+	plus := &accountSpec{ID: "plus", AuthID: "plus.json", PlanRank: &paidRank}
+	m := &manifest{
+		APIKeys:  []apiKeySpec{{ID: "local", Key: "test-local-key", Enabled: true}},
+		Accounts: []accountSpec{*k12, *plus},
+		accountByAuthID: map[string]*accountSpec{
+			k12.AuthID:  k12,
+			plus.AuthID: plus,
+		},
+		originalIndexByID: map[string]int{k12.ID: 0, plus.ID: 1},
+	}
+	selector := buildCoreAuthSelector(&config.Config{}, &cockpitSelector{manifest: m}, m, nil)
+	if stoppable, ok := selector.(coreauth.StoppableSelector); ok {
+		t.Cleanup(stoppable.Stop)
+	}
+	auths := []*coreauth.Auth{
+		{ID: k12.AuthID, Provider: "codex", Attributes: map[string]string{"plan_type": "k12"}},
+		{ID: plus.AuthID, Provider: "codex", Attributes: map[string]string{"plan_type": "plus"}},
+	}
+
+	for index, wantAuthID := range []string{k12.AuthID, k12.AuthID, plus.AuthID} {
+		opts := cliproxyexecutor.Options{OriginalRequest: []byte(fmt.Sprintf(`{"prompt_cache_key":"manifest-plan-fallback-%d","input":[]}`, index))}
+		selected, err := selector.Pick(context.Background(), "codex", "gpt-5.4", opts, auths)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
+	}
 }
 
 func TestBuildCoreAuthSelectorUsesPaidOAuthMembersForK12CapacitySpillover(t *testing.T) {
@@ -524,6 +574,34 @@ func TestLoadManifestIndexesAPIKeyAccounts(t *testing.T) {
 	}
 	if account.ID != "api-account" || account.UpstreamAPIKey != "sk-upstream" {
 		t.Fatalf("unexpected indexed account: %#v", account)
+	}
+}
+
+func TestHydrateManifestPlanTypesFromAuthDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "k12.json"), []byte(`{"plan_type":" k12 ","access_token":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plus.json"), []byte(`{"plan_type":"plus"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest{Accounts: []accountSpec{
+		{ID: "k12", AuthID: "k12.json"},
+		{ID: "plus", AuthID: "plus.json", PlanType: "Team"},
+		{ID: "missing", AuthID: "missing.json"},
+	}}
+
+	if got := hydrateManifestPlanTypesFromAuthDir(m, dir); got != 1 {
+		t.Fatalf("hydrated count = %d, want 1", got)
+	}
+	if m.Accounts[0].PlanType != "k12" {
+		t.Fatalf("K12 plan type = %q", m.Accounts[0].PlanType)
+	}
+	if m.Accounts[1].PlanType != "Team" {
+		t.Fatalf("existing manifest plan type was overwritten: %q", m.Accounts[1].PlanType)
+	}
+	if m.Accounts[2].PlanType != "" {
+		t.Fatalf("missing auth file produced plan type %q", m.Accounts[2].PlanType)
 	}
 }
 

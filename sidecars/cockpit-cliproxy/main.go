@@ -604,6 +604,35 @@ func loadManifest(path string) (*manifest, error) {
 	return &m, nil
 }
 
+func hydrateManifestPlanTypesFromAuthDir(m *manifest, authDir string) int {
+	if m == nil || strings.TrimSpace(authDir) == "" {
+		return 0
+	}
+	type authPlanMetadata struct {
+		PlanType string `json:"plan_type"`
+	}
+	hydrated := 0
+	for index := range m.Accounts {
+		account := &m.Accounts[index]
+		if strings.TrimSpace(account.PlanType) != "" || strings.TrimSpace(account.AuthID) == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(authDir, filepath.Base(account.AuthID)))
+		if err != nil {
+			continue
+		}
+		var metadata authPlanMetadata
+		if json.Unmarshal(data, &metadata) != nil {
+			continue
+		}
+		if planType := strings.TrimSpace(metadata.PlanType); planType != "" {
+			account.PlanType = planType
+			hydrated++
+		}
+	}
+	return hydrated
+}
+
 func normalizeStringList(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
@@ -2709,6 +2738,22 @@ func isK12AccountSpec(account *accountSpec) bool {
 	return account != nil && strings.EqualFold(strings.TrimSpace(account.PlanType), "k12")
 }
 
+func authPlanType(auth *coreauth.Auth) string {
+	if auth == nil || auth.Attributes == nil {
+		return ""
+	}
+	for _, key := range []string{"plan_type", "chatgpt_plan_type"} {
+		if value := strings.TrimSpace(auth.Attributes[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func isK12Auth(m *manifest, auth *coreauth.Auth) bool {
+	return isK12AccountSpec(accountForAuthInManifest(m, auth)) || strings.EqualFold(authPlanType(auth), "k12")
+}
+
 func isK12SpilloverAccountSpec(account *accountSpec) bool {
 	if account == nil || isK12AccountSpec(account) {
 		return false
@@ -2769,7 +2814,7 @@ func k12SessionHMACKey(m *manifest) []byte {
 
 func k12QuotaSnapshotForAuth(m *manifest, quota *quotaReserveStateStore, auth *coreauth.Auth, now time.Time) coreauth.K12QuotaSnapshot {
 	account := accountForAuthInManifest(m, auth)
-	if !isK12AccountSpec(account) || quota == nil {
+	if !isK12Auth(m, auth) || account == nil || quota == nil {
 		return coreauth.K12QuotaSnapshot{}
 	}
 	snapshot := quota.forAccount(account.ID)
@@ -2807,7 +2852,10 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 	if m != nil {
 		selector = &backupAccountSelector{manifest: m, fallback: selector}
 	}
-	k12Enabled := hasK12Accounts(m) && len(k12SessionHMACKey(m)) > 0
+	// Some Cockpit versions omit planType from the sidecar manifest even though
+	// the generated auth files still carry plan_type. Install the K12 policy
+	// whenever key material exists and let the runtime auth attributes decide.
+	k12Enabled := len(k12SessionHMACKey(m)) > 0
 	if cfg != nil && (cfg.Routing.SessionAffinity || k12Enabled) {
 		ttl := time.Hour
 		if parsed, err := time.ParseDuration(strings.TrimSpace(cfg.Routing.SessionAffinityTTL)); err == nil && parsed > 0 {
@@ -2823,7 +2871,7 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 				StatePath: statePath,
 				HMACKey:   k12SessionHMACKey(m),
 				IsK12: func(auth *coreauth.Auth) bool {
-					return isK12AccountSpec(accountForAuthInManifest(m, auth))
+					return isK12Auth(m, auth)
 				},
 				IsSpillover: func(auth *coreauth.Auth) bool {
 					return isK12SpilloverAccountSpec(accountForAuthInManifest(m, auth))
@@ -6789,6 +6837,7 @@ func main() {
 		emitter.emit(map[string]any{"type": "error", "message": err.Error()})
 		os.Exit(2)
 	}
+	hydrateManifestPlanTypesFromAuthDir(m, cfg.AuthDir)
 	emitter.emitStartupStage("init_runtime")
 	quotaState := newQuotaReserveStateStore(*quotaReserveStatePath, m)
 	if err := quotaState.load(); err != nil {

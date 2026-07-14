@@ -1106,6 +1106,63 @@ func openAIResponsesEventSummary(payload []byte) string {
 	return summary
 }
 
+func privacySafeResponsesEventLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return "empty"
+	}
+	const maxLabelBytes = 96
+	var builder strings.Builder
+	for _, r := range label {
+		if builder.Len() >= maxLabelBytes {
+			break
+		}
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case strings.ContainsRune("._:+-=", r):
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	if builder.Len() == 0 {
+		return "unrecognized"
+	}
+	return builder.String()
+}
+
+func summarizeOpenAIResponsesBootstrap(chunks []cliproxyexecutor.StreamChunk) string {
+	const maxDistinctEvents = 12
+	counts := make(map[string]int, maxDistinctEvents)
+	order := make([]string, 0, maxDistinctEvents)
+	truncated := 0
+	for _, chunk := range chunks {
+		for _, rawLabel := range strings.Split(openAIResponsesEventSummary(chunk.Payload), ",") {
+			label := privacySafeResponsesEventLabel(rawLabel)
+			if _, exists := counts[label]; !exists {
+				if len(order) >= maxDistinctEvents {
+					truncated++
+					continue
+				}
+				order = append(order, label)
+			}
+			counts[label]++
+		}
+	}
+	if len(order) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(order)+1)
+	for _, label := range order {
+		parts = append(parts, fmt.Sprintf("%s=%d", label, counts[label]))
+	}
+	if truncated > 0 {
+		parts = append(parts, fmt.Sprintf("other=%d", truncated))
+	}
+	return strings.Join(parts, ",")
+}
+
 func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamChunk, requireSemanticOutput bool) ([]cliproxyexecutor.StreamChunk, bool, error) {
 	if ch == nil {
 		return nil, true, nil
@@ -1133,13 +1190,6 @@ func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamC
 		}
 		buffered = append(buffered, chunk)
 		semanticOutput := len(chunk.Payload) > 0 && openAIResponsesEventHasSemanticOutput(chunk.Payload)
-		if requireSemanticOutput && len(chunk.Payload) > 0 {
-			logEntryWithRequestID(ctx).Infof(
-				"responses semantic bootstrap | event=%s accepted=%t",
-				openAIResponsesEventSummary(chunk.Payload),
-				semanticOutput,
-			)
-		}
 		if len(chunk.Payload) > 0 && (!requireSemanticOutput || semanticOutput) {
 			return buffered, false, nil
 		}
@@ -1331,6 +1381,12 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		}
 
 		if closed && (requireSemanticOutput || !streamChunksHavePayload(buffered)) {
+			if requireSemanticOutput {
+				logEntryWithRequestID(ctx).Warnf(
+					"responses semantic bootstrap empty | events=%s",
+					summarizeOpenAIResponsesBootstrap(buffered),
+				)
+			}
 			emptyErr := &Error{Code: "empty_stream", Message: "upstream stream closed before meaningful output", Retryable: true}
 			directive := markFailure(emptyErr)
 			if directive.StopCredentialFallback {

@@ -2470,6 +2470,9 @@ func k12QuotaSnapshotForAuth(m *manifest, quota *quotaReserveStateStore, auth *c
 	result := coreauth.K12QuotaSnapshot{
 		Fresh: quotaReserveSnapshotBlockReason(snapshot.SnapshotUpdatedAtUnixSeconds, now) == "",
 	}
+	if snapshot.SnapshotUpdatedAtUnixSeconds != nil && *snapshot.SnapshotUpdatedAtUnixSeconds > 0 {
+		result.UpdatedAt = time.Unix(*snapshot.SnapshotUpdatedAtUnixSeconds, 0)
+	}
 	if snapshot.HourlyWindowPresent == nil || *snapshot.HourlyWindowPresent {
 		if snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent >= 0 && *snapshot.HourlyRemainingPercent <= 100 {
 			remaining := *snapshot.HourlyRemainingPercent

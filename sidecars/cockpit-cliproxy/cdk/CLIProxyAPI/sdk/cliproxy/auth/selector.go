@@ -608,7 +608,7 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 		if handled {
 			if err == nil && selected != nil && selected.ID != "" {
 				digest := s.k12.store.digest(primary.ID)
-				s.k12.registerSelectionAttempt(digest, selected.ID, opts, time.Now())
+				s.k12.registerSelectionAttempt(digest, selected.ID, opts, time.Now(), s.k12.isK12(selected))
 			}
 			return selected, err
 		}

@@ -35,21 +35,30 @@ type k12SessionCooldown struct {
 	CooldownUntil int64  `json:"cooldownUntil"`
 }
 
+type k12NewSessionQuarantine struct {
+	AuthID          string `json:"authId"`
+	QuarantineUntil int64  `json:"quarantineUntil"`
+	FailedAt        int64  `json:"failedAt,omitempty"`
+	Hard            bool   `json:"hard,omitempty"`
+}
+
 type k12SessionStateFile struct {
-	Version   int                  `json:"version"`
-	KeyID     string               `json:"keyId"`
-	Bindings  []k12SessionBinding  `json:"bindings"`
-	Cooldowns []k12SessionCooldown `json:"cooldowns,omitempty"`
+	Version               int                       `json:"version"`
+	KeyID                 string                    `json:"keyId"`
+	Bindings              []k12SessionBinding       `json:"bindings"`
+	Cooldowns             []k12SessionCooldown      `json:"cooldowns,omitempty"`
+	NewSessionQuarantines []k12NewSessionQuarantine `json:"newSessionQuarantines,omitempty"`
 }
 
 type k12SessionStore struct {
-	mu        sync.Mutex
-	path      string
-	key       []byte
-	keyID     string
-	ttl       time.Duration
-	bindings  map[string]k12SessionBinding
-	cooldowns map[string]k12SessionCooldown
+	mu                    sync.Mutex
+	path                  string
+	key                   []byte
+	keyID                 string
+	ttl                   time.Duration
+	bindings              map[string]k12SessionBinding
+	cooldowns             map[string]k12SessionCooldown
+	newSessionQuarantines map[string]k12NewSessionQuarantine
 }
 
 func newK12SessionStore(path string, keyMaterial []byte, ttl time.Duration) (*k12SessionStore, error) {
@@ -66,12 +75,13 @@ func newK12SessionStore(path string, keyMaterial []byte, ttl time.Duration) (*k1
 	_, _ = keyIDMAC.Write([]byte(k12SessionKeyIDContext))
 
 	store := &k12SessionStore{
-		path:      strings.TrimSpace(path),
-		key:       key,
-		keyID:     hex.EncodeToString(keyIDMAC.Sum(nil)[:12]),
-		ttl:       ttl,
-		bindings:  make(map[string]k12SessionBinding),
-		cooldowns: make(map[string]k12SessionCooldown),
+		path:                  strings.TrimSpace(path),
+		key:                   key,
+		keyID:                 hex.EncodeToString(keyIDMAC.Sum(nil)[:12]),
+		ttl:                   ttl,
+		bindings:              make(map[string]k12SessionBinding),
+		cooldowns:             make(map[string]k12SessionCooldown),
+		newSessionQuarantines: make(map[string]k12NewSessionQuarantine),
 	}
 	if err := store.load(); err != nil {
 		return store, err
@@ -123,6 +133,13 @@ func (s *k12SessionStore) load() error {
 			continue
 		}
 		s.cooldowns[k12CooldownKey(cooldown.SessionDigest, cooldown.AuthID)] = cooldown
+	}
+	for _, quarantine := range state.NewSessionQuarantines {
+		quarantine.AuthID = strings.TrimSpace(quarantine.AuthID)
+		if quarantine.AuthID == "" || quarantine.QuarantineUntil <= now {
+			continue
+		}
+		s.newSessionQuarantines[quarantine.AuthID] = quarantine
 	}
 	return nil
 }
@@ -249,6 +266,81 @@ func (s *k12SessionStore) cooldownRemaining(sessionDigest, authID string, now ti
 	return time.Unix(until, 0).Sub(now)
 }
 
+func (s *k12SessionStore) quarantineNewSessions(
+	authID string,
+	sessionDigest string,
+	removeAllBindings bool,
+	until time.Time,
+	failedAt time.Time,
+	hard bool,
+) error {
+	if s == nil || authID == "" || until.IsZero() {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanupLocked(time.Now())
+	if removeAllBindings {
+		for digest, binding := range s.bindings {
+			if binding.AuthID == authID {
+				delete(s.bindings, digest)
+			}
+		}
+		for key, cooldown := range s.cooldowns {
+			if cooldown.AuthID == authID {
+				delete(s.cooldowns, key)
+			}
+		}
+	} else if sessionDigest != "" {
+		if binding, ok := s.bindings[sessionDigest]; ok && binding.AuthID == authID {
+			delete(s.bindings, sessionDigest)
+		}
+		for key, cooldown := range s.cooldowns {
+			if cooldown.SessionDigest == sessionDigest {
+				delete(s.cooldowns, key)
+			}
+		}
+	}
+	quarantine := s.newSessionQuarantines[authID]
+	quarantine.AuthID = authID
+	if until.Unix() > quarantine.QuarantineUntil {
+		quarantine.QuarantineUntil = until.Unix()
+	}
+	if failedAt.Unix() > quarantine.FailedAt {
+		quarantine.FailedAt = failedAt.Unix()
+	}
+	quarantine.Hard = quarantine.Hard || hard
+	s.newSessionQuarantines[authID] = quarantine
+	return s.persistLocked()
+}
+
+func (s *k12SessionStore) newSessionQuarantineRemaining(
+	authID string,
+	quotaSnapshotUpdatedAt time.Time,
+	refreshedQuotaUsable bool,
+	now time.Time,
+) time.Duration {
+	if s == nil || authID == "" {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := s.cleanupLocked(now)
+	quarantine, ok := s.newSessionQuarantines[authID]
+	if ok && !quarantine.Hard && refreshedQuotaUsable && !quotaSnapshotUpdatedAt.IsZero() && quotaSnapshotUpdatedAt.Unix() > quarantine.FailedAt {
+		delete(s.newSessionQuarantines, authID)
+		changed = true
+		ok = false
+	}
+	if changed {
+		_ = s.persistLocked()
+	}
+	if !ok || quarantine.QuarantineUntil <= now.Unix() {
+		return 0
+	}
+	return time.Unix(quarantine.QuarantineUntil, 0).Sub(now)
+}
+
 func (s *k12SessionStore) removeSession(sessionDigest string) error {
 	if s == nil || sessionDigest == "" {
 		return nil
@@ -303,6 +395,10 @@ func (s *k12SessionStore) removeAuth(authID string) error {
 			changed = true
 		}
 	}
+	if _, ok := s.newSessionQuarantines[authID]; ok {
+		delete(s.newSessionQuarantines, authID)
+		changed = true
+	}
 	if !changed {
 		return nil
 	}
@@ -325,6 +421,12 @@ func (s *k12SessionStore) pruneAuths(valid map[string]struct{}, now time.Time) e
 	for key, cooldown := range s.cooldowns {
 		if _, ok := valid[cooldown.AuthID]; !ok {
 			delete(s.cooldowns, key)
+			changed = true
+		}
+	}
+	for authID := range s.newSessionQuarantines {
+		if _, ok := valid[authID]; !ok {
+			delete(s.newSessionQuarantines, authID)
 			changed = true
 		}
 	}
@@ -377,6 +479,12 @@ func (s *k12SessionStore) cleanupLocked(now time.Time) bool {
 			changed = true
 		}
 	}
+	for authID, quarantine := range s.newSessionQuarantines {
+		if quarantine.QuarantineUntil <= nowUnix {
+			delete(s.newSessionQuarantines, authID)
+			changed = true
+		}
+	}
 	return changed
 }
 
@@ -385,16 +493,20 @@ func (s *k12SessionStore) persistLocked() error {
 		return nil
 	}
 	state := k12SessionStateFile{
-		Version:   k12SessionStateVersion,
-		KeyID:     s.keyID,
-		Bindings:  make([]k12SessionBinding, 0, len(s.bindings)),
-		Cooldowns: make([]k12SessionCooldown, 0, len(s.cooldowns)),
+		Version:               k12SessionStateVersion,
+		KeyID:                 s.keyID,
+		Bindings:              make([]k12SessionBinding, 0, len(s.bindings)),
+		Cooldowns:             make([]k12SessionCooldown, 0, len(s.cooldowns)),
+		NewSessionQuarantines: make([]k12NewSessionQuarantine, 0, len(s.newSessionQuarantines)),
 	}
 	for _, binding := range s.bindings {
 		state.Bindings = append(state.Bindings, binding)
 	}
 	for _, cooldown := range s.cooldowns {
 		state.Cooldowns = append(state.Cooldowns, cooldown)
+	}
+	for _, quarantine := range s.newSessionQuarantines {
+		state.NewSessionQuarantines = append(state.NewSessionQuarantines, quarantine)
 	}
 	sort.Slice(state.Bindings, func(i, j int) bool {
 		return state.Bindings[i].SessionDigest < state.Bindings[j].SessionDigest
@@ -403,6 +515,9 @@ func (s *k12SessionStore) persistLocked() error {
 		left := k12CooldownKey(state.Cooldowns[i].SessionDigest, state.Cooldowns[i].AuthID)
 		right := k12CooldownKey(state.Cooldowns[j].SessionDigest, state.Cooldowns[j].AuthID)
 		return left < right
+	})
+	sort.Slice(state.NewSessionQuarantines, func(i, j int) bool {
+		return state.NewSessionQuarantines[i].AuthID < state.NewSessionQuarantines[j].AuthID
 	})
 	content, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

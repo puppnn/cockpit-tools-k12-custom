@@ -13,31 +13,35 @@ import (
 )
 
 const (
-	defaultK12SessionTTL      = 7 * 24 * time.Hour
-	defaultK12SessionCooldown = 30 * time.Second
-	k12TentativeTTL           = 2 * time.Minute
-	defaultK12SpilloverTTL    = time.Hour
-	k12MaxActiveSessions      = 2
+	defaultK12SessionTTL              = 7 * 24 * time.Hour
+	defaultK12SessionCooldown         = 30 * time.Second
+	defaultK12NewSessionQuarantine    = 6 * time.Hour
+	k12DeactivatedWorkspaceQuarantine = 7 * 24 * time.Hour
+	k12TentativeTTL                   = 2 * time.Minute
+	defaultK12SpilloverTTL            = time.Hour
+	k12MaxActiveSessions              = 2
 )
 
 // K12QuotaSnapshot describes the latest local quota observation used only to
 // decide whether a K12 account may start a new session.
 type K12QuotaSnapshot struct {
 	Fresh                  bool
+	UpdatedAt              time.Time
 	HourlyRemainingPercent *int
 	WeeklyRemainingPercent *int
 }
 
 // K12SessionPolicyConfig enables confirmed, persistent K12 session affinity.
 type K12SessionPolicyConfig struct {
-	StatePath     string
-	HMACKey       []byte
-	TTL           time.Duration
-	Cooldown      time.Duration
-	SpilloverTTL  time.Duration
-	IsK12         func(*Auth) bool
-	IsSpillover   func(*Auth) bool
-	QuotaSnapshot func(*Auth) K12QuotaSnapshot
+	StatePath            string
+	HMACKey              []byte
+	TTL                  time.Duration
+	Cooldown             time.Duration
+	NewSessionQuarantine time.Duration
+	SpilloverTTL         time.Duration
+	IsK12                func(*Auth) bool
+	IsSpillover          func(*Auth) bool
+	QuotaSnapshot        func(*Auth) K12QuotaSnapshot
 }
 
 type k12TentativeSelection struct {
@@ -63,6 +67,7 @@ type k12CredentialAttemptState struct {
 	cohortMax      uint64
 	retiredThrough uint64
 	expiresAt      time.Time
+	k12            bool
 }
 
 type k12CandidateReservation struct {
@@ -75,12 +80,13 @@ type k12CandidateReservation struct {
 }
 
 type k12SessionPolicy struct {
-	store         *k12SessionStore
-	isK12         func(*Auth) bool
-	isSpillover   func(*Auth) bool
-	quotaSnapshot func(*Auth) K12QuotaSnapshot
-	cooldown      time.Duration
-	spilloverTTL  time.Duration
+	store                *k12SessionStore
+	isK12                func(*Auth) bool
+	isSpillover          func(*Auth) bool
+	quotaSnapshot        func(*Auth) K12QuotaSnapshot
+	cooldown             time.Duration
+	newSessionQuarantine time.Duration
+	spilloverTTL         time.Duration
 
 	mu         sync.Mutex
 	tentative  map[string]k12TentativeSelection
@@ -104,6 +110,10 @@ func newK12SessionPolicy(cfg *K12SessionPolicyConfig) (*k12SessionPolicy, error)
 	if cooldown <= 0 {
 		cooldown = defaultK12SessionCooldown
 	}
+	newSessionQuarantine := cfg.NewSessionQuarantine
+	if newSessionQuarantine <= 0 {
+		newSessionQuarantine = defaultK12NewSessionQuarantine
+	}
 	spilloverTTL := cfg.SpilloverTTL
 	if spilloverTTL <= 0 {
 		spilloverTTL = defaultK12SpilloverTTL
@@ -118,6 +128,7 @@ func newK12SessionPolicy(cfg *K12SessionPolicyConfig) (*k12SessionPolicy, error)
 		isSpillover:          cfg.IsSpillover,
 		quotaSnapshot:        cfg.QuotaSnapshot,
 		cooldown:             cooldown,
+		newSessionQuarantine: newSessionQuarantine,
 		spilloverTTL:         spilloverTTL,
 		tentative:            make(map[string]k12TentativeSelection),
 		spillovers:           make(map[string]k12SpilloverSelection),
@@ -133,7 +144,7 @@ func (p *k12SessionPolicy) quota(auth *Auth) K12QuotaSnapshot {
 	return p.quotaSnapshot(auth)
 }
 
-func (p *k12SessionPolicy) canStart(auth *Auth) bool {
+func (p *k12SessionPolicy) canStart(auth *Auth, now time.Time) bool {
 	if p == nil || auth == nil || !p.isK12(auth) || auth.Disabled || auth.Status == StatusDisabled {
 		return false
 	}
@@ -142,6 +153,10 @@ func (p *k12SessionPolicy) canStart(auth *Auth) bool {
 	// session, even when the snapshot is stale. Confirmed bindings bypass
 	// canStart and remain eligible for upstream-controlled continuation.
 	if snapshot.WeeklyRemainingPercent != nil && *snapshot.WeeklyRemainingPercent <= 0 {
+		return false
+	}
+	refreshedQuotaUsable := snapshot.Fresh && snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent > 0
+	if p.store != nil && p.store.newSessionQuarantineRemaining(auth.ID, snapshot.UpdatedAt, refreshedQuotaUsable, now) > 0 {
 		return false
 	}
 	return !snapshot.Fresh || snapshot.HourlyRemainingPercent == nil || *snapshot.HourlyRemainingPercent > 0
@@ -248,6 +263,45 @@ func (p *k12SessionPolicy) clearSpilloverPreference(sessionDigest string) {
 	p.mu.Unlock()
 }
 
+func (p *k12SessionPolicy) quarantineAfterPaymentRequired(
+	authID string,
+	sessionDigest string,
+	releaseSession bool,
+	clearTentative bool,
+	hard bool,
+	until time.Time,
+	now time.Time,
+) error {
+	if p == nil || p.store == nil || authID == "" || sessionDigest == "" {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cleanupTentativeLocked(now)
+	p.cleanupSpilloverPreferencesLocked(now)
+	cleanupDigest := ""
+	if releaseSession {
+		cleanupDigest = sessionDigest
+	}
+	err := p.store.quarantineNewSessions(authID, cleanupDigest, hard, until, now, hard)
+	if hard {
+		for digest, selection := range p.tentative {
+			if selection.authID == authID {
+				delete(p.tentative, digest)
+			}
+		}
+	} else if clearTentative {
+		if selection, ok := p.tentative[sessionDigest]; ok && selection.authID == authID {
+			delete(p.tentative, sessionDigest)
+		}
+	}
+	preferenceUntil := now.Add(p.cooldown)
+	if current := p.preferSpilloverUntil[sessionDigest]; preferenceUntil.After(current) {
+		p.preferSpilloverUntil[sessionDigest] = preferenceUntil
+	}
+	return err
+}
+
 func (p *k12SessionPolicy) selectionAttemptTTL() time.Duration {
 	if p != nil && p.store != nil && p.store.ttl > 0 {
 		return p.store.ttl
@@ -255,7 +309,7 @@ func (p *k12SessionPolicy) selectionAttemptTTL() time.Duration {
 	return defaultK12SessionTTL
 }
 
-func (p *k12SessionPolicy) registerSelectionAttempt(sessionDigest, authID string, opts cliproxyexecutor.Options, now time.Time) {
+func (p *k12SessionPolicy) registerSelectionAttempt(sessionDigest, authID string, opts cliproxyexecutor.Options, now time.Time, isK12 bool) {
 	attemptID := selectionAttemptIDFromOptions(opts)
 	if p == nil || sessionDigest == "" || authID == "" || attemptID == 0 {
 		return
@@ -278,6 +332,7 @@ func (p *k12SessionPolicy) registerSelectionAttempt(sessionDigest, authID string
 	if attemptID > state.cohortMax {
 		state.cohortMax = attemptID
 	}
+	state.k12 = state.k12 || isK12
 	state.expiresAt = now.Add(p.selectionAttemptTTL())
 	p.attempts[key] = state
 }
@@ -285,10 +340,10 @@ func (p *k12SessionPolicy) registerSelectionAttempt(sessionDigest, authID string
 // resolveSelectionAttempt distinguishes policy-managed selections from ordinary
 // auths and accepts only results that may still change affinity. The first
 // active success retires the entire cohort.
-func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string, opts cliproxyexecutor.Options, success bool, now time.Time) (known, accepted bool) {
+func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string, opts cliproxyexecutor.Options, success bool, now time.Time) (known, accepted, isK12 bool) {
 	attemptID := selectionAttemptIDFromOptions(opts)
 	if p == nil || sessionDigest == "" || authID == "" || attemptID == 0 {
-		return false, true
+		return false, true, false
 	}
 	key := k12CredentialAttemptKey{sessionDigest: sessionDigest, authID: authID}
 	p.mu.Lock()
@@ -296,18 +351,18 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 	p.cleanupSelectionAttemptsLocked(now)
 	state, ok := p.attempts[key]
 	if !ok {
-		return false, true
+		return false, true, false
 	}
 	if attemptID <= state.retiredThrough {
-		return true, false
+		return true, false, state.k12
 	}
 	if _, resolved := state.resolved[attemptID]; resolved {
-		return true, false
+		return true, false, state.k12
 	}
 	if _, active := state.active[attemptID]; !active {
 		// A newer ID that was never registered for this credential may belong to
 		// an ordinary non-K12 selection after an older spillover expired.
-		return false, true
+		return false, true, false
 	}
 	if success {
 		if state.cohortMax > state.retiredThrough {
@@ -318,7 +373,7 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 		state.cohortMax = 0
 		state.expiresAt = now.Add(p.selectionAttemptTTL())
 		p.attempts[key] = state
-		return true, true
+		return true, true, state.k12
 	}
 	delete(state.active, attemptID)
 	if state.resolved == nil {
@@ -328,7 +383,7 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 	if len(state.active) > 0 {
 		state.expiresAt = now.Add(p.selectionAttemptTTL())
 		p.attempts[key] = state
-		return true, false
+		return true, false, state.k12
 	}
 	if state.cohortMax > state.retiredThrough {
 		state.retiredThrough = state.cohortMax
@@ -338,7 +393,7 @@ func (p *k12SessionPolicy) resolveSelectionAttempt(sessionDigest, authID string,
 	state.cohortMax = 0
 	state.expiresAt = now.Add(p.selectionAttemptTTL())
 	p.attempts[key] = state
-	return true, true
+	return true, true, state.k12
 }
 
 func (p *k12SessionPolicy) commitK12Success(sessionDigest, source, authID string, now time.Time) (bool, error) {
@@ -464,6 +519,16 @@ func (p *k12SessionPolicy) reserveCandidate(
 	defer p.mu.Unlock()
 	p.cleanupTentativeLocked(now)
 	p.cleanupSpilloversLocked(now)
+	eligibleK12 := make([]*Auth, 0, len(k12Candidates))
+	for _, auth := range k12Candidates {
+		if p.canStart(auth, now) {
+			eligibleK12 = append(eligibleK12, auth)
+		}
+	}
+	k12Candidates = eligibleK12
+	if len(k12Candidates) == 0 {
+		return k12CandidateReservation{}, nil
+	}
 
 	if selection, ok := p.tentative[sessionDigest]; ok {
 		for _, auth := range k12Candidates {
@@ -589,7 +654,7 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 						"k12-session-affinity: spillover binding hit before K12 recovery | source=%s session=%s auth=%s provider=%s model=%s",
 						identity.Source, shortSessionDigest(digest), auth.ID, provider, model,
 					)
-					s.k12.registerSelectionAttempt(digest, auth.ID, opts, now)
+					s.k12.registerSelectionAttempt(digest, auth.ID, opts, now, false)
 					return auth, true, nil
 				}
 			}
@@ -629,7 +694,7 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 			"k12-session-affinity: confirmed binding hit | source=%s session=%s auth=%s provider=%s model=%s",
 			identity.Source, shortSessionDigest(digest), auth.ID, provider, model,
 		)
-		s.k12.registerSelectionAttempt(digest, auth.ID, opts, now)
+		s.k12.registerSelectionAttempt(digest, auth.ID, opts, now, true)
 		return auth, true, nil
 	}
 	if remaining := s.k12.store.cooldownRemaining(digest, binding.AuthID, now); remaining > 0 {
@@ -694,7 +759,7 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		if auth.ID == suspendedAuthID {
 			continue
 		}
-		if !s.k12.canStart(auth) {
+		if !s.k12.canStart(auth, now) {
 			continue
 		}
 		if remaining := s.k12.store.cooldownRemaining(digest, auth.ID, now); remaining > 0 {
@@ -764,6 +829,9 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 			return nil, nil, true, err
 		}
 		if reservation.auth == nil {
+			if len(nonK12) > 0 {
+				return nil, nonK12, false, nil
+			}
 			return nil, nil, true, &Error{Code: "auth_unavailable", Message: "no K12 auth available for a new session"}
 		}
 		if reservation.reused {
@@ -806,6 +874,79 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 	return nil, nonK12, false, nil
 }
 
+func (s *SessionAffinitySelector) handleK12PaymentRequired(
+	ctx context.Context,
+	result Result,
+	identity sessionIdentity,
+	digest string,
+	now time.Time,
+	releaseSession bool,
+	clearTentative bool,
+) SelectionResultDirective {
+	entry := selectorLogEntry(ctx)
+	deactivatedWorkspace := isDeactivatedWorkspaceResultError(result.Error)
+	quarantineDuration := s.k12.newSessionQuarantine
+	if deactivatedWorkspace {
+		quarantineDuration = k12DeactivatedWorkspaceQuarantine
+	}
+	if err := s.k12.quarantineAfterPaymentRequired(
+		result.AuthID,
+		digest,
+		releaseSession,
+		clearTentative,
+		deactivatedWorkspace,
+		now.Add(quarantineDuration),
+		now,
+	); err != nil {
+		entry.Warnf("k12-session-affinity: persist new-session quarantine failed | source=%s session=%s auth=%s error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, err)
+		store := s.k12.store
+		source := identity.Source
+		authID := result.AuthID
+		go retryPersistK12SessionState(store, source, digest, authID)
+	}
+	entry.Warnf(
+		"k12-session-affinity: 402 quarantined auth for new sessions | source=%s session=%s auth=%s deactivated=%t quarantine=%s",
+		identity.Source, shortSessionDigest(digest), result.AuthID, deactivatedWorkspace, quarantineDuration,
+	)
+	return SelectionResultDirective{SuppressAvailabilityUpdate: !deactivatedWorkspace, StopAuthAttempt: true}
+}
+
+func retryPersistK12SessionState(store *k12SessionStore, source, sessionDigest, authID string) {
+	if store == nil {
+		return
+	}
+	delays := [...]time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 2 * time.Second}
+	var err error
+	for _, delay := range delays {
+		time.Sleep(delay)
+		if err = store.persist(); err == nil {
+			return
+		}
+	}
+	selectorLogEntry(context.Background()).Warnf(
+		"k12-session-affinity: persist state retry exhausted | source=%s session=%s auth=%s error=%v",
+		source, shortSessionDigest(sessionDigest), authID, err,
+	)
+}
+
+func (s *SessionAffinitySelector) handleK12CredentialHardFailure(
+	ctx context.Context,
+	result Result,
+	identity sessionIdentity,
+	digest string,
+	status int,
+) SelectionResultDirective {
+	entry := selectorLogEntry(ctx)
+	if err := s.k12.store.removeAuth(result.AuthID); err != nil {
+		entry.Warnf("k12-session-affinity: hard auth binding cleanup failed | source=%s session=%s auth=%s status=%d error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, status, err)
+		go retryPersistK12SessionState(s.k12.store, identity.Source, digest, result.AuthID)
+	}
+	s.k12.clearTentativeAuth(result.AuthID)
+	s.k12.clearSpilloverPreference(digest)
+	entry.Warnf("k12-session-affinity: hard auth failure cleared bindings | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
+	return SelectionResultDirective{StopAuthAttempt: true}
+}
+
 func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result Result, opts cliproxyexecutor.Options) SelectionResultDirective {
 	if s == nil || s.k12 == nil || s.k12.store == nil || result.AuthID == "" {
 		return SelectionResultDirective{}
@@ -816,9 +957,23 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 	}
 	now := time.Now()
 	digest := s.k12.store.digest(identity.ID)
+	status := statusCodeFromResult(result.Error)
 	streamOpenTimeout := isStreamOpenTimeoutResultError(result.Error)
-	attemptKnown, attemptAccepted := s.k12.resolveSelectionAttempt(digest, result.AuthID, opts, result.Success, now)
+	attemptKnown, attemptAccepted, attemptIsK12 := s.k12.resolveSelectionAttempt(digest, result.AuthID, opts, result.Success, now)
+	binding, confirmed := s.k12.store.binding(digest, now)
+	spilloverAuthID := s.k12.spilloverAuth(digest, now)
+	tentativeAuthID := s.k12.tentativeAuth(digest, now)
+	resultIsBinding := confirmed && binding.AuthID == result.AuthID
+	resultIsTentative := tentativeAuthID == result.AuthID
 	if !attemptAccepted {
+		if attemptIsK12 {
+			switch status {
+			case http.StatusPaymentRequired:
+				return s.handleK12PaymentRequired(ctx, result, identity, digest, now, false, false)
+			case http.StatusUnauthorized, http.StatusForbidden:
+				return s.handleK12CredentialHardFailure(ctx, result, identity, digest, status)
+			}
+		}
 		if streamOpenTimeout {
 			// A sibling request may still own another active attempt for this
 			// credential. The failed attempt cannot retire that cohort, but its
@@ -827,8 +982,6 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		}
 		return SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: !result.Success}
 	}
-	binding, confirmed := s.k12.store.binding(digest, now)
-	spilloverAuthID := s.k12.spilloverAuth(digest, now)
 	if spilloverAuthID == result.AuthID {
 		entry := selectorLogEntry(ctx)
 		if result.Success {
@@ -853,10 +1006,15 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		entry.Warnf("k12-session-affinity: spillover binding released after failure | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
 		return SelectionResultDirective{}
 	}
-	tentativeAuthID := s.k12.tentativeAuth(digest, now)
-	resultIsBinding := confirmed && binding.AuthID == result.AuthID
-	resultIsTentative := tentativeAuthID == result.AuthID
 	if !resultIsBinding && !resultIsTentative {
+		if attemptKnown && attemptIsK12 {
+			switch status {
+			case http.StatusPaymentRequired:
+				return s.handleK12PaymentRequired(ctx, result, identity, digest, now, false, false)
+			case http.StatusUnauthorized, http.StatusForbidden:
+				return s.handleK12CredentialHardFailure(ctx, result, identity, digest, status)
+			}
+		}
 		if attemptKnown {
 			return SelectionResultDirective{SuppressAvailabilityUpdate: true, StopAuthAttempt: !result.Success}
 		}
@@ -877,13 +1035,11 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		return SelectionResultDirective{}
 	}
 
-	status := statusCodeFromResult(result.Error)
-	if status == http.StatusUnauthorized || status == http.StatusPaymentRequired || status == http.StatusForbidden {
-		_ = s.k12.store.removeAuth(result.AuthID)
-		s.k12.clearTentativeAuth(result.AuthID)
-		s.k12.clearSpilloverPreference(digest)
-		entry.Warnf("k12-session-affinity: hard auth failure cleared bindings | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
-		return SelectionResultDirective{StopAuthAttempt: true}
+	if status == http.StatusPaymentRequired {
+		return s.handleK12PaymentRequired(ctx, result, identity, digest, now, resultIsBinding, true)
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return s.handleK12CredentialHardFailure(ctx, result, identity, digest, status)
 	}
 
 	if isModelSupportResultError(result.Error) {
@@ -935,6 +1091,13 @@ func isStreamOpenTimeoutResultError(err *Error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Message), "stream_open")
+}
+
+func isDeactivatedWorkspaceResultError(err *Error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Message), "deactivated_workspace")
 }
 
 func (s *SessionAffinitySelector) SyncAuths(auths []*Auth) {

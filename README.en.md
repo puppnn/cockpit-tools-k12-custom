@@ -46,6 +46,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 ### Continuity and Failover
 
 - **Automatic 429 failover**: When a K12 actually returns 429, the unusable binding is released and another account is attempted within the same request, preventing one exhausted account from stopping a long-running task.
+- **Persistent 402 isolation for new sessions**: After a K12 rejects a new session with 402, that account stops accepting new sessions across requests and sidecar restarts, while the current request immediately spills to Plus. Ordinary quota-related 402 responses release only the failed session and preserve unrelated confirmed sessions on the same account; an explicit `deactivated_workspace` clears all bindings for that account and enters hard isolation.
 - **First-payload timeout recovery**: A stream that never opens releases its unresponsive K12 binding and retries. The first-payload timeout is refreshed after credential failover, with no more than 60 seconds of additional total grace.
 - **Failure isolation**: A failed new session does not put the entire K12 account into global cooldown or disturb other confirmed sessions on that account.
 - **Hard-failure cleanup**: Bindings are removed when an account is deleted, disabled, or has clearly invalid credentials, allowing requests to move to another account.

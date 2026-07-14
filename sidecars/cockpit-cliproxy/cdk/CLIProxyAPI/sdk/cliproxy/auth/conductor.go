@@ -1044,6 +1044,68 @@ func openAIResponsesEventHasSemanticOutput(payload []byte) bool {
 	return false
 }
 
+func openAIResponsesEventSummary(payload []byte) string {
+	payload = bytes.TrimSpace(payload)
+	if bytes.Contains(payload, []byte("\n")) {
+		parts := make([]string, 0, 2)
+		for _, line := range bytes.Split(payload, []byte("\n")) {
+			summary := openAIResponsesEventSummary(line)
+			if summary != "empty" {
+				parts = append(parts, summary)
+			}
+		}
+		if len(parts) == 0 {
+			return "empty"
+		}
+		return strings.Join(parts, ",")
+	}
+	if bytes.HasPrefix(payload, []byte("data:")) {
+		payload = bytes.TrimSpace(payload[len("data:"):])
+	}
+	if len(payload) == 0 {
+		return "empty"
+	}
+	if bytes.HasPrefix(payload, []byte("event:")) {
+		return "sse_event"
+	}
+	if bytes.Equal(payload, []byte("[DONE]")) {
+		return "done"
+	}
+	var event struct {
+		Type string `json:"type"`
+		Item struct {
+			Type string `json:"type"`
+		} `json:"item"`
+		Response struct {
+			Output []struct {
+				Type string `json:"type"`
+			} `json:"output"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(payload, &event) != nil {
+		return "unrecognized"
+	}
+	summary := strings.TrimSpace(event.Type)
+	if summary == "" {
+		summary = "json_without_type"
+	}
+	if itemType := strings.TrimSpace(event.Item.Type); itemType != "" {
+		summary += ":" + itemType
+	}
+	if len(event.Response.Output) > 0 {
+		outputTypes := make([]string, 0, len(event.Response.Output))
+		for _, output := range event.Response.Output {
+			if outputType := strings.TrimSpace(output.Type); outputType != "" {
+				outputTypes = append(outputTypes, outputType)
+			}
+		}
+		if len(outputTypes) > 0 {
+			summary += ":output=" + strings.Join(outputTypes, "+")
+		}
+	}
+	return summary
+}
+
 func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamChunk, requireSemanticOutput bool) ([]cliproxyexecutor.StreamChunk, bool, error) {
 	if ch == nil {
 		return nil, true, nil
@@ -1070,7 +1132,15 @@ func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamC
 			return nil, false, chunk.Err
 		}
 		buffered = append(buffered, chunk)
-		if len(chunk.Payload) > 0 && (!requireSemanticOutput || openAIResponsesEventHasSemanticOutput(chunk.Payload)) {
+		semanticOutput := len(chunk.Payload) > 0 && openAIResponsesEventHasSemanticOutput(chunk.Payload)
+		if requireSemanticOutput && len(chunk.Payload) > 0 {
+			logEntryWithRequestID(ctx).Infof(
+				"responses semantic bootstrap | event=%s accepted=%t",
+				openAIResponsesEventSummary(chunk.Payload),
+				semanticOutput,
+			)
+		}
+		if len(chunk.Payload) > 0 && (!requireSemanticOutput || semanticOutput) {
 			return buffered, false, nil
 		}
 	}

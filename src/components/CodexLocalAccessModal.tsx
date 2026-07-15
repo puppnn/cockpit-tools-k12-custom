@@ -495,9 +495,28 @@ export function CodexLocalAccessModal({
     () => [
       {
         key: "requests",
-        label: t("codex.localAccess.stats.requests", "总请求数"),
-        value: formatCompactNumber(selectedTotals?.requestCount ?? 0),
+        label: t("codex.localAccess.stats.logicalRequests", "逻辑请求"),
+        value: formatCompactNumber(
+          selectedTotals?.logicalRequestCount ??
+            selectedTotals?.requestCount ??
+            0,
+        ),
         detail: formatRequestResultDetail(selectedTotals),
+      },
+      {
+        key: "upstreamAttempts",
+        label: t("codex.localAccess.stats.upstreamAttempts", "上游实际尝试"),
+        value: formatCompactNumber(selectedTotals?.upstreamAttemptCount ?? 0),
+        detail: t("codex.localAccess.stats.upstreamAttemptsDetail", {
+          canceled: formatCompactNumber(
+            selectedTotals?.canceledRequestCount ?? 0,
+          ),
+          possibleBillable: formatCompactNumber(
+            selectedTotals?.possibleBillableRequestCount ?? 0,
+          ),
+          defaultValue:
+            "取消 {{canceled}} / 可能已计费但无 usage {{possibleBillable}}",
+        }),
       },
       {
         key: "tokens",

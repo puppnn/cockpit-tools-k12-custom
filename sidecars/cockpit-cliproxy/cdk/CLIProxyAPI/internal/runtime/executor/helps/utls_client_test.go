@@ -44,6 +44,22 @@ func TestNewUtlsHTTPClientUsesContextRoundTripperForChatGPT(t *testing.T) {
 	}
 }
 
+func TestNewUtlsHTTPClientDoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+
+	client := NewUtlsHTTPClient(context.Background(), nil, nil, 0)
+	if client.CheckRedirect == nil {
+		t.Fatal("upstream client must define a redirect policy")
+	}
+	request, err := http.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest returned error: %v", err)
+	}
+	if err := client.CheckRedirect(request, nil); err != http.ErrUseLastResponse {
+		t.Fatalf("redirect policy error = %v, want http.ErrUseLastResponse", err)
+	}
+}
+
 func TestFallbackRoundTripperUsesStandardTransportForChatGPT(t *testing.T) {
 	t.Parallel()
 

@@ -78,16 +78,15 @@ const ollamaShowPath = "/api/show"
 const ollamaChatPath = "/api/chat"
 const ollamaBridgeVersion = "0.18.3"
 const maxImageUploadBytes int64 = 64 * 1024 * 1024
+const clientClosedRequestStatus = 499
 
 var (
-	streamOpenTimeout              = 120 * time.Second
-	streamOpenMaxAttempts          = 2
-	streamOpenFinalAttemptMinimum  = 5 * time.Minute
-	streamOpenSelectionReportWait  = 250 * time.Millisecond
-	streamOpenSelectionReportSlots = make(chan struct{}, 16)
-	streamIdleTimeout              = 60 * time.Second
-	imageStreamOpenTimeout         = 10 * time.Second
-	imageStreamIdleTimeout         = 60 * time.Second
+	streamOpenTimeout             = 180 * time.Second
+	streamOpenMaxAttempts         = 1
+	streamOpenFinalAttemptMinimum = 5 * time.Minute
+	streamIdleTimeout             = 60 * time.Second
+	imageStreamOpenTimeout        = 10 * time.Second
+	imageStreamIdleTimeout        = 60 * time.Second
 )
 
 type manifest struct {
@@ -301,6 +300,7 @@ type customRoutingRule struct {
 type usagePayload struct {
 	Type             string       `json:"type"`
 	RequestID        string       `json:"requestId,omitempty"`
+	LogicalRequestID string       `json:"logicalRequestId,omitempty"`
 	Provider         string       `json:"provider,omitempty"`
 	Model            string       `json:"model,omitempty"`
 	Alias            string       `json:"alias,omitempty"`
@@ -319,43 +319,67 @@ type usagePayload struct {
 	LatencyMS        int64        `json:"latencyMs,omitempty"`
 	Usage            usageDetails `json:"usage"`
 	RequestedAtMS    int64        `json:"requestedAtMs,omitempty"`
+	Correction       bool         `json:"correction,omitempty"`
 }
 
 type requestDiagnosticPayload struct {
-	Type            string `json:"type"`
-	RequestID       string `json:"requestId,omitempty"`
-	Method          string `json:"method,omitempty"`
-	Path            string `json:"path,omitempty"`
-	RequestKind     string `json:"requestKind,omitempty"`
-	Model           string `json:"model,omitempty"`
-	APIKeyID        string `json:"apiKeyId,omitempty"`
-	APIKeyLabel     string `json:"apiKeyLabel,omitempty"`
-	Transport       string `json:"transport,omitempty"`
-	Status          int    `json:"status,omitempty"`
-	LatencyMS       int64  `json:"latencyMs,omitempty"`
-	StartedAtMS     int64  `json:"startedAtMs,omitempty"`
-	CompletedAtMS   int64  `json:"completedAtMs,omitempty"`
-	Aborted         bool   `json:"aborted,omitempty"`
-	ErrorMessage    string `json:"errorMessage,omitempty"`
-	CandidateAuths  int    `json:"candidateAuths,omitempty"`
-	AvailableAuths  int    `json:"availableAuths,omitempty"`
-	RoutingStrategy string `json:"routingStrategy,omitempty"`
-	Provider        string `json:"provider,omitempty"`
-	AuthID          string `json:"authId,omitempty"`
-	AccountID       string `json:"accountId,omitempty"`
-	AccountEmail    string `json:"accountEmail,omitempty"`
-	Success         *bool  `json:"success,omitempty"`
-	ErrorCode       string `json:"errorCode,omitempty"`
-	HTTPStatus      int    `json:"httpStatus,omitempty"`
-	Retryable       *bool  `json:"retryable,omitempty"`
-	RetryAfterMS    int64  `json:"retryAfterMs,omitempty"`
+	Type             string `json:"type"`
+	RequestID        string `json:"requestId,omitempty"`
+	LogicalRequestID string `json:"logicalRequestId,omitempty"`
+	Method           string `json:"method,omitempty"`
+	Path             string `json:"path,omitempty"`
+	RequestKind      string `json:"requestKind,omitempty"`
+	Model            string `json:"model,omitempty"`
+	APIKeyID         string `json:"apiKeyId,omitempty"`
+	APIKeyLabel      string `json:"apiKeyLabel,omitempty"`
+	Transport        string `json:"transport,omitempty"`
+	Status           int    `json:"status,omitempty"`
+	LatencyMS        int64  `json:"latencyMs,omitempty"`
+	StartedAtMS      int64  `json:"startedAtMs,omitempty"`
+	CompletedAtMS    int64  `json:"completedAtMs,omitempty"`
+	Aborted          bool   `json:"aborted,omitempty"`
+	ErrorMessage     string `json:"errorMessage,omitempty"`
+	CandidateAuths   int    `json:"candidateAuths,omitempty"`
+	AvailableAuths   int    `json:"availableAuths,omitempty"`
+	RoutingStrategy  string `json:"routingStrategy,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	AuthID           string `json:"authId,omitempty"`
+	AccountID        string `json:"accountId,omitempty"`
+	AccountEmail     string `json:"accountEmail,omitempty"`
+	Success          *bool  `json:"success,omitempty"`
+	ErrorCode        string `json:"errorCode,omitempty"`
+	HTTPStatus       int    `json:"httpStatus,omitempty"`
+	Retryable        *bool  `json:"retryable,omitempty"`
+	RetryAfterMS     int64  `json:"retryAfterMs,omitempty"`
+}
+
+type upstreamAttemptPayload struct {
+	Type                            string `json:"type"`
+	RequestID                       string `json:"requestId,omitempty"`
+	LogicalRequestID                string `json:"logicalRequestId"`
+	UpstreamAttemptID               string `json:"upstreamAttemptId"`
+	AttemptNumber                   int    `json:"attemptNumber"`
+	AccountID                       string `json:"accountId,omitempty"`
+	Email                           string `json:"email,omitempty"`
+	AuthID                          string `json:"authId,omitempty"`
+	APIKeyID                        string `json:"apiKeyId,omitempty"`
+	APIKeyLabel                     string `json:"apiKeyLabel,omitempty"`
+	ClientInstanceID                string `json:"clientInstanceId,omitempty"`
+	Model                           string `json:"model,omitempty"`
+	RequestKind                     string `json:"requestKind,omitempty"`
+	SentAt                          int64  `json:"sentAt,omitempty"`
+	FirstByteAt                     int64  `json:"firstByteAt,omitempty"`
+	CanceledAt                      int64  `json:"canceledAt,omitempty"`
+	CompletedAt                     int64  `json:"completedAt,omitempty"`
+	RetryReason                     string `json:"retryReason,omitempty"`
+	Status                          int    `json:"status,omitempty"`
+	PossibleBillableRequest         bool   `json:"possibleBillableRequest"`
+	UpstreamCancellationUnconfirmed bool   `json:"upstreamCancellationUnconfirmed"`
 }
 
 const executorWaitLogInterval = 30 * time.Second
 const streamOpenCancelWait = 2 * time.Second
 const streamOpenFailoverGraceMax = 60 * time.Second
-const streamOpenDepletedK12TimeoutMax = 30 * time.Second
-const streamOpenDepletedK12TimeoutDivisor = 4
 
 type relayTimeoutError struct {
 	phase   string
@@ -415,15 +439,54 @@ type selectedAccountRecord struct {
 
 type requestUsageTracker struct {
 	mu               sync.Mutex
+	active           map[string]struct{}
 	records          map[string][]usagePayload
 	selectedAccounts map[string]selectedAccountRecord
+	finalized        map[string]usageTombstone
+	finalizedOrder   []string
+	emitter          *eventEmitter
 }
+
+type usageTombstone struct {
+	payload            usagePayload
+	expiresAt          time.Time
+	emitted            bool
+	dirty              bool
+	outcomeProvisional bool
+}
+
+const usageTombstoneTTL = 6 * time.Hour
+const usageTombstoneLimit = 4096
 
 func newRequestUsageTracker() *requestUsageTracker {
 	return &requestUsageTracker{
+		active:           make(map[string]struct{}),
 		records:          make(map[string][]usagePayload),
 		selectedAccounts: make(map[string]selectedAccountRecord),
+		finalized:        make(map[string]usageTombstone),
 	}
+}
+
+func (t *requestUsageTracker) start(requestID string) {
+	if t == nil {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return
+	}
+	t.mu.Lock()
+	t.active[requestID] = struct{}{}
+	t.mu.Unlock()
+}
+
+func (t *requestUsageTracker) setEmitter(emitter *eventEmitter) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.emitter = emitter
+	t.mu.Unlock()
 }
 
 func (t *requestUsageTracker) record(payload usagePayload) {
@@ -435,9 +498,44 @@ func (t *requestUsageTracker) record(payload usagePayload) {
 		return
 	}
 	payload.Type = "usage"
+	payload.LogicalRequestID = requestID
+	var correction *usagePayload
+	var emitter *eventEmitter
 	t.mu.Lock()
-	t.records[requestID] = append(t.records[requestID], payload)
+	t.pruneFinalizedLocked(time.Now())
+	if tombstone, ok := t.finalized[requestID]; ok {
+		merged := mergeLateUsage(tombstone.payload, payload)
+		if tombstone.outcomeProvisional {
+			merged.Success = payload.Success
+			if payload.Status > 0 {
+				merged.Status = payload.Status
+			}
+			merged.ErrorCategory = payload.ErrorCategory
+			merged.ErrorMessage = payload.ErrorMessage
+			tombstone.outcomeProvisional = false
+		}
+		merged.Correction = true
+		tombstone.payload = merged
+		tombstone.expiresAt = time.Now().Add(usageTombstoneTTL)
+		tombstone.dirty = true
+		if tombstone.emitted {
+			tombstone.dirty = false
+			correction = &merged
+			emitter = t.emitter
+		}
+		t.finalized[requestID] = tombstone
+		t.touchFinalizedLocked(requestID)
+	} else if _, active := t.active[requestID]; active {
+		t.records[requestID] = append(t.records[requestID], payload)
+	} else {
+		payload.Correction = true
+		correction = &payload
+		emitter = t.emitter
+	}
 	t.mu.Unlock()
+	if correction != nil && emitter != nil {
+		emitter.emit(*correction)
+	}
 }
 
 func (t *requestUsageTracker) recordSelectedAccount(requestID string, account *accountSpec, authID string) {
@@ -445,16 +543,202 @@ func (t *requestUsageTracker) recordSelectedAccount(requestID string, account *a
 		return
 	}
 	requestID = strings.TrimSpace(requestID)
-	if requestID == "" || account == nil {
+	if requestID == "" {
 		return
 	}
+	record := selectedAccountRecord{AuthID: strings.TrimSpace(authID)}
+	if account != nil {
+		record.AccountID = strings.TrimSpace(account.ID)
+		record.AccountEmail = strings.TrimSpace(account.Email)
+	}
+	var correction *usagePayload
+	var emitter *eventEmitter
 	t.mu.Lock()
-	t.selectedAccounts[requestID] = selectedAccountRecord{
-		AccountID:    strings.TrimSpace(account.ID),
-		AccountEmail: strings.TrimSpace(account.Email),
-		AuthID:       strings.TrimSpace(authID),
+	now := time.Now()
+	t.pruneFinalizedLocked(now)
+	if tombstone, ok := t.finalized[requestID]; ok {
+		if record.AccountID != "" {
+			tombstone.payload.AccountID = record.AccountID
+		}
+		if record.AccountEmail != "" {
+			tombstone.payload.AccountEmail = record.AccountEmail
+		}
+		if record.AuthID != "" {
+			tombstone.payload.AuthID = record.AuthID
+		}
+		tombstone.payload.Correction = true
+		tombstone.expiresAt = now.Add(usageTombstoneTTL)
+		tombstone.dirty = true
+		if tombstone.emitted {
+			tombstone.dirty = false
+			payload := tombstone.payload
+			correction = &payload
+			emitter = t.emitter
+		}
+		t.finalized[requestID] = tombstone
+		t.touchFinalizedLocked(requestID)
+	} else {
+		if existing, ok := t.selectedAccounts[requestID]; ok && existing.AuthID == record.AuthID {
+			if record.AccountID == "" {
+				record.AccountID = existing.AccountID
+			}
+			if record.AccountEmail == "" {
+				record.AccountEmail = existing.AccountEmail
+			}
+		}
+		t.selectedAccounts[requestID] = record
 	}
 	t.mu.Unlock()
+	if correction != nil && emitter != nil {
+		emitter.emit(*correction)
+	}
+}
+
+func (t *requestUsageTracker) selectedAccount(requestID string) (selectedAccountRecord, bool) {
+	if t == nil {
+		return selectedAccountRecord{}, false
+	}
+	requestID = strings.TrimSpace(requestID)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	record, ok := t.selectedAccounts[requestID]
+	if ok {
+		return record, true
+	}
+	tombstone, ok := t.finalized[requestID]
+	if !ok {
+		return selectedAccountRecord{}, false
+	}
+	return selectedAccountRecord{
+		AccountID:    tombstone.payload.AccountID,
+		AccountEmail: tombstone.payload.AccountEmail,
+		AuthID:       tombstone.payload.AuthID,
+	}, true
+}
+
+func mergeLateUsage(base, late usagePayload) usagePayload {
+	merged := base
+	merged.Type = "usage"
+	if merged.RequestID == "" {
+		merged.RequestID = late.RequestID
+	}
+	if merged.LogicalRequestID == "" {
+		merged.LogicalRequestID = late.LogicalRequestID
+	}
+	if merged.Provider == "" {
+		merged.Provider = late.Provider
+	}
+	if merged.Model == "" {
+		merged.Model = late.Model
+	}
+	if merged.Alias == "" {
+		merged.Alias = late.Alias
+	}
+	if merged.AccountID == "" {
+		merged.AccountID = late.AccountID
+	}
+	if merged.AccountEmail == "" {
+		merged.AccountEmail = late.AccountEmail
+	}
+	if merged.AuthID == "" {
+		merged.AuthID = late.AuthID
+	}
+	if merged.APIKeyID == "" {
+		merged.APIKeyID = late.APIKeyID
+	}
+	if merged.APIKeyLabel == "" {
+		merged.APIKeyLabel = late.APIKeyLabel
+	}
+	if merged.ClientInstanceID == "" {
+		merged.ClientInstanceID = late.ClientInstanceID
+	}
+	if merged.RequestKind == "" {
+		merged.RequestKind = late.RequestKind
+	}
+	if merged.ServiceTier == "" {
+		merged.ServiceTier = late.ServiceTier
+	}
+	if late.Usage != (usageDetails{}) {
+		merged.Usage = late.Usage
+	}
+	if merged.RequestedAtMS <= 0 {
+		merged.RequestedAtMS = late.RequestedAtMS
+	}
+	return merged
+}
+
+func (t *requestUsageTracker) pruneFinalizedLocked(now time.Time) {
+	if t == nil {
+		return
+	}
+	for len(t.finalizedOrder) > 0 {
+		requestID := t.finalizedOrder[0]
+		tombstone, ok := t.finalized[requestID]
+		if ok && now.Before(tombstone.expiresAt) && len(t.finalized) <= usageTombstoneLimit {
+			break
+		}
+		t.finalizedOrder = t.finalizedOrder[1:]
+		if ok {
+			delete(t.finalized, requestID)
+		}
+	}
+}
+
+func (t *requestUsageTracker) touchFinalizedLocked(requestID string) {
+	if t == nil {
+		return
+	}
+	for index, existing := range t.finalizedOrder {
+		if existing != requestID {
+			continue
+		}
+		copy(t.finalizedOrder[index:], t.finalizedOrder[index+1:])
+		t.finalizedOrder[len(t.finalizedOrder)-1] = requestID
+		return
+	}
+	t.finalizedOrder = append(t.finalizedOrder, requestID)
+}
+
+func (t *requestUsageTracker) rememberFinalizedLocked(requestID string, payload usagePayload, now time.Time, outcomeProvisional bool) {
+	if t == nil {
+		return
+	}
+	t.pruneFinalizedLocked(now)
+	if _, exists := t.finalized[requestID]; !exists {
+		t.finalizedOrder = append(t.finalizedOrder, requestID)
+	}
+	payload.Correction = false
+	t.finalized[requestID] = usageTombstone{
+		payload:            payload,
+		expiresAt:          now.Add(usageTombstoneTTL),
+		outcomeProvisional: outcomeProvisional,
+	}
+	t.pruneFinalizedLocked(now)
+}
+
+func (t *requestUsageTracker) markFinalizedEmitted(requestID string) {
+	if t == nil {
+		return
+	}
+	requestID = strings.TrimSpace(requestID)
+	var correction *usagePayload
+	var emitter *eventEmitter
+	t.mu.Lock()
+	if tombstone, ok := t.finalized[requestID]; ok {
+		tombstone.emitted = true
+		if tombstone.dirty {
+			tombstone.dirty = false
+			payload := tombstone.payload
+			payload.Correction = true
+			correction = &payload
+			emitter = t.emitter
+		}
+		t.finalized[requestID] = tombstone
+	}
+	t.mu.Unlock()
+	if correction != nil && emitter != nil {
+		emitter.emit(*correction)
+	}
 }
 
 func normalizedUsageServiceTier(value string) string {
@@ -479,11 +763,19 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	var selectedOK bool
 	if t != nil {
 		t.mu.Lock()
+		defer t.mu.Unlock()
+		delete(t.active, requestID)
 		records = append(records, t.records[requestID]...)
 		delete(t.records, requestID)
 		selected, selectedOK = t.selectedAccounts[requestID]
 		delete(t.selectedAccounts, requestID)
-		t.mu.Unlock()
+	}
+	finish := func(payload usagePayload) (usagePayload, bool) {
+		if t != nil {
+			outcomeProvisional := len(records) == 0 && input.status < http.StatusBadRequest && strings.TrimSpace(input.errorMessage) == ""
+			t.rememberFinalizedLocked(requestID, payload, time.Now(), outcomeProvisional)
+		}
+		return payload, true
 	}
 
 	var payload usagePayload
@@ -509,6 +801,7 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 
 	payload.Type = "usage"
 	payload.RequestID = requestID
+	payload.LogicalRequestID = requestID
 	if strings.TrimSpace(payload.Model) == "" {
 		payload.Model = strings.TrimSpace(input.model)
 	}
@@ -522,13 +815,15 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 		payload.RequestKind = strings.TrimSpace(input.requestKind)
 	}
 	if selectedOK {
-		payload.AccountID = selected.AccountID
-		payload.AccountEmail = selected.AccountEmail
-		payload.AuthID = selected.AuthID
-	} else {
-		payload.AccountID = ""
-		payload.AccountEmail = ""
-		payload.AuthID = ""
+		if selected.AccountID != "" {
+			payload.AccountID = selected.AccountID
+		}
+		if selected.AccountEmail != "" {
+			payload.AccountEmail = selected.AccountEmail
+		}
+		if selected.AuthID != "" {
+			payload.AuthID = selected.AuthID
+		}
 	}
 	if input.status > 0 {
 		payload.Status = input.status
@@ -549,20 +844,20 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 		if strings.TrimSpace(payload.ErrorMessage) == "" {
 			payload.ErrorMessage = strings.TrimSpace(input.errorMessage)
 		}
-		return payload, true
+		return finish(payload)
 	}
 
 	if len(records) == 0 {
 		payload.Success = true
 		payload.ErrorCategory = ""
 		payload.ErrorMessage = ""
-		return payload, true
+		return finish(payload)
 	}
 	if payload.Success {
 		payload.ErrorCategory = ""
 		payload.ErrorMessage = ""
 	}
-	return payload, true
+	return finish(payload)
 }
 
 const eventEmitterQueueCapacity = 1024
@@ -622,10 +917,24 @@ func (e *eventEmitter) emit(v any) {
 	}
 	data = append(data, '\n')
 	e.start()
+	envelope := eventEnvelope{data: data}
+	if isCriticalAccountingEvent(v) {
+		e.queue <- envelope
+		return
+	}
 	select {
-	case e.queue <- eventEnvelope{data: data}:
+	case e.queue <- envelope:
 	default:
 		e.dropped.Add(1)
+	}
+}
+
+func isCriticalAccountingEvent(v any) bool {
+	switch v.(type) {
+	case usagePayload, *usagePayload, upstreamAttemptPayload, *upstreamAttemptPayload:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -924,6 +1233,9 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 				return
 			}
 			startLogged = true
+			if p.tracker != nil {
+				p.tracker.start(requestID)
+			}
 			p.emitRequestStarted(c, requestID, spec, requestKind, model, startedAt)
 		}
 		defer func() {
@@ -1055,16 +1367,17 @@ func (p *requestPolicy) emitRequestStarted(c *gin.Context, requestID string, spe
 		return
 	}
 	p.emitter.emit(requestDiagnosticPayload{
-		Type:        "request_started",
-		RequestID:   requestID,
-		Method:      c.Request.Method,
-		Path:        requestPath(c.Request),
-		RequestKind: requestKind,
-		Model:       model,
-		APIKeyID:    stringFromAPIKey(spec, "id"),
-		APIKeyLabel: stringFromAPIKey(spec, "label"),
-		Transport:   diagnosticTransport(c.Request),
-		StartedAtMS: startedAt.UnixMilli(),
+		Type:             "request_started",
+		RequestID:        requestID,
+		LogicalRequestID: requestID,
+		Method:           c.Request.Method,
+		Path:             requestPath(c.Request),
+		RequestKind:      requestKind,
+		Model:            model,
+		APIKeyID:         stringFromAPIKey(spec, "id"),
+		APIKeyLabel:      stringFromAPIKey(spec, "label"),
+		Transport:        diagnosticTransport(c.Request),
+		StartedAtMS:      startedAt.UnixMilli(),
 	})
 }
 
@@ -1075,21 +1388,39 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 	status := c.Writer.Status()
 	latencyMS := time.Since(startedAt).Milliseconds()
 	completedAtMS := time.Now().UnixMilli()
+	aborted := c.IsAborted()
+	requestError := strings.TrimSpace(c.Errors.String())
+	usageStatus := status
+	if lastError := c.Errors.Last(); lastError != nil && status < http.StatusBadRequest {
+		usageStatus = statusCodeFromError(lastError.Err)
+	}
+	if err := c.Request.Context().Err(); err != nil {
+		aborted = true
+		usageStatus = clientClosedRequestStatus
+		cause := context.Cause(c.Request.Context())
+		if cause == nil {
+			cause = err
+		}
+		if requestError == "" {
+			requestError = cause.Error()
+		}
+	}
 	p.emitter.emit(requestDiagnosticPayload{
-		Type:          "request_completed",
-		RequestID:     requestID,
-		Method:        c.Request.Method,
-		Path:          requestPath(c.Request),
-		RequestKind:   requestKind,
-		Model:         model,
-		APIKeyID:      stringFromAPIKey(spec, "id"),
-		APIKeyLabel:   stringFromAPIKey(spec, "label"),
-		Transport:     diagnosticTransport(c.Request),
-		Status:        status,
-		LatencyMS:     latencyMS,
-		CompletedAtMS: completedAtMS,
-		Aborted:       c.IsAborted(),
-		ErrorMessage:  strings.TrimSpace(c.Errors.String()),
+		Type:             "request_completed",
+		RequestID:        requestID,
+		LogicalRequestID: requestID,
+		Method:           c.Request.Method,
+		Path:             requestPath(c.Request),
+		RequestKind:      requestKind,
+		Model:            model,
+		APIKeyID:         stringFromAPIKey(spec, "id"),
+		APIKeyLabel:      stringFromAPIKey(spec, "label"),
+		Transport:        diagnosticTransport(c.Request),
+		Status:           status,
+		LatencyMS:        latencyMS,
+		CompletedAtMS:    completedAtMS,
+		Aborted:          aborted,
+		ErrorMessage:     requestError,
 	})
 	if p.tracker == nil || !shouldEmitRequestDiagnostic(c.Request) {
 		return
@@ -1098,12 +1429,13 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 		spec:          spec,
 		requestKind:   requestKind,
 		model:         model,
-		status:        status,
+		status:        usageStatus,
 		latencyMS:     latencyMS,
 		completedAtMS: completedAtMS,
-		errorMessage:  strings.TrimSpace(c.Errors.String()),
+		errorMessage:  requestError,
 	}); ok {
 		p.emitter.emit(payload)
+		p.tracker.markFinalizedEmitted(requestID)
 	}
 }
 
@@ -1833,6 +2165,9 @@ func (s *recordingSelector) Pick(ctx context.Context, provider, model string, op
 					return nil, reserveErr
 				}
 			}
+			if err == nil && selected != nil {
+				s.recordSelection(ctx, selected)
+			}
 			return selected, err
 		}()
 		var conflict *activeSessionConflictError
@@ -1865,6 +2200,9 @@ func (s *recordingSelector) PickBeforeAvailability(ctx context.Context, provider
 					return nil, true, reserveErr
 				}
 			}
+			if err == nil && handled && selected != nil {
+				s.recordSelection(ctx, selected)
+			}
 			return selected, handled, err
 		}()
 		var conflict *activeSessionConflictError
@@ -1877,6 +2215,17 @@ func (s *recordingSelector) PickBeforeAvailability(ctx context.Context, provider
 	}
 }
 
+func (s *recordingSelector) recordSelection(ctx context.Context, auth *coreauth.Auth) {
+	if s == nil || s.tracker == nil || auth == nil {
+		return
+	}
+	requestID := ""
+	if ctx != nil {
+		requestID = internallogging.GetRequestID(ctx)
+	}
+	s.tracker.recordSelectedAccount(requestID, accountForAuthInManifest(s.manifest, auth), auth.ID)
+}
+
 func (s *recordingSelector) OnSelectionResult(ctx context.Context, result coreauth.Result, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {
 	if s == nil || s.inner == nil {
 		return coreauth.SelectionResultDirective{}
@@ -1884,21 +2233,6 @@ func (s *recordingSelector) OnSelectionResult(ctx context.Context, result coreau
 	directive := coreauth.SelectionResultDirective{}
 	if observer, ok := s.inner.(coreauth.SelectionResultSelector); ok && observer != nil {
 		directive = observer.OnSelectionResult(ctx, result, opts)
-	}
-	// A Pick is provisional: credential fallback, empty-stream retry, and K12
-	// spillover can all select another auth before any output reaches the client.
-	// Attribute the request only after a live execution reports meaningful success.
-	if result.Success && s.tracker != nil && (ctx == nil || ctx.Err() == nil) {
-		auth := &coreauth.Auth{ID: strings.TrimSpace(result.AuthID)}
-		requestID := ""
-		if ctx != nil {
-			requestID = internallogging.GetRequestID(ctx)
-		}
-		s.tracker.recordSelectedAccount(
-			requestID,
-			accountForAuthInManifest(s.manifest, auth),
-			auth.ID,
-		)
 	}
 	return directive
 }
@@ -2998,20 +3332,22 @@ func (s *cockpitSelector) emitAuthSelected(ctx context.Context, auth *coreauth.A
 	if s.manifest != nil {
 		routingStrategy = strings.TrimSpace(s.manifest.RoutingStrategy)
 	}
+	logicalRequestID := internallogging.GetRequestID(ctx)
 	s.emitter.emit(requestDiagnosticPayload{
-		Type:            "auth_selected",
-		RequestID:       internallogging.GetRequestID(ctx),
-		RequestKind:     requestKind,
-		Model:           model,
-		APIKeyID:        stringFromAPIKey(spec, "id"),
-		APIKeyLabel:     stringFromAPIKey(spec, "label"),
-		CandidateAuths:  candidateAuths,
-		AvailableAuths:  availableAuths,
-		RoutingStrategy: routingStrategy,
-		Provider:        provider,
-		AuthID:          auth.ID,
-		AccountID:       stringFromAccount(account, "id"),
-		AccountEmail:    stringFromAccount(account, "email"),
+		Type:             "auth_selected",
+		RequestID:        logicalRequestID,
+		LogicalRequestID: logicalRequestID,
+		RequestKind:      requestKind,
+		Model:            model,
+		APIKeyID:         stringFromAPIKey(spec, "id"),
+		APIKeyLabel:      stringFromAPIKey(spec, "label"),
+		CandidateAuths:   candidateAuths,
+		AvailableAuths:   availableAuths,
+		RoutingStrategy:  routingStrategy,
+		Provider:         provider,
+		AuthID:           auth.ID,
+		AccountID:        stringFromAccount(account, "id"),
+		AccountEmail:     stringFromAccount(account, "email"),
 	})
 }
 
@@ -3152,8 +3488,7 @@ func errorCategory(status int, body string, success bool) string {
 		strings.Contains(lower, "client closed") ||
 		strings.Contains(lower, "broken pipe") ||
 		strings.Contains(lower, "connection reset") ||
-		strings.Contains(lower, "connection aborted") ||
-		strings.Contains(lower, "unexpected eof"):
+		strings.Contains(lower, "connection aborted"):
 		return "client_canceled"
 	case strings.Contains(lower, "context canceled"):
 		if status >= http.StatusInternalServerError || status == http.StatusRequestTimeout {
@@ -3224,23 +3559,25 @@ func (h *authHook) OnResult(ctx context.Context, result coreauth.Result) {
 		retryAfterMS = result.RetryAfter.Milliseconds()
 	}
 	success := result.Success
+	logicalRequestID := internallogging.GetRequestID(ctx)
 	h.emitter.emit(requestDiagnosticPayload{
-		Type:         "auth_result",
-		RequestID:    internallogging.GetRequestID(ctx),
-		Provider:     result.Provider,
-		Model:        model,
-		AuthID:       result.AuthID,
-		AccountID:    stringFromAccount(account, "id"),
-		AccountEmail: stringFromAccount(account, "email"),
-		APIKeyID:     stringFromAPIKey(spec, "id"),
-		APIKeyLabel:  stringFromAPIKey(spec, "label"),
-		RequestKind:  requestKind,
-		Success:      &success,
-		HTTPStatus:   status,
-		ErrorCode:    errorCode,
-		ErrorMessage: errorMessage,
-		Retryable:    retryablePtr,
-		RetryAfterMS: retryAfterMS,
+		Type:             "auth_result",
+		RequestID:        logicalRequestID,
+		LogicalRequestID: logicalRequestID,
+		Provider:         result.Provider,
+		Model:            model,
+		AuthID:           result.AuthID,
+		AccountID:        stringFromAccount(account, "id"),
+		AccountEmail:     stringFromAccount(account, "email"),
+		APIKeyID:         stringFromAPIKey(spec, "id"),
+		APIKeyLabel:      stringFromAPIKey(spec, "label"),
+		RequestKind:      requestKind,
+		Success:          &success,
+		HTTPStatus:       status,
+		ErrorCode:        errorCode,
+		ErrorMessage:     errorMessage,
+		Retryable:        retryablePtr,
+		RetryAfterMS:     retryAfterMS,
 	})
 }
 
@@ -4113,41 +4450,6 @@ type executorRuntime interface {
 	ExecuteStream(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error)
 }
 
-type selectionFailureReporter interface {
-	ReportSelectionFailure(ctx context.Context, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective
-}
-
-func reportSelectionFailureBeforeCancel(ctx context.Context, reporter selectionFailureReporter, selection cliproxyexecutor.AuthSelection, model string, executionErr error, opts cliproxyexecutor.Options, maxWait time.Duration) bool {
-	if reporter == nil || strings.TrimSpace(selection.AuthID) == "" || executionErr == nil {
-		return false
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if maxWait <= 0 {
-		maxWait = streamOpenSelectionReportWait
-	}
-	select {
-	case streamOpenSelectionReportSlots <- struct{}{}:
-	default:
-		return false
-	}
-	reportCtx, cancelReport := context.WithTimeout(context.WithoutCancel(ctx), maxWait)
-	defer cancelReport()
-	done := make(chan struct{})
-	go func() {
-		defer func() { <-streamOpenSelectionReportSlots }()
-		reporter.ReportSelectionFailure(reportCtx, selection, model, executionErr, opts)
-		close(done)
-	}()
-	select {
-	case <-done:
-		return true
-	case <-reportCtx.Done():
-		return false
-	}
-}
-
 type relayServer struct {
 	runtime  executorRuntime
 	cfg      *config.Config
@@ -4550,7 +4852,7 @@ func (s *relayServer) handleImagesRelayRequest(c *gin.Context, imageReq imageRel
 	req, opts := buildExecutorRequest(c, imageReq.body, model, sdktranslator.FormatOpenAIResponse, "", true)
 	startedAt := time.Now()
 	timeouts := s.streamTimeoutsForRequest(c.Request, imageReq.body, defaultImagesToolModel)
-	streamCtx, cancelStream := context.WithCancel(relayContext(c))
+	streamCtx, cancelStream := streamContextWithTotalTimeout(relayContext(c), timeouts.total)
 	defer cancelStream()
 	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.quotaAdaptiveOpen)
 	if err != nil {
@@ -4615,9 +4917,10 @@ func (s *relayServer) forwardImagesStream(c *gin.Context, ctx context.Context, r
 			writeErr(relayTimeoutError{phase: "stream_idle", timeout: idleTimeout})
 			return
 		case <-ctx.Done():
-			writeErr(ctx.Err())
-			return
-		case <-c.Request.Context().Done():
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			writeErr(context.Cause(ctx))
 			return
 		case chunk, ok := <-result.Chunks:
 			if !idleTimer.Stop() {
@@ -4879,7 +5182,7 @@ func collectImagesResponse(ctx context.Context, chunks <-chan cliproxyexecutor.S
 		case <-idleTimer.C:
 			return nil, relayTimeoutError{phase: "stream_idle", timeout: idleTimeout}
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		case chunk, ok := <-chunks:
 			if !idleTimer.Stop() {
 				select {
@@ -5083,7 +5386,7 @@ func (s *relayServer) handleExecutorBody(c *gin.Context, spec *apiKeySpec, body 
 	}
 
 	if spec.ProviderGateway != nil {
-		s.handleProviderGatewayRequest(c, spec.ProviderGateway, body, model, sourceFormat, fixedAlt)
+		s.handleProviderGatewayRequest(c, spec, spec.ProviderGateway, body, model, sourceFormat, fixedAlt)
 		return
 	}
 
@@ -5099,7 +5402,509 @@ func (s *relayServer) handleExecutorBody(c *gin.Context, spec *apiKeySpec, body 
 	s.handleNonStream(c, body, model, sourceFormat, alt)
 }
 
-func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *providerGatewaySpec, body []byte, model string, sourceFormat sdktranslator.Format, fixedAlt string) {
+type relayRequestBodyTracker struct {
+	body      io.ReadCloser
+	bytesRead atomic.Int64
+}
+
+func (t *relayRequestBodyTracker) Read(p []byte) (int, error) {
+	if t == nil || t.body == nil {
+		return 0, io.EOF
+	}
+	n, err := t.body.Read(p)
+	if n > 0 {
+		t.bytesRead.Add(int64(n))
+	}
+	return n, err
+}
+
+func (t *relayRequestBodyTracker) Close() error {
+	if t == nil || t.body == nil {
+		return nil
+	}
+	return t.body.Close()
+}
+
+func trackRelayRequestBody(req *http.Request) *relayRequestBodyTracker {
+	if req == nil || req.Body == nil {
+		return nil
+	}
+	tracker := &relayRequestBodyTracker{body: req.Body}
+	req.Body = tracker
+	// A POST with GetBody may be transparently replayed on redirects or
+	// transport retries. The caller owns the only explicitly safe retry path.
+	req.GetBody = nil
+	return tracker
+}
+
+func relayUpstreamAttemptError(ctx context.Context, cause error, tracker *relayRequestBodyTracker, responseReceived bool) error {
+	if cause == nil {
+		return nil
+	}
+	if ctx != nil && ctx.Err() != nil {
+		if contextCause := context.Cause(ctx); contextCause != nil {
+			cause = contextCause
+		}
+	}
+	var bytesRead int64
+	if tracker != nil {
+		bytesRead = tracker.bytesRead.Load()
+	}
+	cancellationUnconfirmed := (bytesRead > 0 || responseReceived) && ctx != nil && ctx.Err() != nil
+	return cliproxyexecutor.WrapUpstreamAttemptError(cause, bytesRead, responseReceived, cancellationUnconfirmed)
+}
+
+type providerGatewayTimeoutController struct {
+	mu             sync.Mutex
+	cancel         context.CancelCauseFunc
+	openTimer      *time.Timer
+	idleTimer      *time.Timer
+	idleTimeout    time.Duration
+	idleGeneration uint64
+	opened         bool
+	stopped        bool
+}
+
+func newProviderGatewayTimeoutController(cancel context.CancelCauseFunc, open, idle time.Duration) *providerGatewayTimeoutController {
+	controller := &providerGatewayTimeoutController{cancel: cancel, idleTimeout: idle}
+	if open > 0 {
+		controller.openTimer = time.AfterFunc(open, func() {
+			controller.fireOpenTimeout(open)
+		})
+	}
+	return controller
+}
+
+func (c *providerGatewayTimeoutController) fireOpenTimeout(timeout time.Duration) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.stopped || c.opened {
+		c.mu.Unlock()
+		return
+	}
+	c.stopped = true
+	cancel := c.cancel
+	if c.idleTimer != nil {
+		c.idleTimer.Stop()
+	}
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel(relayTimeoutError{phase: "stream_open", timeout: timeout})
+	}
+}
+
+func (c *providerGatewayTimeoutController) fireIdleTimeout(timeout time.Duration, generation uint64) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.stopped || !c.opened || generation != c.idleGeneration {
+		c.mu.Unlock()
+		return
+	}
+	c.stopped = true
+	cancel := c.cancel
+	if c.openTimer != nil {
+		c.openTimer.Stop()
+	}
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel(relayTimeoutError{phase: "stream_idle", timeout: timeout})
+	}
+}
+
+func (c *providerGatewayTimeoutController) observedBytes() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stopped {
+		return
+	}
+	if !c.opened {
+		c.opened = true
+		if c.openTimer != nil {
+			c.openTimer.Stop()
+		}
+	}
+	if c.idleTimeout <= 0 {
+		return
+	}
+	c.idleGeneration++
+	generation := c.idleGeneration
+	if c.idleTimer != nil {
+		c.idleTimer.Stop()
+	}
+	c.idleTimer = time.AfterFunc(c.idleTimeout, func() {
+		c.fireIdleTimeout(c.idleTimeout, generation)
+	})
+}
+
+func (c *providerGatewayTimeoutController) stop() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		return
+	}
+	c.stopped = true
+	if c.openTimer != nil {
+		c.openTimer.Stop()
+	}
+	if c.idleTimer != nil {
+		c.idleTimer.Stop()
+	}
+	c.mu.Unlock()
+}
+
+type providerGatewayTimedBody struct {
+	body       io.ReadCloser
+	ctx        context.Context
+	controller *providerGatewayTimeoutController
+}
+
+func (b *providerGatewayTimedBody) Read(p []byte) (int, error) {
+	if b == nil || b.body == nil {
+		return 0, io.EOF
+	}
+	n, err := b.body.Read(p)
+	if n > 0 && b.controller != nil {
+		b.controller.observedBytes()
+	}
+	if err != nil {
+		if b.controller != nil {
+			b.controller.stop()
+		}
+		if b.ctx != nil && b.ctx.Err() != nil {
+			if cause := context.Cause(b.ctx); cause != nil {
+				err = cause
+			}
+		}
+	}
+	return n, err
+}
+
+func (b *providerGatewayTimedBody) Close() error {
+	if b == nil {
+		return nil
+	}
+	if b.controller != nil {
+		b.controller.stop()
+	}
+	if b.body == nil {
+		return nil
+	}
+	return b.body.Close()
+}
+
+type providerGatewayObservedBody struct {
+	body     io.ReadCloser
+	ctx      context.Context
+	observe  func([]byte)
+	flush    func()
+	eofError func() error
+	finish   func(error)
+	mu       sync.Mutex
+	finished bool
+}
+
+func (b *providerGatewayObservedBody) Read(p []byte) (int, error) {
+	if b == nil || b.body == nil {
+		return 0, io.EOF
+	}
+	n, err := b.body.Read(p)
+	if n > 0 && b.observe != nil {
+		b.observe(p[:n])
+	}
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			if b.flush != nil {
+				b.flush()
+			}
+			var terminalErr error
+			if b.eofError != nil {
+				terminalErr = b.eofError()
+			}
+			b.complete(terminalErr)
+			if terminalErr != nil {
+				return n, terminalErr
+			}
+		} else {
+			b.complete(err)
+		}
+	}
+	return n, err
+}
+
+func (b *providerGatewayObservedBody) Close() error {
+	if b == nil || b.body == nil {
+		return nil
+	}
+	if b.flush != nil {
+		b.flush()
+	}
+	err := b.body.Close()
+	if err != nil {
+		b.complete(err)
+		return err
+	}
+	b.mu.Lock()
+	finished := b.finished
+	b.mu.Unlock()
+	if !finished {
+		cause := error(io.ErrUnexpectedEOF)
+		if b.ctx != nil && b.ctx.Err() != nil {
+			cause = context.Cause(b.ctx)
+			if cause == nil {
+				cause = b.ctx.Err()
+			}
+		}
+		b.complete(cause)
+	}
+	return nil
+}
+
+func (b *providerGatewayObservedBody) complete(err error) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	if b.finished {
+		b.mu.Unlock()
+		return
+	}
+	b.finished = true
+	finish := b.finish
+	b.mu.Unlock()
+	if finish != nil {
+		finish(err)
+	}
+}
+
+func providerGatewaySyntheticAccount(gateway *providerGatewaySpec, apiKeyID string) *accountSpec {
+	apiKeyID = strings.TrimSpace(apiKeyID)
+	if apiKeyID == "" {
+		apiKeyID = "unknown"
+	}
+	host := "local"
+	if gateway != nil {
+		if parsed, err := url.Parse(strings.TrimSpace(gateway.BaseURL)); err == nil && strings.TrimSpace(parsed.Hostname()) != "" {
+			host = strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+		}
+	}
+	authID := "provider-gateway:" + apiKeyID
+	return &accountSpec{
+		ID:     authID,
+		Email:  "provider-gateway@" + host,
+		AuthID: authID,
+	}
+}
+
+func providerGatewayAccount(m *manifest, spec *apiKeySpec, gateway *providerGatewaySpec, apiKeyID string) *accountSpec {
+	if m != nil {
+		if gateway != nil {
+			if upstreamKey := strings.TrimSpace(gateway.APIKey); upstreamKey != "" {
+				if account := m.accountByAPIKey[upstreamKey]; account != nil {
+					return account
+				}
+			}
+		}
+		if spec != nil {
+			for _, accountID := range spec.AccountIDs {
+				accountID = strings.TrimSpace(accountID)
+				if accountID == "" {
+					continue
+				}
+				if account := m.accountByID[accountID]; account != nil {
+					return account
+				}
+			}
+		}
+	}
+	return providerGatewaySyntheticAccount(gateway, apiKeyID)
+}
+
+func providerGatewayHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func ensureProviderGatewayChatStreamUsage(body []byte) []byte {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	streamOptions, _ := payload["stream_options"].(map[string]any)
+	if streamOptions == nil {
+		streamOptions = make(map[string]any)
+		payload["stream_options"] = streamOptions
+	}
+	streamOptions["include_usage"] = true
+	next, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return next
+}
+
+func providerGatewayUsageFromPayload(payload []byte) (usageDetails, bool) {
+	var root map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(payload), &root); err != nil {
+		return usageDetails{}, false
+	}
+	usage, _ := root["usage"].(map[string]any)
+	if usage == nil {
+		if response, ok := root["response"].(map[string]any); ok {
+			usage, _ = response["usage"].(map[string]any)
+		}
+	}
+	if usage == nil {
+		return usageDetails{}, false
+	}
+
+	firstNumber := func(values ...any) int64 {
+		for _, value := range values {
+			if parsed, ok := numericInt64(value); ok {
+				return parsed
+			}
+		}
+		return 0
+	}
+	inputDetails, _ := usage["input_tokens_details"].(map[string]any)
+	promptDetails, _ := usage["prompt_tokens_details"].(map[string]any)
+	outputDetails, _ := usage["output_tokens_details"].(map[string]any)
+	completionDetails, _ := usage["completion_tokens_details"].(map[string]any)
+	details := usageDetails{
+		InputTokens:     firstNumber(usage["input_tokens"], usage["prompt_tokens"]),
+		OutputTokens:    firstNumber(usage["output_tokens"], usage["completion_tokens"]),
+		ReasoningTokens: firstNumber(outputDetails["reasoning_tokens"], completionDetails["reasoning_tokens"], usage["reasoning_tokens"]),
+		CachedTokens:    firstNumber(inputDetails["cached_tokens"], promptDetails["cached_tokens"], usage["cached_tokens"]),
+		TotalTokens:     firstNumber(usage["total_tokens"]),
+	}
+	if details.TotalTokens == 0 {
+		details.TotalTokens = details.InputTokens + details.OutputTokens
+	}
+	return details, true
+}
+
+type providerGatewaySSEUsageObserver struct {
+	buffer                   []byte
+	eventData                []byte
+	record                   func(usageDetails)
+	requireResponseCompleted bool
+	terminal                 bool
+	terminalErr              error
+}
+
+func (o *providerGatewaySSEUsageObserver) feed(chunk []byte) {
+	if o == nil || len(chunk) == 0 {
+		return
+	}
+	o.buffer = append(o.buffer, chunk...)
+	for {
+		index := bytes.IndexByte(o.buffer, '\n')
+		if index < 0 {
+			return
+		}
+		line := bytes.TrimSuffix(o.buffer[:index], []byte{'\r'})
+		o.buffer = o.buffer[index+1:]
+		o.consumeLine(line)
+	}
+}
+
+func (o *providerGatewaySSEUsageObserver) consumeLine(line []byte) {
+	if o == nil {
+		return
+	}
+	if len(line) == 0 {
+		o.consumeEvent()
+		return
+	}
+	if !bytes.HasPrefix(line, []byte("data:")) {
+		return
+	}
+	data := bytes.TrimSpace(line[len("data:"):])
+	if len(data) == 0 {
+		return
+	}
+	if bytes.Equal(data, []byte("[DONE]")) {
+		o.consumeEvent()
+		if !o.requireResponseCompleted {
+			o.terminal = true
+		}
+		return
+	}
+	if len(o.eventData) > 0 {
+		o.eventData = append(o.eventData, '\n')
+	}
+	o.eventData = append(o.eventData, data...)
+}
+
+func (o *providerGatewaySSEUsageObserver) consumeEvent() {
+	if o == nil || len(o.eventData) == 0 {
+		return
+	}
+	data := bytes.Clone(o.eventData)
+	o.eventData = o.eventData[:0]
+	var envelope map[string]any
+	if json.Unmarshal(data, &envelope) == nil {
+		eventType, _ := envelope["type"].(string)
+		switch eventType {
+		case "response.completed":
+			o.terminal = true
+		case "response.failed", "response.incomplete", "error":
+			o.terminal = true
+			o.terminalErr = fmt.Errorf("provider gateway stream terminated with %s", eventType)
+		}
+		if choices, ok := envelope["choices"].([]any); ok {
+			for _, rawChoice := range choices {
+				choice, _ := rawChoice.(map[string]any)
+				if choice["finish_reason"] != nil {
+					o.terminal = true
+					break
+				}
+			}
+		}
+	}
+	if details, ok := providerGatewayUsageFromPayload(data); ok && o.record != nil {
+		o.record(details)
+	}
+}
+
+func (o *providerGatewaySSEUsageObserver) flush() {
+	if o == nil {
+		return
+	}
+	if len(o.buffer) > 0 {
+		line := bytes.TrimSuffix(o.buffer, []byte{'\r'})
+		o.buffer = o.buffer[:0]
+		o.consumeLine(line)
+	}
+	o.consumeEvent()
+}
+
+func (o *providerGatewaySSEUsageObserver) terminalError() error {
+	if o == nil {
+		return nil
+	}
+	if o.terminalErr != nil {
+		return o.terminalErr
+	}
+	if o.terminal {
+		return nil
+	}
+	return fmt.Errorf("provider gateway stream ended before a terminal event: %w", io.ErrUnexpectedEOF)
+}
+
+func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, spec *apiKeySpec, gateway *providerGatewaySpec, body []byte, model string, sourceFormat sdktranslator.Format, fixedAlt string) {
 	if gateway == nil {
 		writeAPIError(c, http.StatusBadGateway, "provider gateway is not configured", "bad_gateway")
 		return
@@ -5130,15 +5935,17 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 		originalModel := upstreamModel
 		upstreamModel = visionRoutingModel
 		if s.emitter != nil {
+			logicalRequestID := internallogging.GetRequestID(c.Request.Context())
 			s.emitter.emit(requestDiagnosticPayload{
-				Type:         "provider_gateway_vision_routed",
-				RequestID:    internallogging.GetRequestID(c.Request.Context()),
-				Method:       c.Request.Method,
-				Path:         requestPath(c.Request),
-				RequestKind:  requestKindFromPath(requestPath(c.Request)),
-				Model:        upstreamModel,
-				Transport:    diagnosticTransport(c.Request),
-				ErrorMessage: fmt.Sprintf("routed image input from %s to %s", originalModel, upstreamModel),
+				Type:             "provider_gateway_vision_routed",
+				RequestID:        logicalRequestID,
+				LogicalRequestID: logicalRequestID,
+				Method:           c.Request.Method,
+				Path:             requestPath(c.Request),
+				RequestKind:      requestKindFromPath(requestPath(c.Request)),
+				Model:            upstreamModel,
+				Transport:        diagnosticTransport(c.Request),
+				ErrorMessage:     fmt.Sprintf("routed image input from %s to %s", originalModel, upstreamModel),
 			})
 		}
 	}
@@ -5157,6 +5964,9 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 			return
 		}
 		upstreamPath = "/v1/chat/completions"
+		if stream {
+			upstreamBody = ensureProviderGatewayChatStreamUsage(upstreamBody)
+		}
 	} else if !sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAIResponse) {
 		writeAPIError(c, http.StatusBadRequest, "provider gateway responses wire API only accepts responses requests", "invalid_request")
 		return
@@ -5167,7 +5977,12 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
 		return
 	}
-	req, err := http.NewRequestWithContext(relayContext(c), http.MethodPost, upstreamURL, bytes.NewReader(upstreamBody))
+	timeoutProfile := s.streamTimeoutsForRequest(c.Request, body, model)
+	totalCtx, totalCancel := streamContextWithTotalTimeout(relayContext(c), timeoutProfile.total)
+	defer totalCancel()
+	requestCtx, requestCancel := context.WithCancelCause(totalCtx)
+	defer requestCancel(nil)
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, upstreamURL, bytes.NewReader(upstreamBody))
 	if err != nil {
 		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
 		return
@@ -5180,15 +5995,121 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 	}
 	copyProviderGatewayDiagnosticHeaders(req.Header, c.Request.Header)
 
-	resp, err := http.DefaultClient.Do(req)
+	lifecycle := newUpstreamAttemptLifecycle(s, c, upstreamModel)
+	providerAccount := providerGatewayAccount(s.manifest, spec, gateway, lifecycle.apiKeyID)
+	idempotencyKey := strings.TrimSpace(c.Request.Header.Get("Idempotency-Key"))
+	if idempotencyKey == "" && sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAIResponse) {
+		idempotencyKey = lifecycle.logicalRequestID
+	}
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
+	if s.policy != nil && s.policy.tracker != nil {
+		s.policy.tracker.recordSelectedAccount(lifecycle.logicalRequestID, providerAccount, providerAccount.AuthID)
+	}
+	recordUsage := func(details usageDetails) {
+		if s.policy == nil || s.policy.tracker == nil {
+			return
+		}
+		s.policy.tracker.record(usagePayload{
+			Type:             "usage",
+			RequestID:        lifecycle.logicalRequestID,
+			LogicalRequestID: lifecycle.logicalRequestID,
+			Provider:         "provider_gateway",
+			Model:            model,
+			Alias:            upstreamModel,
+			AccountID:        providerAccount.ID,
+			AccountEmail:     providerAccount.Email,
+			AuthID:           providerAccount.AuthID,
+			APIKeyID:         lifecycle.apiKeyID,
+			APIKeyLabel:      lifecycle.apiKeyLabel,
+			ClientInstanceID: lifecycle.clientInstanceID,
+			RequestKind:      lifecycle.requestKind,
+			Success:          true,
+			Status:           http.StatusOK,
+			Usage:            details,
+			RequestedAtMS:    time.Now().UnixMilli(),
+		})
+	}
+	bodyTracker := trackRelayRequestBody(req)
+	timeoutController := newProviderGatewayTimeoutController(requestCancel, timeoutProfile.open, timeoutProfile.idle)
+	defer timeoutController.stop()
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:                cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID:               providerAccount.AuthID,
+		At:                   time.Now(),
+		RequestBodyBytesRead: 0,
+	})
+
+	resp, err := providerGatewayHTTPClient().Do(req)
 	if err != nil {
-		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
+		err = relayUpstreamAttemptError(req.Context(), err, bodyTracker, false)
+		lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+			Phase:                cliproxyexecutor.UpstreamAttemptFinished,
+			AuthID:               providerAccount.AuthID,
+			At:                   time.Now(),
+			RequestBodyBytesRead: bodyTracker.bytesRead.Load(),
+			Err:                  err,
+		})
+		status := statusCodeFromError(err)
+		code := "bad_gateway"
+		if status == http.StatusGatewayTimeout {
+			code = "gateway_timeout"
+		}
+		writeAPIError(c, status, err.Error(), code)
 		return
 	}
-	defer resp.Body.Close()
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:                cliproxyexecutor.UpstreamAttemptResponded,
+		AuthID:               providerAccount.AuthID,
+		At:                   time.Now(),
+		RequestBodyBytesRead: bodyTracker.bytesRead.Load(),
+		ResponseReceived:     true,
+		StatusCode:           resp.StatusCode,
+	})
+	resp.Body = &providerGatewayTimedBody{
+		body:       resp.Body,
+		ctx:        req.Context(),
+		controller: timeoutController,
+	}
+	finishAttempt := func(cause error) {
+		timeoutController.stop()
+		attemptErr := relayUpstreamAttemptError(req.Context(), cause, bodyTracker, true)
+		lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+			Phase:                cliproxyexecutor.UpstreamAttemptFinished,
+			AuthID:               providerAccount.AuthID,
+			At:                   time.Now(),
+			RequestBodyBytesRead: bodyTracker.bytesRead.Load(),
+			ResponseReceived:     true,
+			StatusCode:           resp.StatusCode,
+			Err:                  attemptErr,
+		})
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusMultipleChoices && resp.StatusCode < http.StatusBadRequest {
+		payload, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			finishAttempt(readErr)
+			writeAPIError(c, statusCodeFromError(readErr), readErr.Error(), "bad_gateway")
+			return
+		}
+		message := strings.TrimSpace(string(payload))
+		if message == "" {
+			message = fmt.Sprintf("upstream redirect %d rejected", resp.StatusCode)
+		}
+		finishAttempt(relayStatusError{status: resp.StatusCode, message: message})
+		writeAPIError(c, http.StatusBadGateway, message, "upstream_redirect_rejected")
+		return
+	}
 	writeUpstreamHeaders(c.Writer.Header(), resp.Header)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(resp.Body)
+		payload, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			finishAttempt(readErr)
+			writeAPIError(c, statusCodeFromError(readErr), readErr.Error(), "bad_gateway")
+			return
+		}
+		finishAttempt(relayStatusError{status: resp.StatusCode, message: strings.TrimSpace(string(payload))})
 		contentType := resp.Header.Get("Content-Type")
 		if contentType == "" {
 			contentType = "application/json"
@@ -5198,16 +6119,32 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 	}
 
 	if stream {
+		usageObserver := &providerGatewaySSEUsageObserver{
+			record:                   recordUsage,
+			requireResponseCompleted: wireAPI == "responses",
+		}
+		resp.Body = &providerGatewayObservedBody{
+			body:     resp.Body,
+			ctx:      req.Context(),
+			observe:  usageObserver.feed,
+			flush:    usageObserver.flush,
+			eofError: usageObserver.terminalError,
+			finish:   finishAttempt,
+		}
 		if wireAPI == "chat_completions" {
 			switch {
 			case sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAIResponse):
 				s.writeProviderGatewayChatStream(c, resp.Body, upstreamModel, body, upstreamBody)
 			case sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAI):
 				c.Status(http.StatusOK)
+				var copyErr error
 				c.Stream(func(w io.Writer) bool {
-					_, _ = io.Copy(w, resp.Body)
+					_, copyErr = io.Copy(w, resp.Body)
 					return false
 				})
+				if copyErr != nil {
+					writeStreamTerminalError(c, copyErr)
+				}
 			default:
 				alt := fixedAlt
 				if alt == "" {
@@ -5218,17 +6155,25 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 			return
 		}
 		c.Status(http.StatusOK)
+		var copyErr error
 		c.Stream(func(w io.Writer) bool {
-			_, _ = io.Copy(w, resp.Body)
+			_, copyErr = io.Copy(w, resp.Body)
 			return false
 		})
+		if copyErr != nil {
+			writeStreamTerminalError(c, copyErr)
+		}
 		return
 	}
 
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
+		finishAttempt(err)
+		writeAPIError(c, statusCodeFromError(err), err.Error(), "bad_gateway")
 		return
+	}
+	if details, ok := providerGatewayUsageFromPayload(payload); ok {
+		recordUsage(details)
 	}
 	if wireAPI == "chat_completions" {
 		switch {
@@ -5243,6 +6188,7 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 	if contentType == "" || (wireAPI == "chat_completions" && !sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAI)) {
 		contentType = "application/json"
 	}
+	finishAttempt(nil)
 	c.Data(http.StatusOK, contentType, payload)
 }
 
@@ -5539,6 +6485,9 @@ func providerGatewayPathSegmentIsVersion(segment string) bool {
 func (s *relayServer) handleNonStream(c *gin.Context, body []byte, model string, sourceFormat sdktranslator.Format, alt string) {
 	req, opts := buildExecutorRequest(c, body, model, sourceFormat, alt, false)
 	startedAt := time.Now()
+	lifecycle := newUpstreamAttemptLifecycle(s, c, model)
+	opts = withSelectedAuthObserver(opts, lifecycle.selected)
+	opts = withUpstreamAttemptObserver(opts, lifecycle.observe)
 	s.emitExecutorDiagnostic(c, "executor_started", model, "execute", startedAt, "")
 	stopWaitLogger := s.startExecutorWaitLogger(c, model, "execute", startedAt)
 	resp, err := s.runtime.Execute(relayContext(c), []string{"codex"}, req, opts)
@@ -5577,8 +6526,10 @@ func (s *relayServer) handleStream(c *gin.Context, body []byte, model string, so
 	}
 	s.emitExecutorDiagnostic(c, "executor_started", model, "execute_stream", startedAt, "")
 	stopWaitLogger := s.startExecutorWaitLogger(c, model, "execute_stream", startedAt)
-	streamCtx, cancelStream := context.WithCancel(relayContext(c))
-	defer cancelStream()
+	streamCtx, cancelTotalTimeout := streamContextWithTotalTimeout(relayContext(c), timeouts.total)
+	defer cancelTotalTimeout()
+	streamCtx, cancelStream := context.WithCancelCause(streamCtx)
+	defer cancelStream(nil)
 	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.quotaAdaptiveOpen)
 	stopWaitLogger()
 	if err != nil {
@@ -5636,17 +6587,24 @@ func (s *relayServer) handleStream(c *gin.Context, body []byte, model string, so
 	for {
 		select {
 		case <-idleTimer.C:
-			cancelStream()
 			endReason = "stream_idle_timeout"
 			err := relayTimeoutError{phase: "stream_idle", timeout: timeouts.idle}
+			cancelStream(err)
 			s.emitExecutorDiagnostic(c, "stream_idle_timeout", model, "stream_loop", startedAt, err.Error())
 			writeStreamTerminalError(c, err)
 			flusher.Flush()
 			return
-		case <-c.Request.Context().Done():
-			cancelStream()
-			endReason = "client_gone"
-			s.emitExecutorDiagnostic(c, "stream_client_gone", model, "stream_loop", startedAt, c.Request.Context().Err().Error())
+		case <-streamCtx.Done():
+			cause := context.Cause(streamCtx)
+			if c.Request.Context().Err() != nil {
+				endReason = "client_gone"
+				s.emitExecutorDiagnostic(c, "stream_client_gone", model, "stream_loop", startedAt, c.Request.Context().Err().Error())
+				return
+			}
+			endReason = "stream_total_timeout"
+			s.emitExecutorDiagnostic(c, "stream_total_timeout", model, "stream_loop", startedAt, errorMessage(cause))
+			writeStreamTerminalError(c, cause)
+			flusher.Flush()
 			return
 		case <-tickerC:
 			if _, err := c.Writer.Write([]byte(": keep-alive\n\n")); err != nil {
@@ -5731,6 +6689,25 @@ func withSelectedAuthObserver(opts cliproxyexecutor.Options, observer func(clipr
 	return opts
 }
 
+func withUpstreamAttemptObserver(opts cliproxyexecutor.Options, observer func(cliproxyexecutor.UpstreamAttemptObservation)) cliproxyexecutor.Options {
+	if observer == nil {
+		return opts
+	}
+	meta := make(map[string]any, len(opts.Metadata)+1)
+	for key, value := range opts.Metadata {
+		meta[key] = value
+	}
+	existing := meta[cliproxyexecutor.UpstreamAttemptObserverMetadataKey]
+	meta[cliproxyexecutor.UpstreamAttemptObserverMetadataKey] = func(observation cliproxyexecutor.UpstreamAttemptObservation) {
+		observer(observation)
+		if callback, ok := existing.(func(cliproxyexecutor.UpstreamAttemptObservation)); ok && callback != nil {
+			callback(observation)
+		}
+	}
+	opts.Metadata = meta
+	return opts
+}
+
 func withExcludedAuthIDs(opts cliproxyexecutor.Options, excluded map[string]struct{}) cliproxyexecutor.Options {
 	if len(excluded) == 0 {
 		return opts
@@ -5783,34 +6760,10 @@ func streamOpenAttemptTimeout(openTimeout time.Duration, attempt, attempts int, 
 	return streamOpenAttemptTimeoutWithMinimum(openTimeout, attempt, attempts, extendFinal, streamOpenFinalAttemptMinimum)
 }
 
-func streamOpenDepletedK12Timeout(openTimeout time.Duration) time.Duration {
-	if openTimeout <= 0 {
-		return openTimeout
-	}
-	timeout := openTimeout / streamOpenDepletedK12TimeoutDivisor
-	if timeout <= 0 {
-		return openTimeout
-	}
-	if timeout > streamOpenDepletedK12TimeoutMax {
-		return streamOpenDepletedK12TimeoutMax
-	}
-	return timeout
-}
-
 func (s *relayServer) streamOpenTimeoutForSelectedAuth(openTimeout time.Duration, authID string, quotaAdaptive bool, now time.Time) time.Duration {
-	if s == nil || !quotaAdaptive || openTimeout <= 0 || strings.TrimSpace(authID) == "" {
-		return openTimeout
-	}
-	snapshot := k12QuotaSnapshotForAuth(s.manifest, s.quota, &coreauth.Auth{ID: authID}, now)
-	if !snapshot.Fresh {
-		return openTimeout
-	}
-	hourlyDepleted := snapshot.HourlyRemainingPercent != nil && *snapshot.HourlyRemainingPercent <= 0
-	weeklyDepleted := snapshot.WeeklyRemainingPercent != nil && *snapshot.WeeklyRemainingPercent <= 0
-	if !hourlyDepleted && !weeklyDepleted {
-		return openTimeout
-	}
-	return streamOpenDepletedK12Timeout(openTimeout)
+	// Once an executor has selected an auth, the POST may already be in flight.
+	// Quota snapshots therefore cannot justify shortening the configured first-byte wait.
+	return openTimeout
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
@@ -5824,6 +6777,355 @@ func resetTimer(timer *time.Timer, duration time.Duration) {
 		}
 	}
 	timer.Reset(duration)
+}
+
+type upstreamAttemptLifecycle struct {
+	mu               sync.Mutex
+	server           *relayServer
+	logicalRequestID string
+	apiKeyID         string
+	apiKeyLabel      string
+	clientInstanceID string
+	model            string
+	requestKind      string
+	nextNumber       int
+	selectedAuth     cliproxyexecutor.AuthSelection
+	current          *upstreamAttemptPayload
+	closed           bool
+}
+
+func newUpstreamAttemptLifecycle(s *relayServer, c *gin.Context, model string) *upstreamAttemptLifecycle {
+	lifecycle := &upstreamAttemptLifecycle{server: s, model: strings.TrimSpace(model)}
+	if c == nil || c.Request == nil {
+		return lifecycle
+	}
+	requestContext := c.Request.Context()
+	lifecycle.logicalRequestID = strings.TrimSpace(internallogging.GetRequestID(requestContext))
+	spec, _ := requestContext.Value(clientAPIKeyContextKey).(*apiKeySpec)
+	lifecycle.apiKeyID = stringFromAPIKey(spec, "id")
+	lifecycle.apiKeyLabel = stringFromAPIKey(spec, "label")
+	lifecycle.clientInstanceID = clientInstanceIDFromContext(requestContext)
+	lifecycle.requestKind, _ = requestContext.Value(requestKindContextKey).(string)
+	return lifecycle
+}
+
+func (l *upstreamAttemptLifecycle) emit(payload upstreamAttemptPayload) {
+	if l == nil || l.server == nil || l.server.emitter == nil {
+		return
+	}
+	l.server.emitter.emit(payload)
+}
+
+func (l *upstreamAttemptLifecycle) selected(selection cliproxyexecutor.AuthSelection) {
+	if l == nil {
+		return
+	}
+	authID := strings.TrimSpace(selection.AuthID)
+	if authID == "" {
+		return
+	}
+	var manifestValue *manifest
+	if l.server != nil {
+		manifestValue = l.server.manifest
+	}
+	account := accountForAuthInManifest(manifestValue, &coreauth.Auth{ID: authID})
+	if l.server != nil && l.server.policy != nil && l.server.policy.tracker != nil {
+		l.server.policy.tracker.recordSelectedAccount(l.logicalRequestID, account, authID)
+	}
+	l.mu.Lock()
+	if !l.closed {
+		selection.AuthID = authID
+		l.selectedAuth = selection
+	}
+	l.mu.Unlock()
+}
+
+func (l *upstreamAttemptLifecycle) start(observation cliproxyexecutor.UpstreamAttemptObservation) {
+	if l == nil {
+		return
+	}
+	authID := strings.TrimSpace(observation.AuthID)
+	l.mu.Lock()
+	if authID == "" {
+		authID = strings.TrimSpace(l.selectedAuth.AuthID)
+	}
+	if l.closed || authID == "" {
+		l.mu.Unlock()
+		return
+	}
+	now := observation.At
+	if now.IsZero() {
+		now = time.Now()
+	}
+	var previous *upstreamAttemptPayload
+	if l.current != nil && l.current.CompletedAt == 0 {
+		closed := *l.current
+		closed.CompletedAt = now.UnixMilli()
+		closed.RetryReason = "pre_send_retry"
+		previous = &closed
+	}
+	l.nextNumber++
+	attemptNumber := l.nextNumber
+	l.mu.Unlock()
+
+	var manifestValue *manifest
+	if l.server != nil {
+		manifestValue = l.server.manifest
+	}
+	account := accountForAuthInManifest(manifestValue, &coreauth.Auth{ID: authID})
+	accountID := stringFromAccount(account, "id")
+	accountEmail := stringFromAccount(account, "email")
+	if l.server != nil && l.server.policy != nil && l.server.policy.tracker != nil {
+		tracker := l.server.policy.tracker
+		tracker.recordSelectedAccount(l.logicalRequestID, account, authID)
+		if recorded, ok := tracker.selectedAccount(l.logicalRequestID); ok && recorded.AuthID == authID {
+			if accountID == "" {
+				accountID = recorded.AccountID
+			}
+			if accountEmail == "" {
+				accountEmail = recorded.AccountEmail
+			}
+		}
+	}
+	payload := upstreamAttemptPayload{
+		Type:              "upstream_attempt",
+		RequestID:         l.logicalRequestID,
+		LogicalRequestID:  l.logicalRequestID,
+		UpstreamAttemptID: upstreamAttemptID(l.logicalRequestID, attemptNumber),
+		AttemptNumber:     attemptNumber,
+		AccountID:         accountID,
+		Email:             accountEmail,
+		AuthID:            authID,
+		APIKeyID:          l.apiKeyID,
+		APIKeyLabel:       l.apiKeyLabel,
+		ClientInstanceID:  l.clientInstanceID,
+		Model:             l.model,
+		RequestKind:       strings.TrimSpace(l.requestKind),
+		SentAt:            now.UnixMilli(),
+	}
+	l.mu.Lock()
+	if l.closed {
+		l.mu.Unlock()
+		return
+	}
+	l.current = &payload
+	l.mu.Unlock()
+	if previous != nil {
+		l.emit(*previous)
+	}
+	l.emit(payload)
+}
+
+func upstreamAttemptID(logicalRequestID string, attemptNumber int) string {
+	logicalRequestID = strings.TrimSpace(logicalRequestID)
+	return fmt.Sprintf("%s:%d", logicalRequestID, attemptNumber)
+}
+
+func (l *upstreamAttemptLifecycle) observe(observation cliproxyexecutor.UpstreamAttemptObservation) {
+	if l == nil {
+		return
+	}
+	switch observation.Phase {
+	case cliproxyexecutor.UpstreamAttemptStarted:
+		l.start(observation)
+	case cliproxyexecutor.UpstreamAttemptResponded:
+		at := observation.At
+		if at.IsZero() {
+			at = time.Now()
+		}
+		var payload *upstreamAttemptPayload
+		l.mu.Lock()
+		if l.current != nil {
+			updated := *l.current
+			if updated.FirstByteAt == 0 {
+				updated.FirstByteAt = at.UnixMilli()
+			}
+			if observation.StatusCode > 0 {
+				updated.Status = observation.StatusCode
+			}
+			l.current = &updated
+			payload = &updated
+		}
+		l.mu.Unlock()
+		if payload != nil {
+			l.emit(*payload)
+		}
+	case cliproxyexecutor.UpstreamAttemptFinished:
+		var timeoutErr relayTimeoutError
+		canceled := errors.Is(observation.Err, context.Canceled) ||
+			errors.Is(observation.Err, context.DeadlineExceeded) ||
+			errors.As(observation.Err, &timeoutErr)
+		l.complete(observation.Err, canceled, cliproxyexecutor.IsUpstreamCancellationUnconfirmed(observation.Err))
+	}
+}
+
+func (l *upstreamAttemptLifecycle) opened(result *cliproxyexecutor.StreamResult, ctx context.Context, cancel context.CancelCauseFunc) *cliproxyexecutor.StreamResult {
+	if l == nil || result == nil {
+		return result
+	}
+	now := time.Now().UnixMilli()
+	var payload *upstreamAttemptPayload
+	l.mu.Lock()
+	if l.current != nil {
+		updated := *l.current
+		if updated.FirstByteAt == 0 {
+			updated.FirstByteAt = now
+		}
+		updated.Status = http.StatusOK
+		l.current = &updated
+		payload = &updated
+		l.closed = true
+	}
+	l.mu.Unlock()
+	if payload != nil {
+		l.emit(*payload)
+	}
+	if result.Chunks == nil {
+		l.complete(nil, false, false)
+		cancel(nil)
+		return result
+	}
+	wrapped := *result
+	wrapped.Chunks = l.wrapChunks(ctx, cancel, result.Chunks)
+	return &wrapped
+}
+
+func (l *upstreamAttemptLifecycle) resumeAfterSafeFailure() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.closed = false
+	l.mu.Unlock()
+}
+
+func (l *upstreamAttemptLifecycle) wrapChunks(ctx context.Context, cancel context.CancelCauseFunc, source <-chan cliproxyexecutor.StreamChunk) <-chan cliproxyexecutor.StreamChunk {
+	output := make(chan cliproxyexecutor.StreamChunk)
+	go func() {
+		defer close(output)
+		for {
+			select {
+			case <-ctx.Done():
+				cause := context.Cause(ctx)
+				if cause == nil {
+					cause = ctx.Err()
+				}
+				cancel(cause)
+				l.complete(cause, true, true)
+				return
+			case chunk, ok := <-source:
+				if !ok {
+					l.complete(nil, false, false)
+					cancel(nil)
+					return
+				}
+				select {
+				case output <- chunk:
+				case <-ctx.Done():
+					cause := context.Cause(ctx)
+					if cause == nil {
+						cause = ctx.Err()
+					}
+					cancel(cause)
+					l.complete(cause, true, true)
+					return
+				}
+				if chunk.Err != nil {
+					cancel(chunk.Err)
+					l.complete(chunk.Err, false, false)
+					return
+				}
+			}
+		}
+	}()
+	return output
+}
+
+func (l *upstreamAttemptLifecycle) complete(err error, canceled, cancellationUnconfirmed bool) {
+	if l == nil {
+		return
+	}
+	now := time.Now().UnixMilli()
+	var payload *upstreamAttemptPayload
+	l.mu.Lock()
+	known, safe := cliproxyexecutor.UpstreamAttemptRetrySafety(err)
+	terminal := err == nil || !known || !safe
+	if l.current == nil || l.current.CompletedAt == 0 {
+		l.closed = terminal
+	} else {
+		// A late transport callback may enrich risk flags, but it must never
+		// reopen or replace an already-recorded terminal outcome.
+		l.closed = l.closed || terminal
+	}
+	if l.current != nil {
+		updated := *l.current
+		changed := false
+		firstCompletion := updated.CompletedAt == 0
+		if firstCompletion {
+			updated.CompletedAt = now
+			changed = true
+			if err != nil {
+				status := statusCodeFromError(err)
+				if status > 0 && updated.Status != status {
+					updated.Status = status
+					changed = true
+				}
+				reason := upstreamAttemptFailureReason(err, canceled)
+				if reason != "" && updated.RetryReason != reason {
+					updated.RetryReason = reason
+					changed = true
+				}
+			}
+			if canceled && updated.CanceledAt == 0 {
+				updated.CanceledAt = now
+				changed = true
+			}
+		}
+		possibleBillable := cliproxyexecutor.IsPossibleBillableRequest(err) || (err != nil && !known) || (known && !safe)
+		if possibleBillable && !updated.PossibleBillableRequest {
+			updated.PossibleBillableRequest = true
+			changed = true
+		}
+		unconfirmed := cancellationUnconfirmed || cliproxyexecutor.IsUpstreamCancellationUnconfirmed(err)
+		if unconfirmed && !updated.UpstreamCancellationUnconfirmed {
+			updated.UpstreamCancellationUnconfirmed = true
+			changed = true
+		}
+		if changed {
+			l.current = &updated
+			payload = &updated
+		}
+	}
+	l.mu.Unlock()
+	if payload != nil {
+		l.emit(*payload)
+	}
+}
+
+func upstreamAttemptFailureReason(err error, canceled bool) string {
+	if canceled {
+		var timeoutErr relayTimeoutError
+		if errors.As(err, &timeoutErr) {
+			if strings.Contains(timeoutErr.phase, "stream_total") {
+				return "stream_total_timeout"
+			}
+			return "stream_open_timeout"
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "stream_open_timeout"
+		}
+		return "client_canceled"
+	}
+	if err == nil {
+		return ""
+	}
+	if known, safe := cliproxyexecutor.UpstreamAttemptRetrySafety(err); known && safe {
+		return "pre_send_failure"
+	}
+	if statusCodeFromError(err) == http.StatusTooManyRequests {
+		return "upstream_429"
+	}
+	return "upstream_error"
 }
 
 func (s *relayServer) executeStreamWithOpenTimeout(
@@ -5846,6 +7148,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 	}
 	lastAttemptTimeout := openTimeout
 	excludedAuthIDs := make(map[string]struct{})
+	lifecycle := newUpstreamAttemptLifecycle(s, c, model)
 	for attempt := 1; attempt <= attempts; attempt++ {
 		attemptTimeout := streamOpenAttemptTimeout(openTimeout, attempt, attempts, quotaAdaptiveOpen)
 		lastAttemptTimeout = attemptTimeout
@@ -5853,12 +7156,14 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 		var latestAuthSelection atomic.Value
 		attemptOpts := withExcludedAuthIDs(opts, excludedAuthIDs)
 		attemptOpts = withSelectedAuthObserver(attemptOpts, func(selection cliproxyexecutor.AuthSelection) {
+			lifecycle.selected(selection)
 			latestAuthSelection.Store(selection)
 			select {
 			case authSelectionChanged <- struct{}{}:
 			default:
 			}
 		})
+		attemptOpts = withUpstreamAttemptObserver(attemptOpts, lifecycle.observe)
 		attemptCtx, cancelAttempt := context.WithCancelCause(ctx)
 		done := make(chan executeStreamResult, 1)
 		attemptStartedAt := time.Now()
@@ -5926,13 +7231,32 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 				applySelectedAuth(selection)
 			case out := <-done:
 				timer.Stop()
-				if out.err != nil || out.result == nil {
-					cancelAttempt(out.err)
+				if out.err == nil && out.result != nil {
+					return lifecycle.opened(out.result, ctx, cancelAttempt), nil
 				}
-				return out.result, out.err
+				if out.err == nil {
+					out.err = relayStatusError{status: http.StatusBadGateway, message: "upstream stream returned no result"}
+				}
+				cancelAttempt(out.err)
+				lifecycle.complete(out.err, false, false)
+				known, safe := cliproxyexecutor.UpstreamAttemptRetrySafety(out.err)
+				if known && safe && attempt < attempts {
+					if selectedAuth.AuthID != "" {
+						excludedAuthIDs[selectedAuth.AuthID] = struct{}{}
+					}
+					s.emitExecutorDiagnostic(c, "stream_open_retry", model, "execute_stream", startedAt, fmt.Sprintf("attempt=%d/%d retry_reason=pre_send_failure", attempt, attempts))
+					lifecycle.resumeAfterSafeFailure()
+					break waitForOpen
+				}
+				return nil, out.err
 			case <-ctx.Done():
 				timer.Stop()
-				cancelAttempt(context.Cause(ctx))
+				cause := context.Cause(ctx)
+				if cause == nil {
+					cause = ctx.Err()
+				}
+				cancelAttempt(cause)
+				lifecycle.complete(cause, true, true)
 				s.emitExecutorDiagnostic(
 					c,
 					"stream_open_canceled",
@@ -5941,7 +7265,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 					startedAt,
 					fmt.Sprintf("cancel_source=downstream_context err=%v", ctx.Err()),
 				)
-				return nil, ctx.Err()
+				return nil, cause
 			case <-timer.C:
 				if latest, ok := latestAuthSelection.Load().(cliproxyexecutor.AuthSelection); ok && strings.TrimSpace(latest.AuthID) != "" {
 					if applySelectedAuth(latest) {
@@ -5949,16 +7273,9 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 					}
 				}
 				err := relayTimeoutError{phase: fmt.Sprintf("stream_open attempt=%d/%d", attempt, attempts), timeout: selectedTimeout}
-				if selectedAuth.AuthID != "" {
-					if reporter, ok := s.runtime.(selectionFailureReporter); ok && reporter != nil {
-						if !reportSelectionFailureBeforeCancel(ctx, reporter, selectedAuth, model, err, attemptOpts, streamOpenSelectionReportWait) {
-							s.emitExecutorDiagnostic(c, "stream_open_selection_report_timeout", model, "execute_stream", startedAt, fmt.Sprintf("auth=%s max_wait=%s", selectedAuth.AuthID, streamOpenSelectionReportWait))
-						}
-					}
-					excludedAuthIDs[selectedAuth.AuthID] = struct{}{}
-				}
 				cancelAttempt(err)
-				detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel auth=%s excluded=%d %s", selectedAuth.AuthID, len(excludedAuthIDs), err.Error())
+				lifecycle.complete(err, true, true)
+				detail := fmt.Sprintf("cancel_source=gateway_timeout_cancel auth=%s possible_billable_request=true upstream_cancellation_unconfirmed=true %s", selectedAuth.AuthID, err.Error())
 				cancelWait := time.NewTimer(streamOpenCancelWait)
 				select {
 				case <-done:
@@ -5968,11 +7285,7 @@ func (s *relayServer) executeStreamWithOpenTimeout(
 				case <-cancelWait.C:
 					s.emitExecutorDiagnostic(c, "stream_open_cancel_wait_timeout", model, "execute_stream", startedAt, detail)
 				}
-				if attempt < attempts {
-					s.emitExecutorDiagnostic(c, "stream_open_retry", model, "execute_stream", startedAt, detail)
-					break waitForOpen
-				}
-				s.emitExecutorDiagnostic(c, "stream_open_retry_failed", model, "execute_stream", startedAt, detail)
+				s.emitExecutorDiagnostic(c, "stream_open_no_retry", model, "execute_stream", startedAt, detail)
 				return nil, err
 			}
 		}
@@ -6027,18 +7340,20 @@ func (s *relayServer) executorDiagnosticPayload(c *gin.Context, typ, model, phas
 	} else if strings.TrimSpace(phase) != "" {
 		message = fmt.Sprintf("phase=%s", phase)
 	}
+	logicalRequestID := internallogging.GetRequestID(c.Request.Context())
 	return requestDiagnosticPayload{
-		Type:         typ,
-		RequestID:    internallogging.GetRequestID(c.Request.Context()),
-		Method:       c.Request.Method,
-		Path:         requestPath(c.Request),
-		RequestKind:  requestKind,
-		Model:        model,
-		APIKeyID:     stringFromAPIKey(spec, "id"),
-		APIKeyLabel:  stringFromAPIKey(spec, "label"),
-		Transport:    diagnosticTransport(c.Request),
-		LatencyMS:    time.Since(startedAt).Milliseconds(),
-		ErrorMessage: message,
+		Type:             typ,
+		RequestID:        logicalRequestID,
+		LogicalRequestID: logicalRequestID,
+		Method:           c.Request.Method,
+		Path:             requestPath(c.Request),
+		RequestKind:      requestKind,
+		Model:            model,
+		APIKeyID:         stringFromAPIKey(spec, "id"),
+		APIKeyLabel:      stringFromAPIKey(spec, "label"),
+		Transport:        diagnosticTransport(c.Request),
+		LatencyMS:        time.Since(startedAt).Milliseconds(),
+		ErrorMessage:     message,
 	}
 }
 
@@ -6048,18 +7363,20 @@ func (s *relayServer) emitStreamCompleted(c *gin.Context, model string, received
 	}
 	spec, _ := c.Request.Context().Value(clientAPIKeyContextKey).(*apiKeySpec)
 	requestKind, _ := c.Request.Context().Value(requestKindContextKey).(string)
+	logicalRequestID := internallogging.GetRequestID(c.Request.Context())
 	s.emitter.emit(requestDiagnosticPayload{
-		Type:         "stream_completed",
-		RequestID:    internallogging.GetRequestID(c.Request.Context()),
-		Method:       c.Request.Method,
-		Path:         requestPath(c.Request),
-		RequestKind:  requestKind,
-		Model:        model,
-		APIKeyID:     stringFromAPIKey(spec, "id"),
-		APIKeyLabel:  stringFromAPIKey(spec, "label"),
-		Transport:    "sse",
-		Status:       c.Writer.Status(),
-		ErrorMessage: fmt.Sprintf("reason=%s received=%d", reason, received),
+		Type:             "stream_completed",
+		RequestID:        logicalRequestID,
+		LogicalRequestID: logicalRequestID,
+		Method:           c.Request.Method,
+		Path:             requestPath(c.Request),
+		RequestKind:      requestKind,
+		Model:            model,
+		APIKeyID:         stringFromAPIKey(spec, "id"),
+		APIKeyLabel:      stringFromAPIKey(spec, "label"),
+		Transport:        "sse",
+		Status:           c.Writer.Status(),
+		ErrorMessage:     fmt.Sprintf("reason=%s received=%d", reason, received),
 	})
 }
 
@@ -6546,7 +7863,7 @@ func (s *relayServer) handleOllamaRuntimeStream(c *gin.Context, body []byte, mod
 	req, opts := buildExecutorRequest(c, body, model, sdktranslator.FormatOpenAI, "", true)
 	startedAt := time.Now()
 	timeouts := s.streamTimeoutsForRequest(c.Request, body, model)
-	streamCtx, cancelStream := context.WithCancel(relayContext(c))
+	streamCtx, cancelStream := streamContextWithTotalTimeout(relayContext(c), timeouts.total)
 	defer cancelStream()
 	result, err := s.executeStreamWithOpenTimeout(c, streamCtx, []string{"codex"}, req, opts, model, startedAt, timeouts.open, timeouts.quotaAdaptiveOpen)
 	if err != nil {
@@ -6585,10 +7902,11 @@ func (s *relayServer) forwardOllamaRuntimeStream(c *gin.Context, ctx context.Con
 			flusher.Flush()
 			return
 		case <-ctx.Done():
-			writeOllamaErrorLine(c.Writer, ctx.Err())
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			writeOllamaErrorLine(c.Writer, context.Cause(ctx))
 			flusher.Flush()
-			return
-		case <-c.Request.Context().Done():
 			return
 		case chunk, ok := <-result.Chunks:
 			if !idleTimer.Stop() {
@@ -6654,7 +7972,8 @@ func (s *relayServer) handleOllamaProviderGatewayChat(c *gin.Context, gateway *p
 		req.Header.Set("Accept", "text/event-stream")
 	}
 	copyProviderGatewayDiagnosticHeaders(req.Header, c.Request.Header)
-	resp, err := http.DefaultClient.Do(req)
+	trackRelayRequestBody(req)
+	resp, err := providerGatewayHTTPClient().Do(req)
 	if err != nil {
 		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
 		return
@@ -7050,6 +8369,7 @@ func stringFieldFromAny(value any) string {
 type streamTimeoutProfile struct {
 	open              time.Duration
 	idle              time.Duration
+	total             time.Duration
 	quotaAdaptiveOpen bool
 }
 
@@ -7058,6 +8378,21 @@ func durationFromConfigMillis(value int, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(value) * time.Millisecond
+}
+
+func optionalDurationFromConfigMillis(value int) time.Duration {
+	if value <= 0 {
+		return 0
+	}
+	return time.Duration(value) * time.Millisecond
+}
+
+func streamContextWithTotalTimeout(parent context.Context, total time.Duration) (context.Context, context.CancelFunc) {
+	if total <= 0 {
+		return context.WithCancel(parent)
+	}
+	err := relayTimeoutError{phase: "stream_total", timeout: total}
+	return context.WithTimeoutCause(parent, total, err)
 }
 
 func (s *relayServer) streamOpenMaxAttempts() int {
@@ -7083,6 +8418,7 @@ func (s *relayServer) streamTimeoutsForRequest(r *http.Request, body []byte, mod
 	if s != nil && s.cfg != nil {
 		profile.open = durationFromConfigMillis(s.cfg.Streaming.StreamOpenTimeoutMS, profile.open)
 		profile.idle = durationFromConfigMillis(s.cfg.Streaming.StreamIdleTimeoutMS, profile.idle)
+		profile.total = optionalDurationFromConfigMillis(s.cfg.Streaming.StreamTotalTimeoutMS)
 	}
 	if !isImageGenerationRequest(r, body, model) {
 		return profile
@@ -7186,6 +8522,14 @@ func buildExecutorRequest(c *gin.Context, body []byte, model string, sourceForma
 	headers := http.Header{}
 	query := url.Values{}
 	if c != nil && c.Request != nil {
+		if logicalRequestID := strings.TrimSpace(internallogging.GetRequestID(c.Request.Context())); logicalRequestID != "" {
+			metadata[cliproxyexecutor.LogicalRequestIDMetadataKey] = logicalRequestID
+			idempotencyKey := strings.TrimSpace(c.Request.Header.Get("Idempotency-Key"))
+			if idempotencyKey == "" {
+				idempotencyKey = logicalRequestID
+			}
+			metadata[cliproxyexecutor.IdempotencyKeyMetadataKey] = idempotencyKey
+		}
 		headers = c.Request.Header.Clone()
 		if c.Request.URL != nil && c.Request.URL.Query() != nil {
 			for key, values := range c.Request.URL.Query() {
@@ -7386,9 +8730,15 @@ func streamKeepAliveInterval(cfg *config.Config) time.Duration {
 }
 
 func writeStreamTerminalError(c *gin.Context, err error) {
+	if c == nil {
+		return
+	}
+	if err != nil {
+		_ = c.Error(err)
+	}
 	status := statusCodeFromError(err)
 	path := ""
-	if c != nil && c.Request != nil {
+	if c.Request != nil {
 		path = strings.Split(requestPath(c.Request), "?")[0]
 	}
 	if strings.HasSuffix(path, "/v1/responses") {
@@ -7773,6 +9123,7 @@ func main() {
 	}
 
 	usageTracker := newRequestUsageTracker()
+	usageTracker.setEmitter(emitter)
 	activeSessions := newActiveSessionTracker()
 	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: usageTracker, sessions: activeSessions}
 	hook := &authHook{manifest: m, emitter: emitter}

@@ -200,11 +200,15 @@ fn default_legacy_stream_total_timeout_ms() -> u64 {
 }
 
 fn default_sidecar_stream_open_timeout_ms() -> u64 {
-    90 * 1000
+    180 * 1000
 }
 
 fn default_sidecar_stream_idle_timeout_ms() -> u64 {
     120 * 1000
+}
+
+fn default_sidecar_stream_total_timeout_ms() -> u64 {
+    0
 }
 
 fn default_sidecar_image_stream_open_timeout_ms() -> u64 {
@@ -216,7 +220,7 @@ fn default_sidecar_image_stream_idle_timeout_ms() -> u64 {
 }
 
 fn default_sidecar_stream_open_max_attempts() -> u8 {
-    2
+    1
 }
 
 fn default_sidecar_stream_keepalive_seconds() -> u16 {
@@ -270,7 +274,7 @@ fn default_single_account_status_retry_max_delay_ms() -> u64 {
 }
 
 fn default_sidecar_streaming_bootstrap_retries() -> u8 {
-    1
+    0
 }
 
 fn default_timeout_preset_long_wait() -> String {
@@ -292,6 +296,8 @@ pub struct CodexLocalAccessTimeouts {
     pub sidecar_stream_open_timeout_ms: u64,
     #[serde(default = "default_sidecar_stream_idle_timeout_ms")]
     pub sidecar_stream_idle_timeout_ms: u64,
+    #[serde(default = "default_sidecar_stream_total_timeout_ms")]
+    pub sidecar_stream_total_timeout_ms: u64,
     #[serde(default = "default_sidecar_image_stream_open_timeout_ms")]
     pub sidecar_image_stream_open_timeout_ms: u64,
     #[serde(default = "default_sidecar_image_stream_idle_timeout_ms")]
@@ -333,6 +339,7 @@ impl Default for CodexLocalAccessTimeouts {
             legacy_stream_total_timeout_ms: default_legacy_stream_total_timeout_ms(),
             sidecar_stream_open_timeout_ms: default_sidecar_stream_open_timeout_ms(),
             sidecar_stream_idle_timeout_ms: default_sidecar_stream_idle_timeout_ms(),
+            sidecar_stream_total_timeout_ms: default_sidecar_stream_total_timeout_ms(),
             sidecar_image_stream_open_timeout_ms: default_sidecar_image_stream_open_timeout_ms(),
             sidecar_image_stream_idle_timeout_ms: default_sidecar_image_stream_idle_timeout_ms(),
             sidecar_stream_open_max_attempts: default_sidecar_stream_open_max_attempts(),
@@ -508,14 +515,23 @@ pub struct CodexLocalAccessCollection {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessUsageStats {
+    /// Client-visible logical requests. This remains separate from actual upstream POST attempts.
+    #[serde(default)]
+    pub logical_request_count: u64,
     #[serde(default)]
     pub request_count: u64,
+    #[serde(default)]
+    pub upstream_attempt_count: u64,
     #[serde(default)]
     pub success_count: u64,
     #[serde(default)]
     pub failure_count: u64,
     #[serde(default)]
     pub client_canceled_count: u64,
+    #[serde(default)]
+    pub canceled_request_count: u64,
+    #[serde(default)]
+    pub possible_billable_request_count: u64,
     #[serde(default)]
     pub upstream_response_failed_count: u64,
     #[serde(default)]

@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1953,7 +1952,7 @@ func TestOpenAIResponsesPreludeOnlyStreamIsRetryableEmpty(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesSemanticEmptyStreamFailsOverBeforeBinding(t *testing.T) {
+func TestOpenAIResponsesSemanticEmptyStreamDoesNotResubmit(t *testing.T) {
 	t.Parallel()
 	remaining := map[string]*int{"k12-empty": intPtr(80)}
 	selector := newTestK12Selector(t, filepath.Join(t.TempDir(), "state.json"), remaining)
@@ -1978,20 +1977,22 @@ func TestOpenAIResponsesSemanticEmptyStreamFailsOverBeforeBinding(t *testing.T) 
 		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5"}, opts,
 	)
 	if err != nil {
-		t.Fatalf("semantic empty stream did not fail over: %v", err)
+		t.Fatalf("semantic empty stream setup failed: %v", err)
 	}
-	var payload []byte
+	var streamErr error
 	for chunk := range stream.Chunks {
 		if chunk.Err != nil {
-			t.Fatalf("failover stream error: %v", chunk.Err)
+			streamErr = chunk.Err
 		}
-		payload = append(payload, chunk.Payload...)
 	}
-	if !bytes.Contains(payload, []byte(`"delta":"ok"`)) {
-		t.Fatalf("failover payload = %q", payload)
+	if streamErr == nil {
+		t.Fatal("semantic empty stream did not surface an error")
 	}
-	if len(executor.streamCalls) != 2 || executor.streamCalls[0] != "k12-empty" || executor.streamCalls[1] != "plus-output" {
-		t.Fatalf("semantic failover calls = %#v", executor.streamCalls)
+	if !cliproxyexecutor.IsPossibleBillableRequest(streamErr) {
+		t.Fatalf("semantic empty stream was not marked possibly billable: %v", streamErr)
+	}
+	if len(executor.streamCalls) != 1 || executor.streamCalls[0] != "k12-empty" {
+		t.Fatalf("semantic empty stream was resubmitted: %#v", executor.streamCalls)
 	}
 	emptyAuth, ok := manager.GetByID("k12-empty")
 	if !ok || emptyAuth == nil {

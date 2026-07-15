@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
@@ -218,6 +219,94 @@ type CodexExecutor struct {
 func NewCodexExecutor(cfg *config.Config) *CodexExecutor { return &CodexExecutor{cfg: cfg} }
 
 func (e *CodexExecutor) Identifier() string { return "codex" }
+
+type codexRequestBodyTracker struct {
+	body      io.ReadCloser
+	bytesRead atomic.Int64
+}
+
+func (t *codexRequestBodyTracker) Read(p []byte) (int, error) {
+	if t == nil || t.body == nil {
+		return 0, io.EOF
+	}
+	n, err := t.body.Read(p)
+	if n > 0 {
+		t.bytesRead.Add(int64(n))
+	}
+	return n, err
+}
+
+func (t *codexRequestBodyTracker) Close() error {
+	if t == nil || t.body == nil {
+		return nil
+	}
+	return t.body.Close()
+}
+
+func trackCodexRequestBody(req *http.Request) *codexRequestBodyTracker {
+	if req == nil || req.Body == nil {
+		return nil
+	}
+	tracker := &codexRequestBodyTracker{body: req.Body}
+	req.Body = tracker
+	// Prevent net/http from replaying this POST internally. The conductor owns
+	// retries and may do so only after the tracker confirms a zero-byte send.
+	req.GetBody = nil
+	return tracker
+}
+
+func codexUpstreamAttemptError(ctx context.Context, cause error, tracker *codexRequestBodyTracker, responseReceived bool) error {
+	if cause == nil {
+		return nil
+	}
+	var bodyBytesRead int64
+	if tracker != nil {
+		bodyBytesRead = tracker.bytesRead.Load()
+	}
+	cancellationUnconfirmed := (bodyBytesRead > 0 || responseReceived) && ctx != nil && ctx.Err() != nil
+	return cliproxyexecutor.WrapUpstreamAttemptError(cause, bodyBytesRead, responseReceived, cancellationUnconfirmed)
+}
+
+func observeCodexUpstreamAttempt(
+	opts cliproxyexecutor.Options,
+	phase cliproxyexecutor.UpstreamAttemptPhase,
+	auth *cliproxyauth.Auth,
+	tracker *codexRequestBodyTracker,
+	responseReceived bool,
+	statusCode int,
+	err error,
+) {
+	authID := ""
+	if auth != nil {
+		authID = strings.TrimSpace(auth.ID)
+	}
+	var bodyBytesRead int64
+	if tracker != nil {
+		bodyBytesRead = tracker.bytesRead.Load()
+	}
+	cliproxyexecutor.NotifyUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:                phase,
+		AuthID:               authID,
+		At:                   time.Now(),
+		RequestBodyBytesRead: bodyBytesRead,
+		ResponseReceived:     responseReceived,
+		StatusCode:           statusCode,
+		Err:                  err,
+	})
+}
+
+func applyCodexIdempotencyHeader(req *http.Request, opts cliproxyexecutor.Options) {
+	if req == nil {
+		return
+	}
+	key := metadataString(opts.Metadata, cliproxyexecutor.IdempotencyKeyMetadataKey)
+	if key == "" && opts.Headers != nil {
+		key = strings.TrimSpace(opts.Headers.Get("Idempotency-Key"))
+	}
+	if key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+}
 
 func translateCodexRequestPair(from, to sdktranslator.Format, model string, originalPayload, payload []byte, stream bool) ([]byte, []byte) {
 	if bytes.Equal(originalPayload, payload) {
@@ -875,6 +964,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		return resp, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg)
+	applyCodexIdempotencyHeader(httpReq, opts)
 	removeCodexResponsesLiteHeaderForFullResponse(httpReq.Header, useFullResponses)
 	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
 	var authID, authLabel, authType, authValue string
@@ -896,11 +986,16 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	})
 	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	httpClient = reporter.TrackHTTPClient(httpClient)
+	bodyTracker := trackCodexRequestBody(httpReq)
+	observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptStarted, auth, bodyTracker, false, 0, nil)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
+		err = codexUpstreamAttemptError(ctx, err, bodyTracker, false)
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, false, 0, err)
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return resp, err
 	}
+	observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptResponded, auth, bodyTracker, true, httpResp.StatusCode, nil)
 	defer func() {
 		if errClose := httpResp.Body.Close(); errClose != nil {
 			log.Errorf("codex executor: close response body error: %v", errClose)
@@ -908,16 +1003,25 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	}()
 	helps.RecordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		b, _ := io.ReadAll(httpResp.Body)
+		b, readErr := io.ReadAll(httpResp.Body)
+		if readErr != nil {
+			readErr = codexUpstreamAttemptError(ctx, readErr, bodyTracker, true)
+			observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, readErr)
+			helps.RecordAPIResponseError(ctx, e.cfg, readErr)
+			return resp, readErr
+		}
 		b = applyCodexIdentityConfuseResponsePayload(b, identityState)
 		clearCodexReasoningReplayOnInvalidSignature(replayScope, httpResp.StatusCode, b)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
-		err = newCodexStatusErr(httpResp.StatusCode, b)
+		err = codexUpstreamAttemptError(ctx, newCodexStatusErr(httpResp.StatusCode, b), bodyTracker, true)
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, err)
 		return resp, err
 	}
 	data, err := io.ReadAll(httpResp.Body)
 	if err != nil {
+		err = codexUpstreamAttemptError(ctx, err, bodyTracker, true)
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, err)
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return resp, err
 	}
@@ -937,7 +1041,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 		if streamErr, terminalBody, ok := codexTerminalStreamErr(eventData); ok {
 			clearCodexReasoningReplayOnInvalidSignature(replayScope, streamErr.StatusCode(), terminalBody)
-			err = streamErr
+			err = codexUpstreamAttemptError(ctx, streamErr, bodyTracker, true)
+			observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, err)
+			helps.RecordAPIResponseError(ctx, e.cfg, err)
 			return resp, err
 		}
 
@@ -992,9 +1098,12 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		clientCompletedData := applyCodexIdentityExposeResponsePayload(completedData, identityState)
 		out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, originalPayload, body, clientCompletedData, &param)
 		resp = cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, nil)
 		return resp, nil
 	}
-	err = statusErr{code: 408, msg: "stream error: stream disconnected before completion: stream closed before response.completed"}
+	err = codexUpstreamAttemptError(ctx, statusErr{code: 408, msg: "stream error: stream disconnected before completion: stream closed before response.completed"}, bodyTracker, true)
+	observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, err)
+	helps.RecordAPIResponseError(ctx, e.cfg, err)
 	return resp, err
 }
 
@@ -1156,6 +1265,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		return nil, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg)
+	applyCodexIdempotencyHeader(httpReq, opts)
 	removeCodexResponsesLiteHeaderForFullResponse(httpReq.Header, useFullResponses)
 	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
 	var authID, authLabel, authType, authValue string
@@ -1178,11 +1288,16 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 
 	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	httpClient = reporter.TrackHTTPClient(httpClient)
+	bodyTracker := trackCodexRequestBody(httpReq)
+	observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptStarted, auth, bodyTracker, false, 0, nil)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
+		err = codexUpstreamAttemptError(ctx, err, bodyTracker, false)
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, false, 0, err)
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return nil, err
 	}
+	observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptResponded, auth, bodyTracker, true, httpResp.StatusCode, nil)
 	helps.RecordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		data, readErr := io.ReadAll(httpResp.Body)
@@ -1190,6 +1305,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			log.Errorf("codex executor: close response body error: %v", errClose)
 		}
 		if readErr != nil {
+			readErr = codexUpstreamAttemptError(ctx, readErr, bodyTracker, true)
+			observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, readErr)
 			helps.RecordAPIResponseError(ctx, e.cfg, readErr)
 			return nil, readErr
 		}
@@ -1197,7 +1314,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		clearCodexReasoningReplayOnInvalidSignature(replayScope, httpResp.StatusCode, data)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
-		err = newCodexStatusErr(httpResp.StatusCode, data)
+		err = codexUpstreamAttemptError(ctx, newCodexStatusErr(httpResp.StatusCode, data), bodyTracker, true)
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, err)
 		return nil, err
 	}
 	out := make(chan cliproxyexecutor.StreamChunk)
@@ -1213,6 +1331,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		var param any
 		outputItemsByIndex := make(map[int64][]byte)
 		var outputItemsFallback [][]byte
+		completedSeen := false
 		for scanner.Scan() {
 			line := applyCodexIdentityConfuseResponsePayload(scanner.Bytes(), identityState)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
@@ -1222,10 +1341,12 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				data := bytes.TrimSpace(line[5:])
 				if streamErr, terminalBody, ok := codexTerminalStreamErr(data); ok {
 					clearCodexReasoningReplayOnInvalidSignature(replayScope, streamErr.StatusCode(), terminalBody)
-					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
-					reporter.PublishFailure(ctx, streamErr)
+					wrappedStreamErr := codexUpstreamAttemptError(ctx, streamErr, bodyTracker, true)
+					observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, wrappedStreamErr)
+					helps.RecordAPIResponseError(ctx, e.cfg, wrappedStreamErr)
+					reporter.PublishFailure(ctx, wrappedStreamErr)
 					select {
-					case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
+					case out <- cliproxyexecutor.StreamChunk{Err: wrappedStreamErr}:
 					case <-ctx.Done():
 					}
 					return
@@ -1234,6 +1355,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				case "response.output_item.done":
 					collectCodexOutputItemDone(data, outputItemsByIndex, &outputItemsFallback)
 				case "response.completed":
+					completedSeen = true
 					if detail, ok := helps.ParseCodexUsage(data); ok {
 						reporter.Publish(ctx, detail)
 					}
@@ -1250,18 +1372,38 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: chunks[i]}:
 				case <-ctx.Done():
+					cancelErr := codexUpstreamAttemptError(ctx, ctx.Err(), bodyTracker, true)
+					observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, cancelErr)
+					helps.RecordAPIResponseError(ctx, e.cfg, cancelErr)
+					reporter.PublishFailure(ctx, cancelErr)
 					return
 				}
 			}
 		}
 		if errScan := scanner.Err(); errScan != nil {
+			errScan = codexUpstreamAttemptError(ctx, errScan, bodyTracker, true)
+			observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, errScan)
 			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 			reporter.PublishFailure(ctx, errScan)
 			select {
 			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
 			case <-ctx.Done():
 			}
+			return
 		}
+		if !completedSeen {
+			errScan := fmt.Errorf("codex upstream stream ended before response.completed: %w", io.ErrUnexpectedEOF)
+			errScan = codexUpstreamAttemptError(ctx, errScan, bodyTracker, true)
+			observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, errScan)
+			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+			reporter.PublishFailure(ctx, errScan)
+			select {
+			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
+			case <-ctx.Done():
+			}
+			return
+		}
+		observeCodexUpstreamAttempt(opts, cliproxyexecutor.UpstreamAttemptFinished, auth, bodyTracker, true, httpResp.StatusCode, nil)
 	}()
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
 }

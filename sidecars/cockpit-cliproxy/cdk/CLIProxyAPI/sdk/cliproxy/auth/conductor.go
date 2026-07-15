@@ -1253,6 +1253,35 @@ func streamChunksHavePayload(chunks []cliproxyexecutor.StreamChunk) bool {
 	return false
 }
 
+func streamRetryBlocked(err error, opts cliproxyexecutor.Options) bool {
+	return requestRetryBlocked(err, opts)
+}
+
+func requestRetryBlocked(err error, opts cliproxyexecutor.Options) bool {
+	if err == nil {
+		return false
+	}
+	known, safe := cliproxyexecutor.UpstreamAttemptRetrySafety(err)
+	if known {
+		return !safe
+	}
+	// The Responses endpoint uses a strict at-most-once boundary. Unknown
+	// executor errors cannot prove that the POST body stayed local.
+	return opts.SourceFormat == "openai-response"
+}
+
+func markStreamResponseAccepted(err error, opts cliproxyexecutor.Options) error {
+	if err == nil {
+		return nil
+	}
+	if opts.SourceFormat != "openai-response" {
+		return err
+	}
+	// Receiving a StreamResult means the executor observed an upstream
+	// response. Any later bootstrap EOF/error is therefore possibly billable.
+	return cliproxyexecutor.WrapUpstreamAttemptError(err, 0, true, false)
+}
+
 func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, resultModel string, opts cliproxyexecutor.Options, headers http.Header, buffered []cliproxyexecutor.StreamChunk, remaining <-chan cliproxyexecutor.StreamChunk) *cliproxyexecutor.StreamResult {
 	out := make(chan cliproxyexecutor.StreamChunk)
 	go func() {
@@ -1353,6 +1382,9 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if directive.StopCredentialFallback {
 				return nil, newSelectionFailureError(errStream)
 			}
+			if streamRetryBlocked(errStream, opts) {
+				return nil, newSelectionFailureError(errStream)
+			}
 			if isRequestInvalidError(errStream) {
 				return nil, errStream
 			}
@@ -1377,6 +1409,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				}
 				return nil, errCtx
 			}
+			bootstrapErr = markStreamResponseAccepted(bootstrapErr, opts)
 			if isRequestInvalidError(bootstrapErr) {
 				directive := markFailure(bootstrapErr)
 				discardStreamChunks(streamResult.Chunks)
@@ -1384,6 +1417,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 					return nil, newSelectionFailureError(newStreamBootstrapError(bootstrapErr, streamResult.Headers))
 				}
 				return nil, bootstrapErr
+			}
+			if streamRetryBlocked(bootstrapErr, opts) {
+				markFailure(bootstrapErr)
+				discardStreamChunks(streamResult.Chunks)
+				return nil, newSelectionFailureError(newStreamBootstrapError(bootstrapErr, streamResult.Headers))
 			}
 			if idx < len(execModels)-1 {
 				directive := markFailure(bootstrapErr)
@@ -1412,8 +1450,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 					summarizeOpenAIResponsesBootstrap(buffered),
 				)
 			}
-			emptyErr := &Error{Code: "empty_stream", Message: "upstream stream closed before meaningful output", Retryable: true}
+			emptyErr := markStreamResponseAccepted(&Error{Code: "empty_stream", Message: "upstream stream closed before meaningful output", Retryable: true}, opts)
 			directive := markFailure(emptyErr)
+			if streamRetryBlocked(emptyErr, opts) {
+				return nil, newSelectionFailureError(newStreamBootstrapError(emptyErr, streamResult.Headers))
+			}
 			if directive.StopCredentialFallback {
 				return nil, newSelectionFailureError(newStreamBootstrapError(emptyErr, streamResult.Headers))
 			}
@@ -1723,6 +1764,9 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		if errExec == nil {
 			return resp, nil
 		}
+		if requestRetryBlocked(errExec, opts) {
+			return cliproxyexecutor.Response{}, errExec
+		}
 		if selectionStopsCredentialFallback(errExec) {
 			return cliproxyexecutor.Response{}, unwrapSelectionFailure(errExec)
 		}
@@ -1795,6 +1839,10 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		if errCtx := executionContextError(ctx); errCtx != nil {
 			return nil, errCtx
 		}
+		if streamRetryBlocked(errStream, opts) {
+			lastErr = unwrapSelectionFailure(errStream)
+			break
+		}
 		if selectionStopsCredentialFallback(errStream) {
 			lastErr = unwrapSelectionFailure(errStream)
 			break
@@ -1809,6 +1857,13 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		}
 	}
 	if lastErr != nil {
+		if streamRetryBlocked(lastErr, opts) {
+			var bootstrapErr *streamBootstrapError
+			if errors.As(lastErr, &bootstrapErr) && bootstrapErr != nil {
+				return streamErrorResult(bootstrapErr.Headers(), bootstrapErr.cause), nil
+			}
+			return nil, lastErr
+		}
 		if hasAntigravityProvider(normalized) && shouldAttemptAntigravityCreditsFallback(m, lastErr, normalized) {
 			if result, ok := m.tryAntigravityCreditsExecuteStream(ctx, req, opts); ok {
 				return result, nil
@@ -1907,6 +1962,9 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 					return cliproxyexecutor.Response{}, newSelectionFailureError(errExec)
 				}
 				if isRequestInvalidError(errExec) {
+					return cliproxyexecutor.Response{}, errExec
+				}
+				if requestRetryBlocked(errExec, pickOpts) {
 					return cliproxyexecutor.Response{}, errExec
 				}
 				authErr = errExec
@@ -2097,6 +2155,9 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 			if selectionStopsCredentialFallback(errStream) {
 				return nil, errStream
+			}
+			if streamRetryBlocked(errStream, opts) {
+				return nil, newSelectionFailureError(errStream)
 			}
 			if isRequestInvalidError(errStream) {
 				return nil, errStream

@@ -84,6 +84,7 @@ export interface CodexLocalAccessTimeouts {
   legacyStreamTotalTimeoutMs: number;
   sidecarStreamOpenTimeoutMs: number;
   sidecarStreamIdleTimeoutMs: number;
+  sidecarStreamTotalTimeoutMs: number;
   sidecarImageStreamOpenTimeoutMs: number;
   sidecarImageStreamIdleTimeoutMs: number;
   sidecarStreamOpenMaxAttempts: number;
@@ -148,10 +149,15 @@ export interface CodexLocalAccessCollection {
 }
 
 export interface CodexLocalAccessUsageStats {
+  /** Client logical requests; distinct from actual upstream POST attempts. */
+  logicalRequestCount: number;
   requestCount: number;
+  upstreamAttemptCount: number;
   successCount: number;
   failureCount: number;
   clientCanceledCount: number;
+  canceledRequestCount: number;
+  possibleBillableRequestCount: number;
   upstreamResponseFailedCount: number;
   streamIncompleteCount: number;
   totalLatencyMs: number;

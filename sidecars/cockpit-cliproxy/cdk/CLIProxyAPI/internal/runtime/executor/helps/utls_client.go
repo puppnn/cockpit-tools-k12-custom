@@ -185,6 +185,9 @@ func NewUtlsHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyau
 			utls:     utlsRT,
 			fallback: standardTransport,
 		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 	if timeout > 0 {
 		client.Timeout = timeout

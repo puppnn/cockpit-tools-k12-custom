@@ -7,15 +7,19 @@ import (
 	"golang.org/x/net/context"
 )
 
-func TestRequestExecutionMetadataIncludesExecutionSessionWithoutIdempotencyKey(t *testing.T) {
+func TestRequestExecutionMetadataUsesLogicalRequestIDAsDefaultIdempotencyKey(t *testing.T) {
 	ctx := WithExecutionSessionID(context.Background(), "session-1")
 
 	meta := requestExecutionMetadata(ctx)
 	if got := meta[coreexecutor.ExecutionSessionMetadataKey]; got != "session-1" {
 		t.Fatalf("ExecutionSessionMetadataKey = %v, want %q", got, "session-1")
 	}
-	if _, ok := meta[idempotencyKeyMetadataKey]; ok {
-		t.Fatalf("unexpected idempotency key in metadata: %v", meta[idempotencyKeyMetadataKey])
+	logicalRequestID, ok := meta[coreexecutor.LogicalRequestIDMetadataKey].(string)
+	if !ok || logicalRequestID == "" {
+		t.Fatalf("LogicalRequestIDMetadataKey = %v, want non-empty string", meta[coreexecutor.LogicalRequestIDMetadataKey])
+	}
+	if got := meta[idempotencyKeyMetadataKey]; got != logicalRequestID {
+		t.Fatalf("idempotency key = %v, want logical request ID %q", got, logicalRequestID)
 	}
 }
 

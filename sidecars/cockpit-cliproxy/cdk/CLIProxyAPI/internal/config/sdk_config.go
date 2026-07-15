@@ -79,6 +79,10 @@ type StreamingConfig struct {
 	// StreamIdleTimeoutMS controls how long a text stream may remain idle between chunks.
 	StreamIdleTimeoutMS int `yaml:"stream-idle-timeout-ms,omitempty" json:"stream-idle-timeout-ms,omitempty"`
 
+	// StreamTotalTimeoutMS controls the maximum lifetime of a streaming request, including
+	// the wait for the first upstream response. <= 0 disables the total timeout.
+	StreamTotalTimeoutMS int `yaml:"stream-total-timeout-ms,omitempty" json:"stream-total-timeout-ms,omitempty"`
+
 	// ImageStreamOpenTimeoutMS controls how long the sidecar waits for an image stream to open.
 	ImageStreamOpenTimeoutMS int `yaml:"image-stream-open-timeout-ms,omitempty" json:"image-stream-open-timeout-ms,omitempty"`
 

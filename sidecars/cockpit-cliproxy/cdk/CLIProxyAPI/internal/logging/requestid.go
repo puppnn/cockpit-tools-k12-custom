@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,11 +17,13 @@ type requestIDKey struct{}
 // ginRequestIDKey is the Gin context key for request IDs.
 const ginRequestIDKey = "__request_id__"
 
-// GenerateRequestID creates a new 8-character hex request ID.
+var fallbackRequestIDCounter atomic.Uint64
+
+// GenerateRequestID creates a 128-bit request ID suitable for idempotency keys.
 func GenerateRequestID() string {
-	b := make([]byte, 4)
+	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		return "00000000"
+		return fmt.Sprintf("%016x%016x", uint64(time.Now().UnixNano()), fallbackRequestIDCounter.Add(1))
 	}
 	return hex.EncodeToString(b)
 }

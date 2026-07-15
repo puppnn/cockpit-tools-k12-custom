@@ -528,11 +528,12 @@ function defaultCodexLocalAccessTimeouts(): CodexLocalAccessTimeouts {
     legacyUpstreamConnectTimeoutMs: 60000,
     legacyStreamIdleTimeoutMs: 120000,
     legacyStreamTotalTimeoutMs: 300000,
-    sidecarStreamOpenTimeoutMs: 90000,
+    sidecarStreamOpenTimeoutMs: 180000,
     sidecarStreamIdleTimeoutMs: 120000,
+    sidecarStreamTotalTimeoutMs: 0,
     sidecarImageStreamOpenTimeoutMs: 60000,
     sidecarImageStreamIdleTimeoutMs: 180000,
-    sidecarStreamOpenMaxAttempts: 2,
+    sidecarStreamOpenMaxAttempts: 1,
     sidecarStreamKeepaliveSeconds: 15,
     websocketConnectTimeoutMs: 30000,
     websocketInitialMessageTimeoutMs: 30000,
@@ -544,7 +545,7 @@ function defaultCodexLocalAccessTimeouts(): CodexLocalAccessTimeouts {
     singleAccountStatusRetryAttempts: 2,
     singleAccountStatusRetryBaseDelayMs: 300,
     singleAccountStatusRetryMaxDelayMs: 1500,
-    sidecarStreamingBootstrapRetries: 1,
+    sidecarStreamingBootstrapRetries: 0,
   };
 }
 
@@ -557,9 +558,11 @@ function shortWaitCodexLocalAccessTimeouts(): CodexLocalAccessTimeouts {
     legacyStreamTotalTimeoutMs: 180000,
     sidecarStreamOpenTimeoutMs: 10000,
     sidecarStreamIdleTimeoutMs: 60000,
+    sidecarStreamTotalTimeoutMs: 0,
     sidecarImageStreamOpenTimeoutMs: 10000,
     sidecarImageStreamIdleTimeoutMs: 60000,
-    sidecarStreamOpenMaxAttempts: 2,
+    sidecarStreamOpenMaxAttempts: 1,
+    sidecarStreamingBootstrapRetries: 0,
     websocketConnectTimeoutMs: 30000,
     websocketInitialMessageTimeoutMs: 30000,
   };
@@ -601,6 +604,9 @@ function timeoutDraftsFromValue(
     ),
     sidecarStreamIdleTimeoutMs: formatSeconds(
       timeouts.sidecarStreamIdleTimeoutMs,
+    ),
+    sidecarStreamTotalTimeoutMs: formatSeconds(
+      timeouts.sidecarStreamTotalTimeoutMs,
     ),
     sidecarImageStreamOpenTimeoutMs: formatSeconds(
       timeouts.sidecarImageStreamOpenTimeoutMs,
@@ -2615,6 +2621,21 @@ export function CodexApiServicePage() {
       }
       parsedSeconds.set(key, parsed);
     }
+    const sidecarStreamTotalSeconds = parseIntegerDraft(
+      timeoutDrafts.sidecarStreamTotalTimeoutMs,
+      0,
+      86400,
+    );
+    if (sidecarStreamTotalSeconds === null) {
+      setTimeoutsError(
+        t("codex.apiService.validation.numberRange", {
+          min: 0,
+          max: 86400,
+          defaultValue: "请输入 {{min}} 到 {{max}} 之间的数字",
+        }),
+      );
+      return null;
+    }
     if (
       (parsedSeconds.get("legacyStreamTotalTimeoutMs") ?? 0) <
       (parsedSeconds.get("legacyStreamIdleTimeoutMs") ?? 0)
@@ -2760,9 +2781,10 @@ export function CodexApiServicePage() {
       legacyStreamTotalTimeoutMs:
         (parsedSeconds.get("legacyStreamTotalTimeoutMs") ?? 180) * 1000,
       sidecarStreamOpenTimeoutMs:
-        (parsedSeconds.get("sidecarStreamOpenTimeoutMs") ?? 90) * 1000,
+        (parsedSeconds.get("sidecarStreamOpenTimeoutMs") ?? 180) * 1000,
       sidecarStreamIdleTimeoutMs:
         (parsedSeconds.get("sidecarStreamIdleTimeoutMs") ?? 60) * 1000,
+      sidecarStreamTotalTimeoutMs: sidecarStreamTotalSeconds * 1000,
       sidecarImageStreamOpenTimeoutMs:
         (parsedSeconds.get("sidecarImageStreamOpenTimeoutMs") ?? 10) * 1000,
       sidecarImageStreamIdleTimeoutMs:
@@ -3118,9 +3140,24 @@ export function CodexApiServicePage() {
   const summaryCards = [
     {
       key: "requests",
-      label: t("codex.localAccess.stats.requests", "总请求数"),
-      value: formatCompactNumber(totals?.requestCount ?? 0),
+      label: t("codex.localAccess.stats.logicalRequests", "逻辑请求"),
+      value: formatCompactNumber(
+        totals?.logicalRequestCount ?? totals?.requestCount ?? 0,
+      ),
       detail: formatRequestResultDetail(totals),
+    },
+    {
+      key: "upstreamAttempts",
+      label: t("codex.localAccess.stats.upstreamAttempts", "上游实际尝试"),
+      value: formatCompactNumber(totals?.upstreamAttemptCount ?? 0),
+      detail: t("codex.localAccess.stats.upstreamAttemptsDetail", {
+        canceled: formatCompactNumber(totals?.canceledRequestCount ?? 0),
+        possibleBillable: formatCompactNumber(
+          totals?.possibleBillableRequestCount ?? 0,
+        ),
+        defaultValue:
+          "取消 {{canceled}} / 可能已计费但无 usage {{possibleBillable}}",
+      }),
     },
     {
       key: "images",
@@ -5379,6 +5416,26 @@ export function CodexApiServicePage() {
                   </label>
                   <label>
                     <span>
+                      {t(
+                        "codex.apiService.timeouts.requestTotal",
+                        "请求总超时（0 = 不限时）",
+                      )}
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={86400}
+                      value={timeoutDrafts.sidecarStreamTotalTimeoutMs}
+                      onChange={(event) =>
+                        updateTimeoutDraft(
+                          "sidecarStreamTotalTimeoutMs",
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>
                       {t("codex.apiService.timeouts.imageOpen", "图片流打开")}
                     </span>
                     <input
@@ -5413,7 +5470,10 @@ export function CodexApiServicePage() {
                   </label>
                   <label>
                     <span>
-                      {t("codex.apiService.timeouts.openAttempts", "打开尝试")}
+                      {t(
+                        "codex.apiService.timeouts.openAttempts",
+                        "首响应总尝试次数（1 = 不重试）",
+                      )}
                     </span>
                     <input
                       type="number"

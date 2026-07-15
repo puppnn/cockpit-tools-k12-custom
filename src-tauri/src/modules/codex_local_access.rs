@@ -28,6 +28,7 @@ use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TY
 use reqwest::{Client, Method, Proxy, StatusCode, Url};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, Error as SqliteError,
+    OptionalExtension,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -39,7 +40,7 @@ use std::error::Error as StdError;
 use std::net::{Ipv4Addr, TcpListener as StdTcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
@@ -114,6 +115,7 @@ const DEFAULT_MAX_RETRY_INTERVAL_MS: u64 = 30 * 1000;
 const LOCAL_ACCESS_TIMEOUT_MIN_MS: u64 = 1_000;
 const LOCAL_ACCESS_TIMEOUT_MAX_MS: u64 = 600_000;
 const LEGACY_STREAM_TOTAL_TIMEOUT_MAX_MS: u64 = 30 * 60 * 1000;
+const SIDECAR_STREAM_TOTAL_TIMEOUT_MAX_MS: u64 = 24 * 60 * 60 * 1000;
 const SIDECAR_STREAM_OPEN_ATTEMPTS_MIN: u8 = 1;
 const SIDECAR_STREAM_OPEN_ATTEMPTS_MAX: u8 = 3;
 const SIDECAR_STREAM_KEEPALIVE_MIN_SECONDS: u16 = 0;
@@ -630,6 +632,23 @@ struct ParsedRequest {
     body: Vec<u8>,
 }
 
+fn ensure_legacy_logical_request_metadata(request: &mut ParsedRequest) -> String {
+    let logical_request_id = header_value(&request.headers, "x-request-id")
+        .or_else(|| header_value(&request.headers, "idempotency-key"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    if is_responses_request(&request.target)
+        && header_value(&request.headers, "idempotency-key").is_none()
+    {
+        request
+            .headers
+            .insert("idempotency-key".to_string(), logical_request_id.clone());
+    }
+    logical_request_id
+}
+
 fn request_uses_responses_lite(request: &ParsedRequest) -> bool {
     request
         .headers
@@ -1075,14 +1094,20 @@ fn current_upstream_proxy_diagnostics(
 }
 
 fn build_upstream_http_client(signature: &UpstreamHttpClientSignature) -> Result<Client, String> {
-    let mut builder = Client::builder().connect_timeout(duration_from_millis(
-        signature.connect_timeout_ms,
-        DEFAULT_UPSTREAM_CONNECT_TIMEOUT,
-    ));
+    let mut builder = Client::builder()
+        .connect_timeout(duration_from_millis(
+            signature.connect_timeout_ms,
+            DEFAULT_UPSTREAM_CONNECT_TIMEOUT,
+        ))
+        .redirect(reqwest::redirect::Policy::none());
 
     if let Some(proxy_url) = signature.proxy_url.as_deref() {
         let proxy = Proxy::all(proxy_url).map_err(|e| format!("Codex 上游代理地址无效: {}", e))?;
         builder = builder.proxy(proxy);
+    } else {
+        // Proxy resolution is already reflected in the client signature. Do
+        // not let reqwest perform a second, implicit environment lookup.
+        builder = builder.no_proxy();
     }
 
     builder
@@ -1695,9 +1720,11 @@ pub async fn run_official_wakeup_chat(
         &timeouts,
         CodexLocalAccessImageGenerationMode::Disabled,
         CodexLocalAccessRequestKind::Text,
+        None,
     )
     .await
     .map_err(|err| {
+        let err = err.message;
         let detail = err
             .split_once("技术细节:")
             .map(|(_, detail)| detail.trim())
@@ -6435,6 +6462,46 @@ fn create_request_logs_table(
     Ok(())
 }
 
+fn create_upstream_attempts_table(conn: &Connection) -> Result<(), SqliteError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS upstream_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            logical_request_id TEXT NOT NULL DEFAULT '',
+            upstream_attempt_id TEXT NOT NULL UNIQUE,
+            attempt_number INTEGER NOT NULL DEFAULT 1,
+            account_id TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL DEFAULT '',
+            api_key_id TEXT NOT NULL DEFAULT '',
+            api_key_label TEXT NOT NULL DEFAULT '',
+            model_id TEXT NOT NULL DEFAULT '',
+            request_kind TEXT NOT NULL DEFAULT 'other',
+            sent_at INTEGER NOT NULL DEFAULT 0,
+            first_byte_at INTEGER NOT NULL DEFAULT 0,
+            canceled_at INTEGER NOT NULL DEFAULT 0,
+            completed_at INTEGER NOT NULL DEFAULT 0,
+            retry_reason TEXT NOT NULL DEFAULT '',
+            status INTEGER,
+            possible_billable_request INTEGER NOT NULL DEFAULT 0,
+            upstream_cancellation_unconfirmed INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_codex_upstream_attempts_logical_request
+            ON upstream_attempts(logical_request_id, attempt_number);
+        CREATE INDEX IF NOT EXISTS idx_codex_upstream_attempts_sent_at
+            ON upstream_attempts(sent_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_codex_upstream_attempts_account
+            ON upstream_attempts(account_id, sent_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_codex_upstream_attempts_api_key
+            ON upstream_attempts(api_key_id, sent_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_codex_upstream_attempts_status
+            ON upstream_attempts(status, sent_at DESC);
+        "#,
+    )?;
+    Ok(())
+}
+
 fn open_local_access_logs_db_once(
     path: &Path,
     include_service_tier_column: bool,
@@ -6442,6 +6509,7 @@ fn open_local_access_logs_db_once(
     let conn = Connection::open(path)?;
     conn.busy_timeout(LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT)?;
     create_request_logs_table(&conn, include_service_tier_column)?;
+    create_upstream_attempts_table(&conn)?;
     ensure_request_logs_column(&conn, "event_key", "event_key TEXT NOT NULL DEFAULT ''")?;
     ensure_request_logs_column(&conn, "request_id", "request_id TEXT NOT NULL DEFAULT ''")?;
     ensure_request_logs_column(&conn, "account_id", "account_id TEXT NOT NULL DEFAULT ''")?;
@@ -6842,6 +6910,327 @@ fn insert_local_access_usage_event(
 fn persist_local_access_usage_event(event: &CodexLocalAccessUsageEvent) -> Result<(), String> {
     let (_write_guard, conn) = open_local_access_logs_db_for_write()?;
     insert_local_access_usage_event(&conn, event)
+}
+
+fn upsert_local_access_usage_correction(
+    conn: &Connection,
+    event: &CodexLocalAccessUsageEvent,
+) -> Result<(), String> {
+    let request_id = event.request_id.trim();
+    if request_id.is_empty() {
+        return Err("sidecar usage correction 缺少 logicalRequestId/requestId".to_string());
+    }
+    let service_tier = event
+        .service_tier
+        .as_deref()
+        .and_then(normalize_proxy_service_tier)
+        .unwrap_or_default();
+    let changed = conn
+        .execute(
+            r#"
+            UPDATE request_logs SET
+                account_id = COALESCE(NULLIF(?2, ''), account_id),
+                email = COALESCE(NULLIF(?3, ''), email),
+                api_key_id = COALESCE(NULLIF(?4, ''), api_key_id),
+                api_key_label = COALESCE(NULLIF(?5, ''), api_key_label),
+                client_instance_id = COALESCE(NULLIF(?6, ''), client_instance_id),
+                model_id = COALESCE(NULLIF(?7, ''), model_id),
+                gateway_mode = COALESCE(NULLIF(?8, ''), gateway_mode),
+                request_kind = COALESCE(NULLIF(?9, ''), request_kind),
+                service_tier = COALESCE(NULLIF(?10, ''), service_tier),
+                success = MIN(success, ?11),
+                http_status = CASE
+                    WHEN success = 0 THEN http_status
+                    ELSE COALESCE(?12, http_status)
+                END,
+                error_category = COALESCE(NULLIF(?13, ''), error_category),
+                error_message = COALESCE(NULLIF(?14, ''), error_message),
+                latency_ms = MAX(latency_ms, ?15),
+                input_tokens = ?16,
+                output_tokens = ?17,
+                total_tokens = ?18,
+                cached_tokens = ?19,
+                reasoning_tokens = ?20,
+                estimated_cost_usd = ?21,
+                model_pricing_version = ?22,
+                input_usd_per_million = ?23,
+                output_usd_per_million = ?24,
+                cached_input_usd_per_million = ?25
+            WHERE id = (
+                SELECT id FROM request_logs WHERE request_id = ?1 ORDER BY id ASC LIMIT 1
+            )
+            "#,
+            params![
+                request_id,
+                event.account_id.trim(),
+                event.email.trim(),
+                event.api_key_id.trim(),
+                event.api_key_label.trim(),
+                event.client_instance_id.trim(),
+                event.model_id.trim(),
+                event
+                    .gateway_mode
+                    .map(gateway_mode_to_db_value)
+                    .unwrap_or_default(),
+                request_kind_to_db_value(event.request_kind),
+                service_tier,
+                bool_to_db_value(event.success),
+                event.http_status.map(i64::from),
+                event.error_category.trim(),
+                event.error_message.trim(),
+                event.latency_ms as i64,
+                event.input_tokens as i64,
+                event.output_tokens as i64,
+                event.total_tokens as i64,
+                event.cached_tokens as i64,
+                event.reasoning_tokens as i64,
+                event.estimated_cost_usd,
+                event.model_pricing_version as i64,
+                event.input_usd_per_million,
+                event.output_usd_per_million,
+                event.cached_input_usd_per_million,
+            ],
+        )
+        .map_err(|e| format!("更新 API 服务迟到 usage 失败: {}", e))?;
+    if changed == 0 {
+        insert_local_access_usage_event(conn, event)?;
+    }
+    Ok(())
+}
+
+fn persist_local_access_usage_correction(event: &CodexLocalAccessUsageEvent) -> Result<(), String> {
+    let (_write_guard, conn) = open_local_access_logs_db_for_write()?;
+    upsert_local_access_usage_correction(&conn, event)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct UpstreamAttemptAggregate {
+    attempt_count: u64,
+    possible_billable_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct UpstreamAttemptPersistOutcome {
+    inserted: bool,
+    possible_billable_became_true: bool,
+    sent_at: i64,
+}
+
+fn normalized_attempt_timestamp(event: &SidecarUpstreamAttemptEvent, observed_at: i64) -> i64 {
+    [
+        event.sent_at,
+        event.first_byte_at,
+        event.canceled_at,
+        event.completed_at,
+    ]
+    .into_iter()
+    .find(|value| *value > 0)
+    .unwrap_or(observed_at)
+}
+
+fn upsert_upstream_attempt_event(
+    conn: &Connection,
+    event: &SidecarUpstreamAttemptEvent,
+    observed_at: i64,
+) -> Result<UpstreamAttemptPersistOutcome, String> {
+    let attempt_id = event.upstream_attempt_id.trim();
+    if attempt_id.is_empty() {
+        return Err("sidecar upstream_attempt 缺少 upstreamAttemptId".to_string());
+    }
+    let previous_possible_billable = conn
+        .query_row(
+            "SELECT possible_billable_request FROM upstream_attempts WHERE upstream_attempt_id = ?1",
+            [attempt_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|e| format!("读取上游尝试旧状态失败: {}", e))?;
+    let inserted = previous_possible_billable.is_none();
+    let sent_at = normalized_attempt_timestamp(event, observed_at);
+    conn.execute(
+        r#"
+        INSERT INTO upstream_attempts (
+            logical_request_id, upstream_attempt_id, attempt_number, account_id, email,
+            api_key_id, api_key_label, model_id, request_kind, sent_at, first_byte_at,
+            canceled_at, completed_at, retry_reason, status, possible_billable_request,
+            upstream_cancellation_unconfirmed, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                  ?15, ?16, ?17, ?18, ?19)
+        ON CONFLICT(upstream_attempt_id) DO UPDATE SET
+            logical_request_id = CASE WHEN excluded.logical_request_id != '' THEN excluded.logical_request_id ELSE upstream_attempts.logical_request_id END,
+            attempt_number = MAX(upstream_attempts.attempt_number, excluded.attempt_number),
+            account_id = CASE WHEN excluded.account_id != '' THEN excluded.account_id ELSE upstream_attempts.account_id END,
+            email = CASE WHEN excluded.email != '' THEN excluded.email ELSE upstream_attempts.email END,
+            api_key_id = CASE WHEN excluded.api_key_id != '' THEN excluded.api_key_id ELSE upstream_attempts.api_key_id END,
+            api_key_label = CASE WHEN excluded.api_key_label != '' THEN excluded.api_key_label ELSE upstream_attempts.api_key_label END,
+            model_id = CASE WHEN excluded.model_id != '' THEN excluded.model_id ELSE upstream_attempts.model_id END,
+            request_kind = CASE WHEN excluded.request_kind != '' THEN excluded.request_kind ELSE upstream_attempts.request_kind END,
+            sent_at = CASE WHEN upstream_attempts.sent_at > 0 THEN upstream_attempts.sent_at ELSE excluded.sent_at END,
+            first_byte_at = CASE WHEN upstream_attempts.first_byte_at > 0 THEN upstream_attempts.first_byte_at ELSE excluded.first_byte_at END,
+            canceled_at = CASE WHEN upstream_attempts.canceled_at > 0 THEN upstream_attempts.canceled_at ELSE excluded.canceled_at END,
+            completed_at = CASE WHEN upstream_attempts.completed_at > 0 THEN upstream_attempts.completed_at ELSE excluded.completed_at END,
+            retry_reason = CASE WHEN excluded.retry_reason != '' THEN excluded.retry_reason ELSE upstream_attempts.retry_reason END,
+            status = COALESCE(excluded.status, upstream_attempts.status),
+            possible_billable_request = MAX(upstream_attempts.possible_billable_request, excluded.possible_billable_request),
+            upstream_cancellation_unconfirmed = MAX(upstream_attempts.upstream_cancellation_unconfirmed, excluded.upstream_cancellation_unconfirmed),
+            updated_at = MAX(upstream_attempts.updated_at, excluded.updated_at)
+        "#,
+        params![
+            event.logical_request_id.trim(),
+            attempt_id,
+            event.attempt_number.max(1) as i64,
+            event.account_id.trim(),
+            event.email.trim(),
+            event.api_key_id.trim(),
+            event.api_key_label.trim(),
+            event.model_id.trim(),
+            event.request_kind.trim(),
+            sent_at,
+            event.first_byte_at.max(0),
+            event.canceled_at.max(0),
+            event.completed_at.max(0),
+            event.retry_reason.trim(),
+            event.status.map(i64::from),
+            bool_to_db_value(event.possible_billable_request),
+            bool_to_db_value(event.upstream_cancellation_unconfirmed),
+            observed_at,
+            observed_at,
+        ],
+    )
+    .map_err(|e| format!("写入上游尝试日志失败: {}", e))?;
+
+    Ok(UpstreamAttemptPersistOutcome {
+        inserted,
+        possible_billable_became_true: event.possible_billable_request
+            && previous_possible_billable.unwrap_or_default() == 0,
+        sent_at,
+    })
+}
+
+fn persist_upstream_attempt_event(
+    event: &SidecarUpstreamAttemptEvent,
+) -> Result<UpstreamAttemptPersistOutcome, String> {
+    let (_write_guard, conn) = open_local_access_logs_db_for_write()?;
+    upsert_upstream_attempt_event(&conn, event, now_ms())
+}
+
+fn query_upstream_attempt_aggregate(
+    conn: &Connection,
+    start_at: i64,
+    end_at: i64,
+) -> Result<UpstreamAttemptAggregate, String> {
+    conn.query_row(
+        r#"
+        SELECT
+            COUNT(*),
+            COALESCE(SUM(
+                CASE
+                    WHEN attempt.possible_billable_request = 1
+                     AND NOT EXISTS (
+                        SELECT 1
+                        FROM request_logs AS request
+                        WHERE request.request_id = attempt.logical_request_id
+                          AND (
+                            request.input_tokens > 0
+                            OR request.output_tokens > 0
+                            OR request.total_tokens > 0
+                            OR request.cached_tokens > 0
+                            OR request.reasoning_tokens > 0
+                          )
+                     )
+                    THEN 1 ELSE 0
+                END
+            ), 0)
+        FROM upstream_attempts AS attempt
+        WHERE attempt.sent_at >= ?1 AND attempt.sent_at <= ?2
+        "#,
+        params![start_at, end_at],
+        |row| {
+            Ok(UpstreamAttemptAggregate {
+                attempt_count: row.get::<_, i64>(0)?.max(0) as u64,
+                possible_billable_count: row.get::<_, i64>(1)?.max(0) as u64,
+            })
+        },
+    )
+    .map_err(|e| format!("统计上游尝试日志失败: {}", e))
+}
+
+fn logical_request_has_possible_billable_attempt(
+    conn: &Connection,
+    logical_request_id: &str,
+) -> Result<bool, String> {
+    let logical_request_id = logical_request_id.trim();
+    if logical_request_id.is_empty() {
+        return Ok(false);
+    }
+    conn.query_row(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM upstream_attempts
+            WHERE logical_request_id = ?1
+              AND possible_billable_request = 1
+        )
+        "#,
+        [logical_request_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|value| value != 0)
+    .map_err(|e| format!("检查逻辑请求的可能计费尝试失败: {}", e))
+}
+
+fn rebuild_stats_if_usage_resolves_billable_attempt(
+    logical_request_id: &str,
+) -> Result<Option<CodexLocalAccessStats>, String> {
+    let conn = open_local_access_logs_db()?;
+    if !logical_request_has_possible_billable_attempt(&conn, logical_request_id)? {
+        return Ok(None);
+    }
+    drop(conn);
+    rebuild_stats_from_request_logs().map(Some)
+}
+
+fn hydrate_upstream_attempt_aggregates(
+    conn: &Connection,
+    stats: &mut CodexLocalAccessStats,
+) -> Result<(), String> {
+    let all = query_upstream_attempt_aggregate(conn, 0, i64::MAX)?;
+    let daily = query_upstream_attempt_aggregate(conn, stats.daily.since.max(0), i64::MAX)?;
+    let weekly = query_upstream_attempt_aggregate(conn, stats.weekly.since.max(0), i64::MAX)?;
+    let monthly = query_upstream_attempt_aggregate(conn, stats.monthly.since.max(0), i64::MAX)?;
+    apply_upstream_attempt_aggregate(&mut stats.totals, all);
+    apply_upstream_attempt_aggregate(&mut stats.daily.totals, daily);
+    apply_upstream_attempt_aggregate(&mut stats.weekly.totals, weekly);
+    apply_upstream_attempt_aggregate(&mut stats.monthly.totals, monthly);
+    Ok(())
+}
+
+fn add_upstream_attempt_outcome(
+    usage: &mut CodexLocalAccessUsageStats,
+    outcome: UpstreamAttemptPersistOutcome,
+) {
+    if outcome.inserted {
+        usage.upstream_attempt_count = usage.upstream_attempt_count.saturating_add(1);
+    }
+    if outcome.possible_billable_became_true {
+        usage.possible_billable_request_count =
+            usage.possible_billable_request_count.saturating_add(1);
+    }
+}
+
+fn apply_upstream_attempt_outcome_to_stats(
+    stats: &mut CodexLocalAccessStats,
+    outcome: UpstreamAttemptPersistOutcome,
+    observed_at: i64,
+) {
+    normalize_stats(stats);
+    add_upstream_attempt_outcome(&mut stats.totals, outcome);
+    for window in [&mut stats.daily, &mut stats.weekly, &mut stats.monthly] {
+        if outcome.sent_at >= window.since {
+            add_upstream_attempt_outcome(&mut window.totals, outcome);
+        }
+    }
+    stats.updated_at = stats.updated_at.max(observed_at);
 }
 
 fn migrate_local_access_json_events(
@@ -7562,8 +7951,15 @@ fn reprice_request_logs_with_model_ids(
 
 fn clear_local_access_usage_events_db() -> Result<(), String> {
     let (_write_guard, conn) = open_local_access_logs_db_for_write()?;
-    conn.execute("DELETE FROM request_logs", [])
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("开始清空 API 服务请求日志失败: {}", e))?;
+    tx.execute("DELETE FROM request_logs", [])
         .map_err(|e| format!("清空 API 服务请求日志失败: {}", e))?;
+    tx.execute("DELETE FROM upstream_attempts", [])
+        .map_err(|e| format!("清空 API 服务上游尝试日志失败: {}", e))?;
+    tx.commit()
+        .map_err(|e| format!("提交清空 API 服务请求日志失败: {}", e))?;
     Ok(())
 }
 
@@ -7984,6 +8380,10 @@ fn query_local_access_stats_window_blocking(
         let event = row.map_err(|e| format!("解析 API 服务统计失败: {}", e))?;
         apply_usage_event_to_window(&mut window, &event);
     }
+    apply_upstream_attempt_aggregate(
+        &mut window.totals,
+        query_upstream_attempt_aggregate(&conn, start_at, end_at)?,
+    );
     sort_usage_accounts(&mut window.accounts);
     sort_usage_models(&mut window.models);
     sort_usage_api_keys(&mut window.api_keys);
@@ -8082,6 +8482,8 @@ fn rebuild_stats_from_request_logs() -> Result<CodexLocalAccessStats, String> {
         apply_usage_event_to_stats(&mut stats, event);
     }
     normalize_stats(&mut stats);
+    let conn = open_local_access_logs_db()?;
+    hydrate_upstream_attempt_aggregates(&conn, &mut stats)?;
     Ok(stats)
 }
 
@@ -8214,6 +8616,12 @@ fn apply_usage_event_to_window(
 
 fn recompute_time_windows(stats: &mut CodexLocalAccessStats, now: i64) {
     let (day_since, week_since, month_since) = local_calendar_window_starts(now);
+    let daily_attempts = (stats.daily.since == day_since)
+        .then(|| upstream_attempt_aggregate_from_usage(&stats.daily.totals));
+    let weekly_attempts = (stats.weekly.since == week_since)
+        .then(|| upstream_attempt_aggregate_from_usage(&stats.weekly.totals));
+    let monthly_attempts = (stats.monthly.since == month_since)
+        .then(|| upstream_attempt_aggregate_from_usage(&stats.monthly.totals));
 
     trim_recent_events(&mut stats.events, week_since.min(month_since));
 
@@ -8243,9 +8651,54 @@ fn recompute_time_windows(stats: &mut CodexLocalAccessStats, now: i64) {
     sort_usage_api_keys(&mut weekly.api_keys);
     sort_usage_api_keys(&mut monthly.api_keys);
 
+    if let Some(aggregate) = daily_attempts {
+        apply_upstream_attempt_aggregate(&mut daily.totals, aggregate);
+    }
+    if let Some(aggregate) = weekly_attempts {
+        apply_upstream_attempt_aggregate(&mut weekly.totals, aggregate);
+    }
+    if let Some(aggregate) = monthly_attempts {
+        apply_upstream_attempt_aggregate(&mut monthly.totals, aggregate);
+    }
+
     stats.daily = daily;
     stats.weekly = weekly;
     stats.monthly = monthly;
+}
+
+fn upstream_attempt_aggregate_from_usage(
+    usage: &CodexLocalAccessUsageStats,
+) -> UpstreamAttemptAggregate {
+    UpstreamAttemptAggregate {
+        attempt_count: usage.upstream_attempt_count,
+        possible_billable_count: usage.possible_billable_request_count,
+    }
+}
+
+fn apply_upstream_attempt_aggregate(
+    usage: &mut CodexLocalAccessUsageStats,
+    aggregate: UpstreamAttemptAggregate,
+) {
+    usage.upstream_attempt_count = aggregate.attempt_count;
+    usage.possible_billable_request_count = aggregate.possible_billable_count;
+}
+
+fn normalize_usage_counter_aliases(usage: &mut CodexLocalAccessUsageStats) {
+    usage.logical_request_count = usage.request_count;
+    usage.canceled_request_count = usage.client_canceled_count;
+}
+
+fn normalize_usage_counter_aliases_in_stats(stats: &mut CodexLocalAccessStats) {
+    normalize_usage_counter_aliases(&mut stats.totals);
+    for item in &mut stats.accounts {
+        normalize_usage_counter_aliases(&mut item.usage);
+    }
+    for item in &mut stats.models {
+        normalize_usage_counter_aliases(&mut item.usage);
+    }
+    for item in &mut stats.api_keys {
+        normalize_usage_counter_aliases(&mut item.usage);
+    }
 }
 
 fn apply_cost_delta(target: &mut CodexLocalAccessUsageStats, delta: f64) {
@@ -9120,6 +9573,10 @@ struct SidecarUsageEvent {
     #[serde(default)]
     request_id: String,
     #[serde(default)]
+    logical_request_id: String,
+    #[serde(default)]
+    correction: bool,
+    #[serde(default)]
     model: String,
     #[serde(default)]
     account_id: String,
@@ -9148,6 +9605,47 @@ struct SidecarUsageEvent {
     latency_ms: u64,
     #[serde(default)]
     usage: SidecarUsageDetails,
+}
+
+/// One physical upstream POST belonging to a client-visible logical request.
+/// Timestamps are Unix milliseconds; repeated lifecycle events are merged by attempt ID.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SidecarUpstreamAttemptEvent {
+    #[serde(default)]
+    logical_request_id: String,
+    #[serde(default)]
+    upstream_attempt_id: String,
+    #[serde(default)]
+    attempt_number: u32,
+    #[serde(default)]
+    account_id: String,
+    #[serde(default, alias = "accountEmail")]
+    email: String,
+    #[serde(default)]
+    api_key_id: String,
+    #[serde(default)]
+    api_key_label: String,
+    #[serde(default, alias = "model")]
+    model_id: String,
+    #[serde(default)]
+    request_kind: String,
+    #[serde(default)]
+    sent_at: i64,
+    #[serde(default)]
+    first_byte_at: i64,
+    #[serde(default)]
+    canceled_at: i64,
+    #[serde(default)]
+    completed_at: i64,
+    #[serde(default)]
+    retry_reason: String,
+    #[serde(default)]
+    status: Option<u16>,
+    #[serde(default)]
+    possible_billable_request: bool,
+    #[serde(default)]
+    upstream_cancellation_unconfirmed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -10722,18 +11220,21 @@ async fn prepare_sidecar_launch_config_in_dir(
     // 不写 disable-image-generation：默认允许生图（绑定 OAuth 与改前一致；纯 API Key 也靠正常注入/上游能力）。
     config.insert(
         "request-retry".to_string(),
-        json!(MAX_REQUEST_RETRY_ATTEMPTS as i32),
+        // A streamed POST may already be billable before its first SSE event arrives.
+        // The executor's send-state guard is the only place allowed to retry pre-send failures.
+        json!(0),
     );
     let timeouts = collection_timeouts(collection);
     config.insert(
         "streaming".to_string(),
         json!({
             "keepalive-seconds": timeouts.sidecar_stream_keepalive_seconds,
-            "bootstrap-retries": timeouts.single_account_status_retry_attempts,
+            "bootstrap-retries": timeouts.sidecar_streaming_bootstrap_retries,
             "bootstrap-retry-base-delay-ms": timeouts.single_account_status_retry_base_delay_ms,
             "bootstrap-retry-max-delay-ms": timeouts.single_account_status_retry_max_delay_ms,
             "stream-open-timeout-ms": timeouts.sidecar_stream_open_timeout_ms,
             "stream-idle-timeout-ms": timeouts.sidecar_stream_idle_timeout_ms,
+            "stream-total-timeout-ms": timeouts.sidecar_stream_total_timeout_ms,
             "image-stream-open-timeout-ms": timeouts.sidecar_image_stream_open_timeout_ms,
             "image-stream-idle-timeout-ms": timeouts.sidecar_image_stream_idle_timeout_ms,
             "stream-open-max-attempts": timeouts.sidecar_stream_open_max_attempts,
@@ -11002,9 +11503,12 @@ async fn record_sidecar_usage_event(event: SidecarUsageEvent) {
     let api_key_label = non_empty_sidecar_string(&event.api_key_label);
     let client_instance_id = non_empty_sidecar_string(&event.client_instance_id);
     let model = non_empty_sidecar_string(&event.model);
-    let request_id = non_empty_sidecar_string(&event.request_id);
+    let request_id = non_empty_sidecar_string(&event.request_id)
+        .or_else(|| non_empty_sidecar_string(&event.logical_request_id));
     let error_category = normalized_sidecar_error_category(&event);
-    if let Err(error) = record_request_stats_with_meta(
+    let captured_usage = sidecar_usage_capture(&event.usage);
+    let has_captured_usage = captured_usage.is_some();
+    let record_result = record_request_stats_with_meta(
         account_id.as_deref(),
         account_email.as_deref(),
         api_key_id.as_deref(),
@@ -11014,21 +11518,80 @@ async fn record_sidecar_usage_event(event: SidecarUsageEvent) {
         event.success,
         error_category.as_deref(),
         event.latency_ms,
-        sidecar_usage_capture(&event.usage),
+        captured_usage,
         RequestStatsMeta {
             request_id: request_id.as_deref(),
             client_instance_id: client_instance_id.as_deref(),
             http_status: event.status,
             error_message: event.error_message.as_deref(),
             service_tier: event.service_tier.as_deref(),
+            correction: event.correction,
         },
     )
-    .await
-    {
+    .await;
+    if let Err(error) = &record_result {
         logger::log_codex_api_warn(&format!(
             "[CodexLocalAccess] 写入 sidecar 请求统计失败: {}",
             error
         ));
+    }
+    if record_result.is_ok() && !event.correction && has_captured_usage {
+        if let Some(logical_request_id) = request_id {
+            let rebuild = tauri::async_runtime::spawn_blocking(move || {
+                rebuild_stats_if_usage_resolves_billable_attempt(&logical_request_id)
+            })
+            .await;
+            match rebuild {
+                Ok(Ok(Some(stats))) => {
+                    let mut runtime = gateway_runtime().lock().await;
+                    runtime.stats = stats;
+                    runtime.stats_dirty = true;
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(error)) => logger::log_codex_api_warn(&format!(
+                    "[CodexLocalAccess] 校准可能计费请求统计失败: {}",
+                    error
+                )),
+                Err(error) => logger::log_codex_api_warn(&format!(
+                    "[CodexLocalAccess] 校准可能计费请求统计任务失败: {}",
+                    error
+                )),
+            }
+        }
+    }
+}
+
+async fn record_sidecar_upstream_attempt_event(event: SidecarUpstreamAttemptEvent) {
+    let observed_at = now_ms();
+    match persist_upstream_attempt_event(&event) {
+        Ok(outcome) => {
+            {
+                let mut runtime = gateway_runtime().lock().await;
+                apply_upstream_attempt_outcome_to_stats(&mut runtime.stats, outcome, observed_at);
+                runtime.stats_dirty = true;
+            }
+            schedule_stats_flush_if_needed().await;
+            logger::log_codex_api_info(&format!(
+                "[CodexLocalAccess][upstream_attempt] logical_request_id={}, upstream_attempt_id={}, attempt_number={}, account_id={}, email={}, api_key_id={}, status={}, retry_reason={}, possible_billable_request={}, upstream_cancellation_unconfirmed={}",
+                event.logical_request_id.trim(),
+                event.upstream_attempt_id.trim(),
+                event.attempt_number.max(1),
+                event.account_id.trim(),
+                event.email.trim(),
+                event.api_key_id.trim(),
+                event
+                    .status
+                    .map(|status| status.to_string())
+                    .unwrap_or_default(),
+                event.retry_reason.trim(),
+                event.possible_billable_request,
+                event.upstream_cancellation_unconfirmed,
+            ));
+        }
+        Err(error) => logger::log_codex_api_warn(&format!(
+            "[CodexLocalAccess] sidecar upstream_attempt 事件写入失败: {}",
+            error
+        )),
     }
 }
 
@@ -11109,6 +11672,13 @@ async fn handle_sidecar_stdout_line(
             Ok(event) => record_sidecar_usage_event(event).await,
             Err(error) => logger::log_codex_api_warn(&format!(
                 "[CodexLocalAccess] sidecar usage 事件解析失败: {}",
+                error
+            )),
+        },
+        "upstream_attempt" => match serde_json::from_value::<SidecarUpstreamAttemptEvent>(value) {
+            Ok(event) => record_sidecar_upstream_attempt_event(event).await,
+            Err(error) => logger::log_codex_api_warn(&format!(
+                "[CodexLocalAccess] sidecar upstream_attempt 事件解析失败: {}",
                 error
             )),
         },
@@ -12073,6 +12643,7 @@ fn normalize_stats(stats: &mut CodexLocalAccessStats) {
     sort_usage_accounts(&mut stats.accounts);
     sort_usage_models(&mut stats.models);
     sort_usage_api_keys(&mut stats.api_keys);
+    normalize_usage_counter_aliases_in_stats(stats);
     recompute_time_windows(stats, now);
 }
 
@@ -12186,6 +12757,8 @@ fn load_stats_from_disk() -> Result<CodexLocalAccessStats, String> {
         }
     };
     normalize_stats(&mut parsed);
+    let conn = open_local_access_logs_db()?;
+    hydrate_upstream_attempt_aggregates(&conn, &mut parsed)?;
     Ok(parsed)
 }
 
@@ -13075,6 +13648,13 @@ fn clamp_timeout_ms(value: u64, fallback: u64, max: u64) -> u64 {
     base.clamp(LOCAL_ACCESS_TIMEOUT_MIN_MS, max)
 }
 
+fn clamp_optional_timeout_ms(value: u64, max: u64) -> u64 {
+    if value == 0 {
+        return 0;
+    }
+    value.clamp(LOCAL_ACCESS_TIMEOUT_MIN_MS, max)
+}
+
 fn clamp_retry_delay_ms(value: u64, fallback: u64) -> u64 {
     let base = if value == 0 { fallback } else { value };
     base.clamp(
@@ -13086,6 +13666,19 @@ fn clamp_retry_delay_ms(value: u64, fallback: u64) -> u64 {
 fn normalize_timeouts(timeouts: &mut CodexLocalAccessTimeouts) -> bool {
     let original = timeouts.clone();
     let defaults = CodexLocalAccessTimeouts::default();
+
+    // Migrate the unsafe pre-1.3.4 stream retry defaults already persisted in
+    // codex_local_access.json. Without this, serde defaults never apply to an
+    // existing 60-second configuration.
+    let uses_unsafe_legacy_stream_defaults = timeouts.sidecar_stream_open_timeout_ms == 60_000
+        && timeouts.sidecar_stream_open_max_attempts == 2
+        && matches!(timeouts.sidecar_streaming_bootstrap_retries, 1 | 2);
+    if uses_unsafe_legacy_stream_defaults {
+        timeouts.sidecar_stream_open_timeout_ms = defaults.sidecar_stream_open_timeout_ms;
+        timeouts.sidecar_stream_open_max_attempts = defaults.sidecar_stream_open_max_attempts;
+        timeouts.sidecar_streaming_bootstrap_retries = defaults.sidecar_streaming_bootstrap_retries;
+    }
+
     timeouts.legacy_request_read_timeout_ms = clamp_timeout_ms(
         timeouts.legacy_request_read_timeout_ms,
         defaults.legacy_request_read_timeout_ms,
@@ -13118,6 +13711,10 @@ fn normalize_timeouts(timeouts: &mut CodexLocalAccessTimeouts) -> bool {
         timeouts.sidecar_stream_idle_timeout_ms,
         defaults.sidecar_stream_idle_timeout_ms,
         LOCAL_ACCESS_TIMEOUT_MAX_MS,
+    );
+    timeouts.sidecar_stream_total_timeout_ms = clamp_optional_timeout_ms(
+        timeouts.sidecar_stream_total_timeout_ms,
+        SIDECAR_STREAM_TOTAL_TIMEOUT_MAX_MS,
     );
     timeouts.sidecar_image_stream_open_timeout_ms = clamp_timeout_ms(
         timeouts.sidecar_image_stream_open_timeout_ms,
@@ -14330,6 +14927,7 @@ fn apply_usage_stats(
     estimated_cost_usd: f64,
 ) {
     target.request_count = target.request_count.saturating_add(1);
+    target.logical_request_count = target.logical_request_count.saturating_add(1);
     if success {
         target.success_count = target.success_count.saturating_add(1);
     } else {
@@ -14341,6 +14939,7 @@ fn apply_usage_stats(
     if matches!(normalized_error_category, Some(category) if is_client_canceled_error_category(category))
     {
         target.client_canceled_count = target.client_canceled_count.saturating_add(1);
+        target.canceled_request_count = target.canceled_request_count.saturating_add(1);
     }
     if matches!(normalized_error_category, Some(category) if is_upstream_response_failed_error_category(category))
     {
@@ -14630,6 +15229,82 @@ struct RequestStatsMeta<'a> {
     http_status: Option<u16>,
     error_message: Option<&'a str>,
     service_tier: Option<&'a str>,
+    correction: bool,
+}
+
+async fn record_request_stats_correction(
+    account_id: Option<&str>,
+    account_email: Option<&str>,
+    api_key_id: Option<&str>,
+    api_key_label: Option<&str>,
+    model_id: Option<&str>,
+    request_kind: CodexLocalAccessRequestKind,
+    success: bool,
+    error_category: Option<&str>,
+    latency_ms: u64,
+    usage: Option<UsageCapture>,
+    meta: RequestStatsMeta<'_>,
+) -> Result<(), String> {
+    let request_id = meta
+        .request_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "sidecar usage correction 缺少 logicalRequestId/requestId".to_string())?;
+    let corrected_event = {
+        let runtime = gateway_runtime().lock().await;
+        let now = now_ms();
+        let usage_ref = usage.as_ref();
+        let pricing = resolve_effective_model_pricing(
+            runtime.collection.as_ref(),
+            model_id,
+            usage_ref,
+            meta.service_tier,
+        );
+        let model_pricing_version = runtime
+            .collection
+            .as_ref()
+            .map(|collection| collection.model_pricing_version)
+            .unwrap_or(DEFAULT_MODEL_PRICING_VERSION)
+            .max(DEFAULT_MODEL_PRICING_VERSION);
+        let estimated_cost_usd = calculate_usage_cost_usd(usage_ref, pricing.as_ref());
+        let gateway_mode = runtime.collection.as_ref().map(collection_gateway_mode);
+        let mut events = Vec::with_capacity(1);
+        append_usage_event(
+            &mut events,
+            now,
+            Some(request_id),
+            account_id,
+            account_email,
+            api_key_id,
+            api_key_label,
+            meta.client_instance_id,
+            model_id,
+            gateway_mode,
+            request_kind,
+            meta.service_tier,
+            success,
+            meta.http_status,
+            error_category,
+            meta.error_message,
+            latency_ms,
+            usage_ref,
+            pricing.as_ref(),
+            model_pricing_version,
+            estimated_cost_usd,
+        )
+    };
+
+    persist_local_access_usage_correction(&corrected_event)?;
+    let rebuilt = tauri::async_runtime::spawn_blocking(rebuild_stats_from_request_logs)
+        .await
+        .map_err(|e| format!("重建迟到 usage 统计任务失败: {}", e))??;
+    {
+        let mut runtime = gateway_runtime().lock().await;
+        runtime.stats = rebuilt;
+        runtime.stats_dirty = true;
+    }
+    schedule_stats_flush_if_needed().await;
+    Ok(())
 }
 
 async fn record_request_stats_with_meta(
@@ -14645,6 +15320,22 @@ async fn record_request_stats_with_meta(
     usage: Option<UsageCapture>,
     meta: RequestStatsMeta<'_>,
 ) -> Result<(), String> {
+    if meta.correction {
+        return record_request_stats_correction(
+            account_id,
+            account_email,
+            api_key_id,
+            api_key_label,
+            model_id,
+            request_kind,
+            success,
+            error_category,
+            latency_ms,
+            usage,
+            meta,
+        )
+        .await;
+    }
     let persisted_event = {
         let mut runtime = gateway_runtime().lock().await;
         let now = now_ms();
@@ -20865,8 +21556,145 @@ async fn force_refresh_gateway_account(
     Ok(account)
 }
 
+#[derive(Debug)]
+struct UpstreamSendFailure {
+    message: String,
+    retry_safe: bool,
+}
+
+impl std::fmt::Display for UpstreamSendFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl StdError for UpstreamSendFailure {}
+
+impl From<String> for UpstreamSendFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            retry_safe: true,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LegacyUpstreamAttemptContext {
+    logical_request_id: String,
+    api_key_id: String,
+    api_key_label: String,
+    model_id: String,
+    request_kind: String,
+    next_attempt_number: AtomicU32,
+}
+
+#[derive(Debug, Clone)]
+struct LegacyUpstreamAttemptIdentity {
+    event: SidecarUpstreamAttemptEvent,
+}
+
+impl LegacyUpstreamAttemptContext {
+    fn new(
+        logical_request_id: &str,
+        api_key: &ResolvedLocalApiKey,
+        model_id: &str,
+        request_kind: CodexLocalAccessRequestKind,
+    ) -> Self {
+        Self {
+            logical_request_id: logical_request_id.trim().to_string(),
+            api_key_id: api_key.id.trim().to_string(),
+            api_key_label: api_key.label.trim().to_string(),
+            model_id: model_id.trim().to_string(),
+            request_kind: request_kind_to_db_value(request_kind).to_string(),
+            next_attempt_number: AtomicU32::new(0),
+        }
+    }
+
+    fn next_event(&self, account: &CodexAccount) -> SidecarUpstreamAttemptEvent {
+        let attempt_number = self.next_attempt_number.fetch_add(1, Ordering::Relaxed) + 1;
+        SidecarUpstreamAttemptEvent {
+            logical_request_id: self.logical_request_id.clone(),
+            upstream_attempt_id: format!("{}:{}", self.logical_request_id, attempt_number),
+            attempt_number,
+            account_id: account.id.trim().to_string(),
+            email: account.email.trim().to_string(),
+            api_key_id: self.api_key_id.clone(),
+            api_key_label: self.api_key_label.clone(),
+            model_id: self.model_id.clone(),
+            request_kind: self.request_kind.clone(),
+            sent_at: now_ms(),
+            ..SidecarUpstreamAttemptEvent::default()
+        }
+    }
+
+    fn start(&self, account: &CodexAccount) -> SidecarUpstreamAttemptEvent {
+        let event = self.next_event(account);
+        persist_legacy_upstream_attempt(&event);
+        event
+    }
+}
+
+fn persist_legacy_upstream_attempt(event: &SidecarUpstreamAttemptEvent) {
+    if let Err(err) = persist_upstream_attempt_event(event) {
+        logger::log_codex_api_warn(&format!(
+            "[CodexLocalAccess] failed to persist legacy upstream attempt: logical_request_id={}, upstream_attempt_id={}, error={}",
+            event.logical_request_id, event.upstream_attempt_id, err
+        ));
+    }
+}
+
+fn finalized_legacy_upstream_attempt(
+    identity: Option<&LegacyUpstreamAttemptIdentity>,
+    status: Option<u16>,
+    failure_reason: Option<&str>,
+    client_canceled: bool,
+) -> Option<SidecarUpstreamAttemptEvent> {
+    let Some(identity) = identity else {
+        return None;
+    };
+    let mut event = identity.event.clone();
+    if event.completed_at > 0 {
+        return None;
+    }
+    let completed_at = now_ms();
+    event.completed_at = completed_at;
+    if status.is_some() {
+        event.status = status;
+    }
+    if let Some(reason) = failure_reason
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        event.retry_reason = reason.to_string();
+        event.possible_billable_request = true;
+        event.upstream_cancellation_unconfirmed = true;
+    }
+    if client_canceled {
+        event.canceled_at = completed_at;
+        event.possible_billable_request = true;
+        event.upstream_cancellation_unconfirmed = true;
+    }
+    Some(event)
+}
+
+fn finish_legacy_upstream_attempt(
+    identity: Option<&LegacyUpstreamAttemptIdentity>,
+    status: Option<u16>,
+    failure_reason: Option<&str>,
+    client_canceled: bool,
+) {
+    if let Some(event) =
+        finalized_legacy_upstream_attempt(identity, status, failure_reason, client_canceled)
+    {
+        persist_legacy_upstream_attempt(&event);
+    }
+}
+
 fn should_retry_upstream_send_error(error: &reqwest::Error) -> bool {
-    error.is_timeout() || error.is_connect() || error.is_request()
+    // Only DNS/TCP/TLS connection setup failures are known to occur before
+    // reqwest can send request-body bytes.
+    error.is_connect()
 }
 
 fn format_reqwest_error_chain(error: &reqwest::Error) -> String {
@@ -20915,6 +21743,10 @@ fn should_retry_single_account_upstream_status(status: StatusCode) -> bool {
             | StatusCode::SERVICE_UNAVAILABLE
             | StatusCode::GATEWAY_TIMEOUT
     )
+}
+
+fn upstream_response_replay_prohibited(target: &str, status: StatusCode) -> bool {
+    is_responses_request(target) && !status.is_success()
 }
 
 fn build_account_scoped_upstream_body<'a>(
@@ -20980,7 +21812,8 @@ async fn send_upstream_request(
     timeouts: &CodexLocalAccessTimeouts,
     image_generation_mode: CodexLocalAccessImageGenerationMode,
     request_kind: CodexLocalAccessRequestKind,
-) -> Result<reqwest::Response, String> {
+    attempt_context: Option<&LegacyUpstreamAttemptContext>,
+) -> Result<reqwest::Response, UpstreamSendFailure> {
     let method =
         Method::from_bytes(method.as_bytes()).map_err(|e| format!("不支持的请求方法: {}", e))?;
     let url = build_upstream_url(account, target)?;
@@ -21058,13 +21891,45 @@ async fn send_upstream_request(
             request = request.body(upstream_body.as_ref().to_vec());
         }
 
+        let attempt_event = attempt_context.map(|context| context.start(account));
         match request.send().await {
-            Ok(response) => return Ok(response),
+            Ok(mut response) => {
+                if let Some(mut event) = attempt_event {
+                    let observed_at = now_ms();
+                    event.first_byte_at = observed_at;
+                    event.status = Some(response.status().as_u16());
+                    if !response.status().is_success() {
+                        event.completed_at = observed_at;
+                        event.retry_reason =
+                            format!("upstream_status_{}", response.status().as_u16());
+                        event.possible_billable_request = true;
+                    }
+                    persist_legacy_upstream_attempt(&event);
+                    response
+                        .extensions_mut()
+                        .insert(LegacyUpstreamAttemptIdentity { event });
+                }
+                return Ok(response);
+            }
             Err(error) => {
-                let should_retry =
-                    retry_attempt < max_send_retries && should_retry_upstream_send_error(&error);
+                let retry_safe = should_retry_upstream_send_error(&error);
+                if let Some(mut event) = attempt_event {
+                    event.completed_at = now_ms();
+                    event.retry_reason = if retry_safe {
+                        "pre_send_connect_failure".to_string()
+                    } else {
+                        "post_send_transport_failure".to_string()
+                    };
+                    event.possible_billable_request = !retry_safe;
+                    event.upstream_cancellation_unconfirmed = !retry_safe;
+                    persist_legacy_upstream_attempt(&event);
+                }
+                let should_retry = retry_attempt < max_send_retries && retry_safe;
                 if !should_retry {
-                    return Err(format_upstream_network_error(&error));
+                    return Err(UpstreamSendFailure {
+                        message: format_upstream_network_error(&error),
+                        retry_safe,
+                    });
                 }
                 tokio::time::sleep(backoff_retry_delay(
                     retry_attempt + 1,
@@ -21076,7 +21941,10 @@ async fn send_upstream_request(
         }
     }
 
-    Err("请求 Codex 上游失败: 未知错误".to_string())
+    Err(UpstreamSendFailure {
+        message: "请求 Codex 上游失败: 未知错误".to_string(),
+        retry_safe: false,
+    })
 }
 
 async fn proxy_request_with_account_pool(
@@ -21084,6 +21952,7 @@ async fn proxy_request_with_account_pool(
     collection: &CodexLocalAccessCollection,
     api_key: &ResolvedLocalApiKey,
     request_kind: CodexLocalAccessRequestKind,
+    logical_request_id: &str,
 ) -> Result<ProxyDispatchSuccess, ProxyDispatchError> {
     let unfiltered_scoped_account_ids = scoped_collection_account_ids(collection, api_key);
     let strategy = effective_routing_strategy(collection, &unfiltered_scoped_account_ids);
@@ -21119,7 +21988,16 @@ async fn proxy_request_with_account_pool(
             account_email: None,
             error_category: Some("bad_request".to_string()),
         })?;
+    let replay_protected_request = is_responses_request(&upstream_target);
     let timeouts = collection_timeouts(collection);
+    let attempt_context = LegacyUpstreamAttemptContext::new(
+        logical_request_id,
+        api_key,
+        extract_request_model_id(&request.body)
+            .as_deref()
+            .unwrap_or_default(),
+        request_kind,
+    );
     let upstream_connect_timeout = duration_from_millis(
         timeouts.legacy_upstream_connect_timeout_ms,
         DEFAULT_UPSTREAM_CONNECT_TIMEOUT,
@@ -21325,6 +22203,7 @@ async fn proxy_request_with_account_pool(
                     &timeouts,
                     image_generation_mode,
                     request_kind,
+                    Some(&attempt_context),
                 )
                 .await;
 
@@ -21345,6 +22224,8 @@ async fn proxy_request_with_account_pool(
                         response
                     }
                     Err(err) => {
+                        let retry_safe = err.retry_safe;
+                        let err = err.message;
                         legacy_debug_log(
                             collection.debug_logs,
                             format!(
@@ -21375,11 +22256,55 @@ async fn proxy_request_with_account_pool(
                             None,
                             format!("上游请求失败: {}", err).as_str(),
                         );
+                        if replay_protected_request && !retry_safe {
+                            return Err(ProxyDispatchError {
+                                status: last_status,
+                                message: err,
+                                account_id: Some(account.id.clone()),
+                                account_email: Some(account.email.clone()),
+                                error_category: Some("possible_billable_request".to_string()),
+                            });
+                        }
                         last_error = err;
                         last_error_category = Some("upstream_network".to_string());
                         break;
                     }
                 };
+
+                if upstream_response_replay_prohibited(&upstream_target, response.status()) {
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    let category = classify_upstream_error_category(status, &body);
+                    let message = if category == Some("image_generation_not_enabled") {
+                        friendly_image_generation_capability_error(&account.email)
+                    } else {
+                        summarize_upstream_error(status, &body)
+                    };
+                    mark_account_failure(
+                        &account,
+                        Some(status.as_u16()),
+                        category,
+                        &message,
+                        request_kind,
+                    )
+                    .await;
+                    log_codex_api_failure(
+                        None,
+                        Some(request),
+                        Some(status.as_u16()),
+                        Some(account.id.as_str()),
+                        Some(account.email.as_str()),
+                        None,
+                        format!("upstream response was not replayed: {}", message).as_str(),
+                    );
+                    return Err(ProxyDispatchError {
+                        status: status.as_u16(),
+                        message,
+                        account_id: Some(account.id.clone()),
+                        account_email: Some(account.email.clone()),
+                        error_category: category.map(str::to_string),
+                    });
+                }
 
                 if response.status() == StatusCode::UNAUTHORIZED && account.is_api_key_auth() {
                     last_status = StatusCode::UNAUTHORIZED.as_u16();
@@ -21461,6 +22386,7 @@ async fn proxy_request_with_account_pool(
                                 &timeouts,
                                 image_generation_mode,
                                 request_kind,
+                                Some(&attempt_context),
                             )
                             .await
                             {
@@ -21476,7 +22402,7 @@ async fn proxy_request_with_account_pool(
                                         None,
                                         format!("刷新后重试上游失败: {}", err).as_str(),
                                     );
-                                    last_error = err;
+                                    last_error = err.message;
                                     last_error_category = Some("upstream_network".to_string());
                                     break;
                                 }
@@ -23274,6 +24200,7 @@ async fn handle_connection(
         return Ok(());
     }
 
+    let logical_request_id = ensure_legacy_logical_request_metadata(&mut parsed);
     let started_at = Instant::now();
     if collection.image_generation_mode == CodexLocalAccessImageGenerationMode::Disabled
         && (is_images_generations_request(&parsed.target)
@@ -23308,6 +24235,7 @@ async fn handle_connection(
             latency_ms,
             None,
             RequestStatsMeta {
+                request_id: Some(logical_request_id.as_str()),
                 service_tier: stats_service_tier.as_deref(),
                 ..RequestStatsMeta::default()
             },
@@ -23357,6 +24285,7 @@ async fn handle_connection(
             latency_ms,
             None,
             RequestStatsMeta {
+                request_id: Some(logical_request_id.as_str()),
                 service_tier: stats_service_tier.as_deref(),
                 ..RequestStatsMeta::default()
             },
@@ -23445,6 +24374,7 @@ async fn handle_connection(
         &collection,
         &resolved_api_key,
         stats_context.request_kind,
+        &logical_request_id,
     )
     .await
     {
@@ -23454,6 +24384,11 @@ async fn handle_connection(
                 account_id,
                 account_email,
             } = success;
+            let upstream_status = upstream.status().as_u16();
+            let attempt_identity = upstream
+                .extensions()
+                .get::<LegacyUpstreamAttemptIdentity>()
+                .cloned();
             let timeouts = collection_timeouts(&collection);
             let response_capture = match write_gateway_response(
                 &mut stream,
@@ -23468,46 +24403,60 @@ async fn handle_connection(
             {
                 Ok(response_capture) => response_capture,
                 Err(err) => {
-                    if !is_client_disconnect_error_message(&err) {
-                        let latency_ms = started_at.elapsed().as_millis() as u64;
-                        let error_category = legacy_stream_error_category(&err);
-                        let status = if error_category == "upstream_stream_timeout" {
-                            StatusCode::GATEWAY_TIMEOUT.as_u16()
-                        } else {
-                            StatusCode::BAD_GATEWAY.as_u16()
-                        };
-                        log_codex_api_failure(
-                            Some(&addr),
-                            Some(&prepared_request),
-                            Some(status),
-                            Some(account_id.as_str()),
-                            Some(account_email.as_str()),
-                            Some(latency_ms),
-                            err.as_str(),
-                        );
-                        if let Err(stats_err) = record_request_stats_with_meta(
-                            Some(account_id.as_str()),
-                            Some(account_email.as_str()),
-                            Some(stats_context.api_key_id.as_str()),
-                            Some(stats_context.api_key_label.as_str()),
-                            Some(stats_context.model_id.as_str()),
-                            stats_context.request_kind,
-                            false,
-                            Some(error_category),
-                            latency_ms,
-                            None,
-                            RequestStatsMeta {
-                                service_tier: stats_service_tier.as_deref(),
-                                ..RequestStatsMeta::default()
-                            },
-                        )
-                        .await
-                        {
-                            logger::log_codex_api_warn(&format!(
-                                "[CodexLocalAccess] 写入流式失败统计失败: {}",
-                                stats_err
-                            ));
-                        }
+                    let client_canceled = is_client_disconnect_error_message(&err);
+                    let error_category = if client_canceled {
+                        "client_canceled"
+                    } else {
+                        legacy_stream_error_category(&err)
+                    };
+                    let status = if client_canceled {
+                        499
+                    } else if error_category == "upstream_stream_timeout" {
+                        StatusCode::GATEWAY_TIMEOUT.as_u16()
+                    } else {
+                        StatusCode::BAD_GATEWAY.as_u16()
+                    };
+                    finish_legacy_upstream_attempt(
+                        attempt_identity.as_ref(),
+                        Some(upstream_status),
+                        Some(error_category),
+                        client_canceled,
+                    );
+                    let latency_ms = started_at.elapsed().as_millis() as u64;
+                    log_codex_api_failure(
+                        Some(&addr),
+                        Some(&prepared_request),
+                        Some(status),
+                        Some(account_id.as_str()),
+                        Some(account_email.as_str()),
+                        Some(latency_ms),
+                        err.as_str(),
+                    );
+                    if let Err(stats_err) = record_request_stats_with_meta(
+                        Some(account_id.as_str()),
+                        Some(account_email.as_str()),
+                        Some(stats_context.api_key_id.as_str()),
+                        Some(stats_context.api_key_label.as_str()),
+                        Some(stats_context.model_id.as_str()),
+                        stats_context.request_kind,
+                        false,
+                        Some(error_category),
+                        latency_ms,
+                        None,
+                        RequestStatsMeta {
+                            request_id: Some(logical_request_id.as_str()),
+                            http_status: Some(status),
+                            error_message: Some(err.as_str()),
+                            service_tier: stats_service_tier.as_deref(),
+                            ..RequestStatsMeta::default()
+                        },
+                    )
+                    .await
+                    {
+                        logger::log_codex_api_warn(&format!(
+                            "[CodexLocalAccess] 写入流式失败统计失败: {}",
+                            stats_err
+                        ));
                     }
                     return Err(err);
                 }
@@ -23524,6 +24473,12 @@ async fn handle_connection(
                 }
             }
             let latency_ms = started_at.elapsed().as_millis() as u64;
+            finish_legacy_upstream_attempt(
+                attempt_identity.as_ref(),
+                Some(upstream_status),
+                None,
+                false,
+            );
             if let Err(err) = record_request_stats_with_meta(
                 Some(account_id.as_str()),
                 Some(account_email.as_str()),
@@ -23536,6 +24491,7 @@ async fn handle_connection(
                 latency_ms,
                 response_capture.usage,
                 RequestStatsMeta {
+                    request_id: Some(logical_request_id.as_str()),
                     service_tier: stats_service_tier.as_deref(),
                     ..RequestStatsMeta::default()
                 },
@@ -23614,6 +24570,9 @@ async fn handle_connection(
                 latency_ms,
                 None,
                 RequestStatsMeta {
+                    request_id: Some(logical_request_id.as_str()),
+                    http_status: Some(status),
+                    error_message: Some(message.as_str()),
                     service_tier: stats_service_tier.as_deref(),
                     ..RequestStatsMeta::default()
                 },
@@ -23632,6 +24591,123 @@ async fn handle_connection(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn normalize_timeouts_migrates_unsafe_stream_retry_defaults() {
+        let mut timeouts = crate::models::codex_local_access::CodexLocalAccessTimeouts::default();
+        timeouts.sidecar_stream_open_timeout_ms = 60_000;
+        timeouts.sidecar_stream_open_max_attempts = 2;
+        timeouts.sidecar_streaming_bootstrap_retries = 2;
+
+        assert!(super::normalize_timeouts(&mut timeouts));
+        assert_eq!(timeouts.sidecar_stream_open_timeout_ms, 180_000);
+        assert_eq!(timeouts.sidecar_stream_open_max_attempts, 1);
+        assert_eq!(timeouts.sidecar_streaming_bootstrap_retries, 0);
+
+        let mut custom = crate::models::codex_local_access::CodexLocalAccessTimeouts::default();
+        custom.sidecar_stream_open_timeout_ms = 60_000;
+        super::normalize_timeouts(&mut custom);
+        assert_eq!(custom.sidecar_stream_open_timeout_ms, 60_000);
+    }
+
+    #[test]
+    fn responses_status_failures_are_not_replayable() {
+        for status in [
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::REQUEST_TIMEOUT,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            assert!(super::upstream_response_replay_prohibited(
+                "/backend-api/codex/responses",
+                status
+            ));
+        }
+        assert!(!super::upstream_response_replay_prohibited(
+            "/backend-api/codex/responses",
+            reqwest::StatusCode::OK
+        ));
+        assert!(!super::upstream_response_replay_prohibited(
+            "/v1/models",
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
+    }
+
+    #[test]
+    fn legacy_responses_request_gets_stable_logical_and_idempotency_ids() {
+        let mut generated = super::ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: std::collections::HashMap::new(),
+            body: br#"{"model":"gpt-5.4"}"#.to_vec(),
+        };
+        let generated_id = super::ensure_legacy_logical_request_metadata(&mut generated);
+        assert!(uuid::Uuid::parse_str(&generated_id).is_ok());
+        assert_eq!(
+            super::header_value(&generated.headers, "idempotency-key"),
+            Some(generated_id.as_str())
+        );
+
+        let mut explicit = super::ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: std::collections::HashMap::from([(
+                "idempotency-key".to_string(),
+                "client-stable-key".to_string(),
+            )]),
+            body: Vec::new(),
+        };
+        let explicit_id = super::ensure_legacy_logical_request_metadata(&mut explicit);
+        assert_eq!(explicit_id, "client-stable-key");
+        assert_eq!(
+            super::header_value(&explicit.headers, "idempotency-key"),
+            Some("client-stable-key")
+        );
+    }
+
+    #[test]
+    fn legacy_upstream_attempt_identity_keeps_request_and_account_ownership() {
+        let api_key = super::ResolvedLocalApiKey {
+            id: "key-1".to_string(),
+            label: "Production".to_string(),
+            provider_gateway: None,
+            inherit_account_pool: true,
+            account_ids: Vec::new(),
+            model_prefix: None,
+            allowed_models: Vec::new(),
+            excluded_models: Vec::new(),
+        };
+        let context = super::LegacyUpstreamAttemptContext::new(
+            "logical-legacy-1",
+            &api_key,
+            "gpt-5.4",
+            crate::models::codex_local_access::CodexLocalAccessRequestKind::Text,
+        );
+        let account = test_account_with_plan("plus");
+        let first = context.next_event(&account);
+        let second = context.next_event(&account);
+        assert_eq!(first.logical_request_id, "logical-legacy-1");
+        assert_eq!(first.upstream_attempt_id, "logical-legacy-1:1");
+        assert_eq!(second.upstream_attempt_id, "logical-legacy-1:2");
+        assert_eq!(first.account_id, account.id);
+        assert_eq!(first.email, account.email);
+        assert_eq!(first.api_key_id, api_key.id);
+        assert_eq!(first.api_key_label, api_key.label);
+
+        let identity = super::LegacyUpstreamAttemptIdentity { event: first };
+        let canceled = super::finalized_legacy_upstream_attempt(
+            Some(&identity),
+            Some(200),
+            Some("client_canceled"),
+            true,
+        )
+        .expect("finalized attempt");
+        assert!(canceled.completed_at > 0);
+        assert_eq!(canceled.canceled_at, canceled.completed_at);
+        assert!(canceled.possible_billable_request);
+        assert!(canceled.upstream_cancellation_unconfirmed);
+    }
 
     #[test]
     fn calendar_stats_windows_start_at_local_day_week_and_month() {
@@ -23751,18 +24827,20 @@ mod tests {
         sidecar_quota_reserve_snapshot_value, sidecar_quota_reserve_state_value,
         sidecar_routing_strategy_value, sidecar_stable_id, supported_codex_model_ids,
         system_proxy_target_scheme, system_proxy_value_url,
-        tool_declares_image_generation_capability, validate_api_key_account_scope_update,
-        validate_bound_oauth_quota_reserve, validate_client_model_visible,
-        visible_codex_model_ids_for_api_key, visible_codex_model_ids_for_api_key_with_accounts,
-        websocket_accept_value, websocket_connect_error_from_http_response,
-        windows_proxy_url_from_server, windows_reg_dword_enabled, windows_reg_query_map,
+        tool_declares_image_generation_capability, upsert_upstream_attempt_event,
+        validate_api_key_account_scope_update, validate_bound_oauth_quota_reserve,
+        validate_client_model_visible, visible_codex_model_ids_for_api_key,
+        visible_codex_model_ids_for_api_key_with_accounts, websocket_accept_value,
+        websocket_connect_error_from_http_response, windows_proxy_url_from_server,
+        windows_reg_dword_enabled, windows_reg_query_map,
         write_local_access_profile_model_override, write_local_access_profile_takeover,
         write_provider_gateway_model_catalog, write_string_atomic, write_string_atomic_if_changed,
         CodexLocalAccessCollection, CodexLocalAccessGatewayMode, CodexLocalAccessScope,
         CodexModelProviderGatewayChatTestRequest, GatewayResponseAdapter, ParsedRequest,
-        ResolvedLocalApiKey, ResponseUsageCollector, RoutingCandidate, SidecarUsageDetails,
-        SidecarUsageEvent, UsageCapture, BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS,
-        CODEX_AUTO_REVIEW_MODEL_ID, CODEX_IMAGEGEN_ACTOR_HEADER, CODEX_IMAGE_MODEL_ID,
+        ResolvedLocalApiKey, ResponseUsageCollector, RoutingCandidate, SidecarUpstreamAttemptEvent,
+        SidecarUsageDetails, SidecarUsageEvent, UsageCapture,
+        BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS, CODEX_AUTO_REVIEW_MODEL_ID,
+        CODEX_IMAGEGEN_ACTOR_HEADER, CODEX_IMAGE_MODEL_ID,
         CODEX_LOCAL_ACCESS_DISABLE_HOSTED_IMAGE_GENERATION_HEADER,
         CODEX_LOCAL_ACCESS_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE,
         CODEX_LOCAL_ACCESS_MODEL_CATALOG_FILE, CODEX_LOCAL_ACCESS_SIDECAR_QUOTA_STATE_VERSION,
@@ -23799,6 +24877,45 @@ mod tests {
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     use tokio_tungstenite::tungstenite::Message;
     use toml_edit::{value, Document};
+
+    #[tokio::test]
+    async fn upstream_http_client_does_not_follow_redirects() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let bytes_read = stream.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..bytes_read]).contains("POST /first"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: /second\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            drop(stream);
+
+            tokio::time::timeout(Duration::from_millis(150), listener.accept())
+                .await
+                .is_ok()
+        });
+
+        let signature = super::UpstreamHttpClientSignature {
+            proxy_source: super::UpstreamProxySource::SystemAuto,
+            proxy_url: None,
+            connect_timeout_ms: 1_000,
+        };
+        let client = super::build_upstream_http_client(&signature).unwrap();
+        let response = client
+            .post(format!("http://{}/first", address))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+        assert!(!server.await.unwrap(), "redirect produced a second request");
+    }
 
     #[tokio::test]
     async fn read_http_request_rejects_declared_request_above_limit() {
@@ -26092,6 +27209,206 @@ wire_api = "responses"
     }
 
     #[test]
+    fn upstream_attempt_lifecycle_is_idempotent_and_preserves_billable_risk() {
+        let dir = make_temp_dir("codex-upstream-attempts");
+        let db_path = dir.join("request_logs.sqlite");
+        let conn = open_local_access_logs_db_once(&db_path, true).expect("open logs db");
+        let sent_at = 1_700_000_000_000;
+        let mut event: SidecarUpstreamAttemptEvent = serde_json::from_value(json!({
+            "type": "upstream_attempt",
+            "logicalRequestId": "logical-1",
+            "upstreamAttemptId": "attempt-1",
+            "attemptNumber": 1,
+            "accountId": "account-1",
+            "email": "user@example.com",
+            "apiKeyId": "key-1",
+            "apiKeyLabel": "Production",
+            "model": "gpt-5.4",
+            "requestKind": "text",
+            "sentAt": sent_at
+        }))
+        .expect("deserialize sidecar upstream_attempt contract");
+
+        let first =
+            upsert_upstream_attempt_event(&conn, &event, sent_at).expect("insert upstream attempt");
+        assert!(first.inserted);
+        assert!(!first.possible_billable_became_true);
+
+        event.status = Some(499);
+        event.canceled_at = sent_at + 30_000;
+        event.possible_billable_request = true;
+        event.upstream_cancellation_unconfirmed = true;
+        let updated = upsert_upstream_attempt_event(&conn, &event, sent_at + 30_000)
+            .expect("update upstream attempt");
+        assert!(!updated.inserted);
+        assert!(updated.possible_billable_became_true);
+
+        let row = conn
+            .query_row(
+                "SELECT COUNT(*), logical_request_id, account_id, email, api_key_id, status, possible_billable_request, upstream_cancellation_unconfirmed FROM upstream_attempts",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                },
+            )
+            .expect("read upstream attempt");
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "logical-1");
+        assert_eq!(row.2, "account-1");
+        assert_eq!(row.3, "user@example.com");
+        assert_eq!(row.4, "key-1");
+        assert_eq!(row.5, 499);
+        assert_eq!(row.6, 1);
+        assert_eq!(row.7, 1);
+
+        let aggregate = super::query_upstream_attempt_aggregate(&conn, sent_at, sent_at + 60_000)
+            .expect("aggregate upstream attempts");
+        assert_eq!(aggregate.attempt_count, 1);
+        assert_eq!(aggregate.possible_billable_count, 1);
+
+        drop(conn);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn late_usage_correction_updates_one_logical_request_row() {
+        let dir = make_temp_dir("codex-late-usage-correction");
+        let db_path = dir.join("request_logs.sqlite");
+        let conn = open_local_access_logs_db_once(&db_path, true).expect("open logs db");
+        let mut events = Vec::new();
+        let original = append_usage_event(
+            &mut events,
+            1_700_000_000_000,
+            Some("logical-canceled-1"),
+            Some("account-1"),
+            Some("user@example.com"),
+            Some("key-1"),
+            Some("Production"),
+            Some("codex-client-1"),
+            Some("gpt-5.4"),
+            Some(CodexLocalAccessGatewayMode::Sidecar),
+            CodexLocalAccessRequestKind::Text,
+            None,
+            false,
+            Some(499),
+            Some("client_canceled"),
+            Some("client disconnected"),
+            30_000,
+            None,
+            None,
+            1,
+            0.0,
+        );
+        insert_local_access_usage_event(&conn, &original).expect("insert original logical row");
+        let attempt = SidecarUpstreamAttemptEvent {
+            logical_request_id: "logical-canceled-1".to_string(),
+            upstream_attempt_id: "attempt-canceled-1".to_string(),
+            attempt_number: 1,
+            account_id: "account-1".to_string(),
+            email: "user@example.com".to_string(),
+            api_key_id: "key-1".to_string(),
+            sent_at: 1_700_000_000_000,
+            canceled_at: 1_700_000_030_000,
+            possible_billable_request: true,
+            upstream_cancellation_unconfirmed: true,
+            ..SidecarUpstreamAttemptEvent::default()
+        };
+        upsert_upstream_attempt_event(&conn, &attempt, attempt.canceled_at)
+            .expect("insert possibly billable attempt");
+        assert!(
+            super::logical_request_has_possible_billable_attempt(&conn, "logical-canceled-1")
+                .expect("query logical request billable risk")
+        );
+        let before_correction =
+            super::query_upstream_attempt_aggregate(&conn, 1_700_000_000_000, 1_700_000_120_000)
+                .expect("aggregate before correction");
+        assert_eq!(before_correction.possible_billable_count, 1);
+
+        let usage = UsageCapture {
+            input_tokens: 80,
+            output_tokens: 20,
+            total_tokens: 100,
+            cached_tokens: 40,
+            reasoning_tokens: 5,
+        };
+        let correction = append_usage_event(
+            &mut events,
+            1_700_000_090_000,
+            Some("logical-canceled-1"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("gpt-5.4"),
+            Some(CodexLocalAccessGatewayMode::Sidecar),
+            CodexLocalAccessRequestKind::Text,
+            None,
+            true,
+            Some(200),
+            None,
+            None,
+            90_000,
+            Some(&usage),
+            None,
+            1,
+            0.0,
+        );
+        super::upsert_local_access_usage_correction(&conn, &correction)
+            .expect("upsert late usage correction");
+
+        let row = conn
+            .query_row(
+                "SELECT COUNT(*), timestamp, account_id, email, api_key_id, error_category, error_message, latency_ms, total_tokens, success, http_status FROM request_logs WHERE request_id = ?1",
+                ["logical-canceled-1"],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, i64>(9)?,
+                        row.get::<_, Option<i64>>(10)?,
+                    ))
+                },
+            )
+            .expect("read corrected logical row");
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, 1_700_000_000_000);
+        assert_eq!(row.2, "account-1");
+        assert_eq!(row.3, "user@example.com");
+        assert_eq!(row.4, "key-1");
+        assert_eq!(row.5, "client_canceled");
+        assert_eq!(row.6, "client disconnected");
+        assert_eq!(row.7, 90_000);
+        assert_eq!(row.8, 100);
+        assert_eq!(row.9, 0);
+        assert_eq!(row.10, Some(499));
+        let after_correction =
+            super::query_upstream_attempt_aggregate(&conn, 1_700_000_000_000, 1_700_000_120_000)
+                .expect("aggregate after correction");
+        assert_eq!(after_correction.attempt_count, 1);
+        assert_eq!(after_correction.possible_billable_count, 0);
+
+        drop(conn);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn request_log_reprice_updates_cost_and_pricing_version() {
         let dir = make_temp_dir("codex-local-access-reprice");
         let db_path = dir.join("request_logs.sqlite");
@@ -27022,6 +28339,8 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     fn sidecar_response_failed_overrides_generic_request_failed() {
         let event = SidecarUsageEvent {
             request_id: "req-1".to_string(),
+            logical_request_id: "req-1".to_string(),
+            correction: false,
             model: "gpt-5.4".to_string(),
             account_id: "account-1".to_string(),
             account_email: "user@example.com".to_string(),
@@ -29472,7 +30791,12 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
         account.bound_oauth_account_id = Some("oauth-1".to_string());
         account.bound_oauth_use_local_gateway = true;
 
-        let collection = test_local_access_collection(vec![account.id.clone()]);
+        let mut collection = test_local_access_collection(vec![account.id.clone()]);
+        assert_eq!(collection.timeouts.sidecar_stream_open_timeout_ms, 180_000);
+        assert_eq!(collection.timeouts.sidecar_stream_total_timeout_ms, 0);
+        assert_eq!(collection.timeouts.sidecar_stream_open_max_attempts, 1);
+        assert_eq!(collection.timeouts.sidecar_streaming_bootstrap_retries, 0);
+        collection.timeouts.sidecar_streaming_bootstrap_retries = 3;
         let launch_config = prepare_sidecar_launch_config_in_dir(
             &collection,
             dir.clone(),
@@ -29488,6 +30812,23 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
         .expect("parse sidecar config");
 
         assert_eq!(config.get("disable-auth-auto-refresh"), Some(&json!(true)));
+        assert_eq!(config.get("request-retry"), Some(&json!(0)));
+        assert_eq!(
+            config.pointer("/streaming/stream-open-timeout-ms"),
+            Some(&json!(180_000))
+        );
+        assert_eq!(
+            config.pointer("/streaming/stream-total-timeout-ms"),
+            Some(&json!(0))
+        );
+        assert_eq!(
+            config.pointer("/streaming/stream-open-max-attempts"),
+            Some(&json!(1))
+        );
+        assert_eq!(
+            config.pointer("/streaming/bootstrap-retries"),
+            Some(&json!(3))
+        );
 
         fs::remove_dir_all(&dir).expect("cleanup temp dir");
     }

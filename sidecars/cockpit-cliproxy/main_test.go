@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1909,6 +1911,7 @@ func TestWriteExecutorErrorThrottlesRetryableDownstreamError(t *testing.T) {
 
 func TestRequestUsageTrackerFinalizesWithLastSuccessfulAttempt(t *testing.T) {
 	tracker := newRequestUsageTracker()
+	tracker.start("req-1")
 	tracker.recordSelectedAccount("req-1", &accountSpec{
 		ID:    "account-ok",
 		Email: "ok@example.com",
@@ -1994,6 +1997,7 @@ func TestRequestUsageTrackerFinalizesWithSelectedAccount(t *testing.T) {
 
 func TestRequestUsageTrackerSelectedAccountOverridesUsageAccount(t *testing.T) {
 	tracker := newRequestUsageTracker()
+	tracker.start("req-usage")
 	tracker.recordSelectedAccount("req-usage", &accountSpec{
 		ID:    "account-selected",
 		Email: "selected@example.com",
@@ -2018,6 +2022,204 @@ func TestRequestUsageTrackerSelectedAccountOverridesUsageAccount(t *testing.T) {
 	}
 	if payload.AccountID != "account-selected" || payload.AccountEmail != "selected@example.com" || payload.AuthID != "auth-selected" {
 		t.Fatalf("selected account metadata should win, got %#v", payload)
+	}
+}
+
+func TestRequestUsageTrackerEmitsLateUsageCorrectionAfterFinalize(t *testing.T) {
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+	tracker.recordSelectedAccount("req-late", &accountSpec{
+		ID:    "account-selected",
+		Email: "selected@example.com",
+	}, "auth-selected")
+
+	initial, ok := tracker.finalize("req-late", usageFinalizeInput{
+		spec:          &apiKeySpec{ID: "key_1", Label: "Default", Key: "never-log-this-secret"},
+		requestKind:   "text",
+		model:         "gpt-5.5",
+		status:        499,
+		latencyMS:     30_000,
+		completedAtMS: 123,
+		errorMessage:  "context canceled",
+	})
+	if !ok || initial.AccountID != "account-selected" || initial.LogicalRequestID != "req-late" {
+		t.Fatalf("unexpected initial finalized usage: %#v", initial)
+	}
+	tracker.record(usagePayload{
+		RequestID:     "req-late",
+		Provider:      "codex",
+		AccountID:     "account-selected",
+		AccountEmail:  "selected@example.com",
+		AuthID:        "auth-selected",
+		Success:       true,
+		RequestedAtMS: 100,
+		Usage: usageDetails{
+			InputTokens:  100,
+			OutputTokens: 25,
+			TotalTokens:  125,
+		},
+	})
+	if emitter.flush(20*time.Millisecond) && output.Len() != 0 {
+		t.Fatalf("late correction must wait until the initial usage event is queued: %s", output.String())
+	}
+	tracker.markFinalizedEmitted("req-late")
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing late usage correction")
+	}
+	if strings.Contains(output.String(), "never-log-this-secret") {
+		t.Fatalf("raw API key leaked into usage event: %s", output.String())
+	}
+	var correction usagePayload
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &correction); err != nil {
+		t.Fatalf("decode correction: %v output=%s", err, output.String())
+	}
+	if !correction.Correction || correction.LogicalRequestID != "req-late" || correction.APIKeyID != "key_1" {
+		t.Fatalf("late usage should be an attributed correction: %#v", correction)
+	}
+	if correction.Usage.TotalTokens != 125 || correction.AccountID != "account-selected" {
+		t.Fatalf("late usage tokens or account were lost: %#v", correction)
+	}
+	if correction.Success || correction.Status != 499 || correction.ErrorCategory != "client_canceled" {
+		t.Fatalf("late usage must not erase the logical cancellation result: %#v", correction)
+	}
+
+	tracker.mu.Lock()
+	tombstone := tracker.finalized["req-late"]
+	_, activeRecord := tracker.records["req-late"]
+	tracker.mu.Unlock()
+	if activeRecord || tombstone.payload.Usage.TotalTokens != 125 {
+		t.Fatalf("late usage was not merged into the bounded tombstone: active=%t tombstone=%#v", activeRecord, tombstone)
+	}
+}
+
+func TestRequestUsageTrackerEmitsLateUsageAfterTombstoneEviction(t *testing.T) {
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+
+	if _, ok := tracker.finalize("req-evicted", usageFinalizeInput{
+		status:        http.StatusBadGateway,
+		completedAtMS: 123,
+		errorMessage:  "upstream response ended early",
+	}); !ok {
+		t.Fatal("expected initial finalized usage")
+	}
+	tracker.markFinalizedEmitted("req-evicted")
+	tracker.mu.Lock()
+	tombstone := tracker.finalized["req-evicted"]
+	tombstone.expiresAt = time.Now().Add(-time.Second)
+	tracker.finalized["req-evicted"] = tombstone
+	tracker.pruneFinalizedLocked(time.Now())
+	tracker.mu.Unlock()
+
+	tracker.record(usagePayload{
+		RequestID: "req-evicted",
+		Success:   true,
+		Status:    http.StatusOK,
+		Usage:     usageDetails{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
+	})
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing evicted late usage correction")
+	}
+
+	var correction usagePayload
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &correction); err != nil {
+		t.Fatalf("decode correction: %v\n%s", err, output.String())
+	}
+	if !correction.Correction || correction.RequestID != "req-evicted" || correction.Usage.TotalTokens != 15 {
+		t.Fatalf("late usage after tombstone eviction was not emitted as a correction: %#v", correction)
+	}
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	if _, exists := tracker.records["req-evicted"]; exists {
+		t.Fatal("late usage after tombstone eviction leaked into pending records")
+	}
+}
+
+func TestRequestUsageTrackerLateFailureCorrectsSyntheticSuccess(t *testing.T) {
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+	initial, ok := tracker.finalize("req-late-failure", usageFinalizeInput{
+		status:        http.StatusOK,
+		completedAtMS: 123,
+	})
+	if !ok || !initial.Success {
+		t.Fatalf("expected initial synthetic success: %#v", initial)
+	}
+	tracker.markFinalizedEmitted("req-late-failure")
+	tracker.record(usagePayload{
+		RequestID:     "req-late-failure",
+		Success:       false,
+		Status:        http.StatusBadGateway,
+		ErrorCategory: "upstream_error",
+		ErrorMessage:  "unexpected EOF",
+	})
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing late failure correction")
+	}
+	var correction usagePayload
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &correction); err != nil {
+		t.Fatalf("decode correction: %v", err)
+	}
+	if !correction.Correction || correction.Success || correction.Status != http.StatusBadGateway || correction.ErrorCategory != "upstream_error" {
+		t.Fatalf("late executor failure did not correct synthetic success: %#v", correction)
+	}
+}
+
+func TestRequestUsageTrackerBoundsFinalizedTombstones(t *testing.T) {
+	tracker := newRequestUsageTracker()
+	now := time.Now()
+	tracker.mu.Lock()
+	for index := 0; index < usageTombstoneLimit+10; index++ {
+		requestID := fmt.Sprintf("request-%d", index)
+		tracker.rememberFinalizedLocked(requestID, usagePayload{RequestID: requestID}, now, false)
+	}
+	count := len(tracker.finalized)
+	_, oldestStillPresent := tracker.finalized["request-0"]
+	_, newestPresent := tracker.finalized[fmt.Sprintf("request-%d", usageTombstoneLimit+9)]
+	tracker.mu.Unlock()
+	if count != usageTombstoneLimit || oldestStillPresent || !newestPresent {
+		t.Fatalf("unexpected bounded tombstone state: count=%d oldest=%t newest=%t", count, oldestStillPresent, newestPresent)
+	}
+
+	tracker.record(usagePayload{RequestID: "request-10", Usage: usageDetails{TotalTokens: 1}})
+	tracker.mu.Lock()
+	tracker.rememberFinalizedLocked("request-extra", usagePayload{RequestID: "request-extra"}, now, false)
+	_, touchedPresent := tracker.finalized["request-10"]
+	_, nextOldestPresent := tracker.finalized["request-11"]
+	tracker.mu.Unlock()
+	if !touchedPresent || nextOldestPresent {
+		t.Fatalf("renewed tombstone should move behind older entries: touched=%t next_oldest=%t", touchedPresent, nextOldestPresent)
+	}
+}
+
+func TestRecordingSelectorRecordsProvisionalAccountBeforeFailure(t *testing.T) {
+	account := &accountSpec{ID: "account-selected", Email: "selected@example.com"}
+	auth := &coreauth.Auth{ID: "auth-selected", Provider: "codex", Status: coreauth.StatusActive}
+	tracker := newRequestUsageTracker()
+	selector := &recordingSelector{
+		inner:   &countingSelector{auth: auth},
+		tracker: tracker,
+		manifest: &manifest{
+			accountByAuthID: map[string]*accountSpec{"auth-selected": account},
+		},
+	}
+	ctx := internallogging.WithRequestID(context.Background(), "req-provisional")
+	if _, err := selector.Pick(ctx, "codex", "gpt-5.5", cliproxyexecutor.Options{}, []*coreauth.Auth{auth}); err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	payload, ok := tracker.finalize("req-provisional", usageFinalizeInput{
+		status:        http.StatusBadGateway,
+		completedAtMS: 123,
+		errorMessage:  "unexpected EOF",
+	})
+	if !ok || payload.AccountID != account.ID || payload.AccountEmail != account.Email || payload.AuthID != auth.ID {
+		t.Fatalf("failed request lost provisional account ownership: %#v", payload)
 	}
 }
 
@@ -2203,6 +2405,7 @@ func TestRecordingSelectorRecordsSuccessfulSessionAffinityCacheHit(t *testing.T)
 
 func TestRequestUsageTrackerKeepsStreamFailureAfterHTTPHeaders(t *testing.T) {
 	tracker := newRequestUsageTracker()
+	tracker.start("req-2")
 	tracker.record(usagePayload{
 		Type:          "usage",
 		RequestID:     "req-2",
@@ -2274,8 +2477,392 @@ func TestRequestPolicyEmitsRequestDiagnostics(t *testing.T) {
 	if start.RequestID == "" || complete.RequestID != start.RequestID {
 		t.Fatalf("request id should be stable across diagnostics: %#v %#v", start, complete)
 	}
+	if start.LogicalRequestID != start.RequestID || complete.LogicalRequestID != start.RequestID {
+		t.Fatalf("logical request id should be stable across diagnostics: %#v %#v", start, complete)
+	}
 	if complete.Status != http.StatusNoContent || complete.RequestKind != "text" || complete.APIKeyID != "key_1" {
 		t.Fatalf("unexpected completion diagnostic: %#v", complete)
+	}
+}
+
+func TestBuildExecutorRequestUsesStableLogicalIDForIdempotency(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	request = request.WithContext(internallogging.WithRequestID(request.Context(), "logical-1"))
+	c.Request = request
+
+	_, opts := buildExecutorRequest(c, []byte(`{"model":"gpt-5.5"}`), "gpt-5.5", sdktranslator.FromString("openai-response"), "", true)
+	if got := opts.Metadata[cliproxyexecutor.LogicalRequestIDMetadataKey]; got != "logical-1" {
+		t.Fatalf("logical request ID = %v", got)
+	}
+	if got := opts.Metadata[cliproxyexecutor.IdempotencyKeyMetadataKey]; got != "logical-1" {
+		t.Fatalf("default idempotency key = %v", got)
+	}
+
+	c.Request.Header.Set("Idempotency-Key", "client-key-1")
+	_, opts = buildExecutorRequest(c, []byte(`{"model":"gpt-5.5"}`), "gpt-5.5", sdktranslator.FromString("openai-response"), "", true)
+	if got := opts.Metadata[cliproxyexecutor.IdempotencyKeyMetadataKey]; got != "client-key-1" {
+		t.Fatalf("explicit idempotency key = %v", got)
+	}
+}
+
+func TestRequestPolicyRecordsCanceledContextAsCanceledUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+	m := &manifest{apiKeyByValue: map[string]*apiKeySpec{
+		"client-key": {ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true},
+	}}
+	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: tracker}
+	router := gin.New()
+	router.Use(policy.middleware())
+	router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	requestContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(requestContext)
+	req.Header.Set("Authorization", "Bearer client-key")
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing canceled usage")
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected request start, completion, and usage events; got %d: %s", len(lines), output.String())
+	}
+	var completed requestDiagnosticPayload
+	if err := json.Unmarshal([]byte(lines[1]), &completed); err != nil {
+		t.Fatalf("decode completion: %v", err)
+	}
+	var usage usagePayload
+	if err := json.Unmarshal([]byte(lines[2]), &usage); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if !completed.Aborted || completed.ErrorMessage != context.Canceled.Error() {
+		t.Fatalf("completion should retain canceled state: %#v", completed)
+	}
+	if usage.Success || usage.Status != clientClosedRequestStatus || usage.ErrorCategory != "client_canceled" {
+		t.Fatalf("canceled request was not classified correctly: %#v", usage)
+	}
+}
+
+func TestRequestPolicyClassifiesStreamTerminalErrorsAfterHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name          string
+		err           error
+		wantStatus    int
+		wantCategory  string
+		wantErrorText string
+	}{
+		{
+			name:          "total timeout",
+			err:           relayTimeoutError{phase: "stream_total", timeout: time.Second},
+			wantStatus:    http.StatusGatewayTimeout,
+			wantCategory:  "upstream_stream_timeout",
+			wantErrorText: "stream_total",
+		},
+		{
+			name:          "idle timeout",
+			err:           relayTimeoutError{phase: "stream_idle", timeout: time.Second},
+			wantStatus:    http.StatusGatewayTimeout,
+			wantCategory:  "upstream_stream_timeout",
+			wantErrorText: "stream_idle",
+		},
+		{
+			name:          "chunk error",
+			err:           errors.New("chunk read failed"),
+			wantStatus:    http.StatusBadGateway,
+			wantCategory:  "upstream_error",
+			wantErrorText: "chunk read failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			emitter := newEventEmitter(&output)
+			tracker := newRequestUsageTracker()
+			tracker.setEmitter(emitter)
+			m := &manifest{
+				ModelIDs: []string{"gpt-5.5"},
+				apiKeyByValue: map[string]*apiKeySpec{
+					"client-key": {ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true},
+				},
+			}
+			policy := &requestPolicy{manifest: m, emitter: emitter, tracker: tracker}
+			router := gin.New()
+			router.Use(policy.middleware())
+			router.POST("/v1/responses", func(c *gin.Context) {
+				setEventStreamHeaders(c.Writer.Header())
+				c.Status(http.StatusOK)
+				writeStreamTerminalError(c, tt.err)
+			})
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+			req.Header.Set("Authorization", "Bearer client-key")
+			req.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, req)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("stream diagnostic HTTP status = %d, want 200", recorder.Code)
+			}
+			if !emitter.flush(time.Second) {
+				t.Fatal("timed out flushing stream terminal diagnostics")
+			}
+
+			var completed requestDiagnosticPayload
+			var usage usagePayload
+			for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+				var envelope struct {
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+					t.Fatalf("decode event envelope: %v\n%s", err, line)
+				}
+				switch envelope.Type {
+				case "request_completed":
+					if err := json.Unmarshal([]byte(line), &completed); err != nil {
+						t.Fatalf("decode completion: %v", err)
+					}
+				case "usage":
+					if err := json.Unmarshal([]byte(line), &usage); err != nil {
+						t.Fatalf("decode usage: %v", err)
+					}
+				}
+			}
+
+			if completed.Status != http.StatusOK {
+				t.Fatalf("completion diagnostic status = %d, want original HTTP 200: %#v", completed.Status, completed)
+			}
+			if usage.Success || usage.Status != tt.wantStatus || usage.ErrorCategory != tt.wantCategory {
+				t.Fatalf("stream terminal usage was not classified correctly: %#v", usage)
+			}
+			if !strings.Contains(strings.ToLower(usage.ErrorMessage), strings.ToLower(tt.wantErrorText)) {
+				t.Fatalf("usage error %q does not contain %q", usage.ErrorMessage, tt.wantErrorText)
+			}
+		})
+	}
+}
+
+func TestUpstreamAttemptLifecycleEmitsAttributedCancellation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	account := &accountSpec{ID: "account-1", Email: "account@example.com", AuthID: "auth-1"}
+	server := &relayServer{
+		emitter: emitter,
+		manifest: &manifest{
+			accountByAuthID: map[string]*accountSpec{"auth-1": account},
+		},
+		policy: &requestPolicy{tracker: tracker},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	requestContext := internallogging.WithRequestID(request.Context(), "logical-1")
+	requestContext = context.WithValue(requestContext, clientAPIKeyContextKey, &apiKeySpec{
+		ID:    "key_1",
+		Label: "Default",
+		Key:   "never-log-this-secret",
+	})
+	requestContext = context.WithValue(requestContext, requestKindContextKey, "text")
+	requestContext = withClientInstanceID(requestContext, "codex-client-1")
+	c.Request = request.WithContext(requestContext)
+
+	lifecycle := newUpstreamAttemptLifecycle(server, c, "gpt-5.5")
+	lifecycle.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-1", AttemptID: 42})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-1",
+		At:     time.Now(),
+	})
+	lifecycle.complete(relayTimeoutError{phase: "stream_open attempt=1/1", timeout: 180 * time.Second}, true, true)
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing attempt events")
+	}
+	if strings.Contains(output.String(), "never-log-this-secret") {
+		t.Fatalf("raw API key leaked into attempt event: %s", output.String())
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected start and terminal attempt events, got %d: %s", len(lines), output.String())
+	}
+	var terminal upstreamAttemptPayload
+	if err := json.Unmarshal([]byte(lines[1]), &terminal); err != nil {
+		t.Fatalf("decode terminal attempt: %v", err)
+	}
+	if terminal.Type != "upstream_attempt" || terminal.LogicalRequestID != "logical-1" || terminal.AttemptNumber != 1 {
+		t.Fatalf("unexpected attempt identity: %#v", terminal)
+	}
+	if terminal.AccountID != account.ID || terminal.Email != account.Email || terminal.APIKeyID != "key_1" {
+		t.Fatalf("attempt ownership was not retained: %#v", terminal)
+	}
+	if terminal.SentAt == 0 || terminal.CanceledAt == 0 || terminal.CompletedAt == 0 || terminal.FirstByteAt != 0 {
+		t.Fatalf("unexpected attempt timestamps: %#v", terminal)
+	}
+	if terminal.RetryReason != "stream_open_timeout" || !terminal.PossibleBillableRequest || !terminal.UpstreamCancellationUnconfirmed {
+		t.Fatalf("timeout should be marked possibly billable and cancellation-unconfirmed: %#v", terminal)
+	}
+
+	payload, ok := tracker.finalize("logical-1", usageFinalizeInput{status: http.StatusGatewayTimeout, completedAtMS: 123})
+	if !ok || payload.AccountID != account.ID || payload.AccountEmail != account.Email || payload.AuthID != "auth-1" {
+		t.Fatalf("attempt selection was not retained for logical usage: %#v", payload)
+	}
+}
+
+func TestUpstreamAttemptLifecyclePreservesFirstTerminalOutcome(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	server := &relayServer{
+		emitter: emitter,
+		manifest: &manifest{accountByAuthID: map[string]*accountSpec{
+			"auth-1": {ID: "account-1", Email: "account@example.com", AuthID: "auth-1"},
+		}},
+		policy: &requestPolicy{tracker: newRequestUsageTracker()},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request = request.WithContext(internallogging.WithRequestID(request.Context(), "logical-timeout"))
+
+	lifecycle := newUpstreamAttemptLifecycle(server, c, "gpt-5.5")
+	lifecycle.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-1", AttemptID: 1})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-1",
+		At:     time.Now(),
+	})
+	timeoutErr := relayTimeoutError{phase: "stream_open attempt=1/1", timeout: 180 * time.Second}
+	lifecycle.complete(timeoutErr, true, true)
+	// The executor commonly reports context cancellation after the sidecar has
+	// already recorded its more specific first-byte timeout.
+	lifecycle.complete(cliproxyexecutor.WrapUpstreamAttemptError(context.Canceled, 128, false, true), true, true)
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing attempt events")
+	}
+
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected lifecycle events, got %s", output.String())
+	}
+	var terminal upstreamAttemptPayload
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &terminal); err != nil {
+		t.Fatalf("decode terminal attempt: %v", err)
+	}
+	if terminal.Status != http.StatusGatewayTimeout || terminal.RetryReason != "stream_open_timeout" {
+		t.Fatalf("late cancellation overwrote first terminal outcome: %#v", terminal)
+	}
+	if !terminal.PossibleBillableRequest || !terminal.UpstreamCancellationUnconfirmed {
+		t.Fatalf("late cancellation risk flags were not retained: %#v", terminal)
+	}
+
+	output.Reset()
+	success := newUpstreamAttemptLifecycle(server, c, "gpt-5.5")
+	success.logicalRequestID = "logical-complete"
+	success.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-1", AttemptID: 2})
+	success.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-1",
+		At:     time.Now(),
+	})
+	success.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:      cliproxyexecutor.UpstreamAttemptResponded,
+		AuthID:     "auth-1",
+		At:         time.Now(),
+		StatusCode: http.StatusOK,
+	})
+	success.complete(nil, false, false)
+	success.complete(cliproxyexecutor.WrapUpstreamAttemptError(context.Canceled, 128, true, true), true, true)
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing successful attempt events")
+	}
+	lines = strings.Split(strings.TrimSpace(output.String()), "\n")
+	terminal = upstreamAttemptPayload{}
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &terminal); err != nil {
+		t.Fatalf("decode successful terminal attempt: %v", err)
+	}
+	if terminal.Status != http.StatusOK || terminal.RetryReason != "" || terminal.CanceledAt != 0 {
+		t.Fatalf("late cancellation replaced successful completion: %#v", terminal)
+	}
+}
+
+func TestUpstreamAttemptLifecycleCountsTransportStartsNotAuthSelections(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	server := &relayServer{
+		emitter: emitter,
+		manifest: &manifest{accountByAuthID: map[string]*accountSpec{
+			"auth-1": {ID: "account-1", Email: "one@example.com", AuthID: "auth-1"},
+			"auth-2": {ID: "account-2", Email: "two@example.com", AuthID: "auth-2"},
+		}},
+		policy: &requestPolicy{tracker: newRequestUsageTracker()},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request = request.WithContext(internallogging.WithRequestID(request.Context(), "logical-transport"))
+	lifecycle := newUpstreamAttemptLifecycle(server, c, "gpt-5.5")
+
+	// Auth selection and preparation are not physical upstream attempts.
+	lifecycle.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-1", AttemptID: 1})
+	if !emitter.flush(time.Second) || output.Len() != 0 {
+		t.Fatalf("selection alone emitted an upstream attempt: %s", output.String())
+	}
+
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-1",
+		At:     time.Now(),
+	})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase: cliproxyexecutor.UpstreamAttemptFinished,
+		Err:   cliproxyexecutor.WrapUpstreamAttemptError(errors.New("dial failed"), 0, false, false),
+	})
+	lifecycle.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-2", AttemptID: 2})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-2",
+		At:     time.Now(),
+	})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:            cliproxyexecutor.UpstreamAttemptResponded,
+		AuthID:           "auth-2",
+		At:               time.Now(),
+		StatusCode:       http.StatusOK,
+		ResponseReceived: true,
+	})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:            cliproxyexecutor.UpstreamAttemptFinished,
+		AuthID:           "auth-2",
+		ResponseReceived: true,
+	})
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing physical attempt events")
+	}
+	unique := make(map[string]upstreamAttemptPayload)
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var event upstreamAttemptPayload
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode attempt event: %v", err)
+		}
+		unique[event.UpstreamAttemptID] = event
+	}
+	if len(unique) != 2 {
+		t.Fatalf("unique physical attempts = %d, want 2; events=%s", len(unique), output.String())
+	}
+	if unique["logical-transport:1"].RetryReason != "pre_send_failure" {
+		t.Fatalf("first physical attempt missing pre-send outcome: %#v", unique["logical-transport:1"])
+	}
+	second := unique["logical-transport:2"]
+	if second.AccountID != "account-2" || second.Email != "two@example.com" || second.FirstByteAt == 0 || second.CompletedAt == 0 {
+		t.Fatalf("second physical attempt was not completed and attributed: %#v", second)
 	}
 }
 
@@ -2286,6 +2873,7 @@ func TestUsagePluginResolvesAPIKeyAndRequestKindFromCPARecord(t *testing.T) {
 		},
 	}
 	tracker := newRequestUsageTracker()
+	tracker.start("req-1")
 	plugin := &usagePlugin{manifest: m, tracker: tracker}
 	ctx := internallogging.WithRequestID(context.Background(), "req-1")
 	ctx = internallogging.WithEndpoint(ctx, "POST /v1/responses")
@@ -2329,6 +2917,9 @@ func TestErrorCategoryClassifiesClientCanceled(t *testing.T) {
 	}
 	if got := errorCategory(http.StatusGatewayTimeout, "upstream timed out in stream_open attempt=1/1 after 60s", false); got != "upstream_first_byte_timeout" {
 		t.Fatalf("expected upstream_first_byte_timeout, got %q", got)
+	}
+	if got := errorCategory(http.StatusBadGateway, "unexpected EOF before response.completed", false); got != "upstream_error" {
+		t.Fatalf("expected upstream_error for an upstream EOF, got %q", got)
 	}
 }
 
@@ -2473,11 +3064,17 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 			},
 		},
 	}
+	var eventOutput bytes.Buffer
+	emitter := newEventEmitter(&eventOutput)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: tracker}
 	router := (&relayServer{
 		runtime:  runtime,
 		cfg:      &config.Config{},
 		manifest: m,
-		policy:   &requestPolicy{manifest: m},
+		emitter:  emitter,
+		policy:   policy,
 	}).router()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":false}`))
@@ -2507,6 +3104,27 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 	if !strings.Contains(w.Body.String(), `"object":"response"`) || !strings.Contains(w.Body.String(), `"output_text"`) {
 		t.Fatalf("response should be converted back to responses shape: %s", w.Body.String())
 	}
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing provider gateway usage")
+	}
+	var recordedUsage usagePayload
+	for _, line := range strings.Split(strings.TrimSpace(eventOutput.String()), "\n") {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal([]byte(line), &envelope) != nil || envelope.Type != "usage" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), &recordedUsage); err != nil {
+			t.Fatalf("decode provider gateway usage: %v", err)
+		}
+	}
+	if recordedUsage.Usage.InputTokens != 1 || recordedUsage.Usage.OutputTokens != 1 || recordedUsage.Usage.TotalTokens != 2 {
+		t.Fatalf("provider gateway usage was not preserved: %#v", recordedUsage)
+	}
+	if recordedUsage.AccountID == "" || recordedUsage.AccountEmail == "" || recordedUsage.APIKeyID != "provider_gateway_account_1" {
+		t.Fatalf("provider gateway usage lost ownership: %#v", recordedUsage)
+	}
 
 	modelReq := httptest.NewRequest(http.MethodGet, "/v1/models?codex_client=1", nil)
 	modelReq.Header.Set("Authorization", "Bearer client-key")
@@ -2517,6 +3135,474 @@ func TestRelayServerProviderGatewayRoutesResponsesToChatCompletions(t *testing.T
 	}
 	if !strings.Contains(modelW.Body.String(), "gpt-5.5") || !strings.Contains(modelW.Body.String(), "gpt-5.4") || strings.Contains(modelW.Body.String(), "deepseek-v4-pro") {
 		t.Fatalf("provider gateway should expose client model slots only: %s", modelW.Body.String())
+	}
+}
+
+func TestProviderGatewayUsageParsingNormalizesResponsesAndChat(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    usageDetails
+	}{
+		{
+			name: "responses",
+			payload: `{"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18,` +
+				`"input_tokens_details":{"cached_tokens":5},"output_tokens_details":{"reasoning_tokens":3}}}}`,
+			want: usageDetails{InputTokens: 11, OutputTokens: 7, TotalTokens: 18, CachedTokens: 5, ReasoningTokens: 3},
+		},
+		{
+			name: "chat",
+			payload: `{"usage":{"prompt_tokens":13,"completion_tokens":9,"prompt_tokens_details":{"cached_tokens":4},` +
+				`"completion_tokens_details":{"reasoning_tokens":2}}}`,
+			want: usageDetails{InputTokens: 13, OutputTokens: 9, TotalTokens: 22, CachedTokens: 4, ReasoningTokens: 2},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := providerGatewayUsageFromPayload([]byte(tt.payload))
+			if !ok || got != tt.want {
+				t.Fatalf("usage = %#v, %v; want %#v, true", got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestProviderGatewaySSEUsageObserverHandlesSplitFrames(t *testing.T) {
+	var recorded []usageDetails
+	observer := &providerGatewaySSEUsageObserver{record: func(details usageDetails) {
+		recorded = append(recorded, details)
+	}}
+	payload := []byte("event: response.completed\r\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":21,\"output_tokens\":8,\"total_tokens\":29}}}\r\n\r\n")
+	for _, chunk := range [][]byte{payload[:17], payload[17:63], payload[63:]} {
+		observer.feed(chunk)
+	}
+	observer.flush()
+	if len(recorded) != 1 || recorded[0].TotalTokens != 29 || recorded[0].InputTokens != 21 || recorded[0].OutputTokens != 8 {
+		t.Fatalf("split SSE usage was not recorded once: %#v", recorded)
+	}
+}
+
+func TestProviderGatewayResponsesObserverRequiresCompletedEvent(t *testing.T) {
+	responsesObserver := &providerGatewaySSEUsageObserver{requireResponseCompleted: true}
+	responsesObserver.feed([]byte("data: [DONE]\n\n"))
+	responsesObserver.flush()
+	if err := responsesObserver.terminalError(); err == nil {
+		t.Fatal("native Responses stream accepted [DONE] without response.completed")
+	}
+
+	failedObserver := &providerGatewaySSEUsageObserver{requireResponseCompleted: true}
+	failedObserver.feed([]byte("data: {\"type\":\"response.failed\"}\n\ndata: [DONE]\n\n"))
+	failedObserver.flush()
+	if err := failedObserver.terminalError(); err == nil || !strings.Contains(err.Error(), "response.failed") {
+		t.Fatalf("response.failed terminal error = %v", err)
+	}
+
+	chatObserver := &providerGatewaySSEUsageObserver{}
+	chatObserver.feed([]byte("data: [DONE]\n\n"))
+	chatObserver.flush()
+	if err := chatObserver.terminalError(); err != nil {
+		t.Fatalf("Chat Completions [DONE] terminal error = %v", err)
+	}
+}
+
+func TestProviderGatewayObservedBodyRejectsCleanEOFWithoutTerminalEvent(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		wantErr bool
+	}{
+		{
+			name:    "missing terminal event",
+			payload: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",
+			wantErr: true,
+		},
+		{
+			name:    "completed response",
+			payload: "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			observer := &providerGatewaySSEUsageObserver{}
+			var completedErr error
+			body := &providerGatewayObservedBody{
+				body:     io.NopCloser(strings.NewReader(tt.payload)),
+				observe:  observer.feed,
+				flush:    observer.flush,
+				eofError: observer.terminalError,
+				finish:   func(err error) { completedErr = err },
+			}
+			_, readErr := io.ReadAll(body)
+			if tt.wantErr {
+				if !errors.Is(readErr, io.ErrUnexpectedEOF) || !errors.Is(completedErr, io.ErrUnexpectedEOF) {
+					t.Fatalf("clean EOF errors = read:%v completed:%v", readErr, completedErr)
+				}
+				return
+			}
+			if readErr != nil || completedErr != nil {
+				t.Fatalf("completed stream errors = read:%v completed:%v", readErr, completedErr)
+			}
+		})
+	}
+}
+
+func TestEnsureProviderGatewayChatStreamUsage(t *testing.T) {
+	body := ensureProviderGatewayChatStreamUsage([]byte(`{"model":"upstream","stream":true,"stream_options":{"custom":1}}`))
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode rewritten body: %v", err)
+	}
+	options, _ := payload["stream_options"].(map[string]any)
+	if options["include_usage"] != true || options["custom"] != float64(1) {
+		t.Fatalf("stream options were not merged: %#v", options)
+	}
+}
+
+func TestRelayServerProviderGatewayDoesNotReplayRedirectedResponsesPOST(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var upstreamCalls atomic.Int32
+	var idempotencyKey string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		idempotencyKey = r.Header.Get("Idempotency-Key")
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.URL.Path == "/v1/responses" {
+			w.Header().Set("Location", "/v1/replayed")
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	gateway := &providerGatewaySpec{
+		BaseURL:       upstream.URL,
+		APIKey:        "provider-key",
+		UpstreamModel: "upstream-model",
+		WireAPI:       "responses",
+	}
+	providerAccount := accountSpec{ID: "provider-account-id", Email: "provider@example.com", AuthID: "provider-auth-id", UpstreamAPIKey: "provider-key"}
+	apiKey := apiKeySpec{ID: "provider-key-id", Label: "Provider", Key: "client-key", Enabled: true, ProviderGateway: gateway, AccountIDs: []string{providerAccount.ID}}
+	m := &manifest{
+		APIKeys:       []apiKeySpec{apiKey},
+		Accounts:      []accountSpec{providerAccount},
+		ModelIDs:      []string{"gpt-5.4"},
+		apiKeyByValue: map[string]*apiKeySpec{"client-key": &apiKey},
+		accountByID:   map[string]*accountSpec{providerAccount.ID: &providerAccount},
+		accountByAPIKey: map[string]*accountSpec{
+			providerAccount.UpstreamAPIKey: &providerAccount,
+		},
+	}
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: tracker}
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		cfg:      &config.Config{},
+		manifest: m,
+		emitter:  emitter,
+		policy:   policy,
+	}).router()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":false}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body=%s", w.Code, w.Body.String())
+	}
+	if location := w.Header().Get("Location"); location != "" {
+		t.Fatalf("redirect Location leaked to downstream client: %q", location)
+	}
+	if got := upstreamCalls.Load(); got != 1 {
+		t.Fatalf("redirect replayed provider gateway POST: calls=%d", got)
+	}
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing provider gateway attempt events")
+	}
+
+	var terminal upstreamAttemptPayload
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal([]byte(line), &envelope) != nil || envelope.Type != "upstream_attempt" {
+			continue
+		}
+		var event upstreamAttemptPayload
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode upstream attempt: %v", err)
+		}
+		terminal = event
+	}
+	if terminal.CompletedAt == 0 || terminal.Status != http.StatusFound || !terminal.PossibleBillableRequest {
+		t.Fatalf("provider gateway terminal attempt = %#v", terminal)
+	}
+	if terminal.AccountID != providerAccount.ID || terminal.Email != providerAccount.Email || terminal.APIKeyID != "provider-key-id" {
+		t.Fatalf("provider gateway attempt lost ownership: %#v", terminal)
+	}
+	if terminal.LogicalRequestID == "" || idempotencyKey != terminal.LogicalRequestID {
+		t.Fatalf("Idempotency-Key = %q, logical_request_id = %q", idempotencyKey, terminal.LogicalRequestID)
+	}
+}
+
+func TestRelayServerProviderGatewayStreamTimeoutsCancelOneUpstreamPOST(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name          string
+		openTimeout   int
+		idleTimeout   int
+		totalTimeout  int
+		initialOutput string
+		heartbeat     time.Duration
+		wantPhase     string
+	}{
+		{name: "open", openTimeout: 40, idleTimeout: 500, initialOutput: "", wantPhase: "stream_open"},
+		{name: "idle", openTimeout: 500, idleTimeout: 40, initialOutput: "data: {\"type\":\"response.created\"}\n\n", wantPhase: "stream_idle"},
+		{name: "total", openTimeout: 500, idleTimeout: 500, totalTimeout: 60, initialOutput: "data: {\"type\":\"response.created\"}\n\n", heartbeat: 15 * time.Millisecond, wantPhase: "stream_total"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var upstreamCalls atomic.Int32
+			upstreamCanceled := make(chan struct{})
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upstreamCalls.Add(1)
+				defer close(upstreamCanceled)
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				if tt.initialOutput != "" {
+					_, _ = io.WriteString(w, tt.initialOutput)
+				}
+				if flusher, ok := w.(http.Flusher); ok {
+					flusher.Flush()
+				}
+				if tt.heartbeat <= 0 {
+					<-r.Context().Done()
+					return
+				}
+				ticker := time.NewTicker(tt.heartbeat)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-r.Context().Done():
+						return
+					case <-ticker.C:
+						_, _ = io.WriteString(w, ": heartbeat\n\n")
+						if flusher, ok := w.(http.Flusher); ok {
+							flusher.Flush()
+						}
+					}
+				}
+			}))
+			defer upstream.Close()
+
+			gateway := &providerGatewaySpec{BaseURL: upstream.URL, APIKey: "provider-key", UpstreamModel: "upstream-model", WireAPI: "responses"}
+			apiKey := apiKeySpec{ID: "provider-key-id", Label: "Provider", Key: "client-key", Enabled: true, ProviderGateway: gateway}
+			m := &manifest{
+				APIKeys:       []apiKeySpec{apiKey},
+				ModelIDs:      []string{"gpt-5.4"},
+				apiKeyByValue: map[string]*apiKeySpec{"client-key": &apiKey},
+			}
+			cfg := &config.Config{}
+			cfg.Streaming.StreamOpenTimeoutMS = tt.openTimeout
+			cfg.Streaming.StreamIdleTimeoutMS = tt.idleTimeout
+			cfg.Streaming.StreamTotalTimeoutMS = tt.totalTimeout
+			router := (&relayServer{runtime: &fakeRuntime{}, cfg: cfg, manifest: m, policy: &requestPolicy{manifest: m}}).router()
+			relay := httptest.NewServer(router)
+			defer relay.Close()
+
+			req, err := http.NewRequest(http.MethodPost, relay.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":true}`))
+			if err != nil {
+				t.Fatalf("build request: %v", err)
+			}
+			req.Header.Set("Authorization", "Bearer client-key")
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("provider gateway request failed: %v", err)
+			}
+			responseBody, readErr := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if readErr != nil {
+				t.Fatalf("read provider gateway response: %v", readErr)
+			}
+
+			if got := upstreamCalls.Load(); got != 1 {
+				t.Fatalf("upstream POST count = %d, want 1", got)
+			}
+			if !strings.Contains(string(responseBody), tt.wantPhase) {
+				t.Fatalf("response body does not contain %q: %s", tt.wantPhase, responseBody)
+			}
+			select {
+			case <-upstreamCanceled:
+			case <-time.After(time.Second):
+				t.Fatal("provider gateway upstream request was not canceled")
+			}
+		})
+	}
+}
+
+func TestRelayServerProviderGatewayOpenTimeoutBeforeHeadersReturns504(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var upstreamCalls atomic.Int32
+	upstreamCanceled := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done()
+		close(upstreamCanceled)
+	}))
+	defer upstream.Close()
+
+	gateway := &providerGatewaySpec{BaseURL: upstream.URL, APIKey: "provider-key", UpstreamModel: "upstream-model", WireAPI: "responses"}
+	apiKey := apiKeySpec{ID: "provider-key-id", Label: "Provider", Key: "client-key", Enabled: true, ProviderGateway: gateway}
+	m := &manifest{APIKeys: []apiKeySpec{apiKey}, ModelIDs: []string{"gpt-5.4"}, apiKeyByValue: map[string]*apiKeySpec{"client-key": &apiKey}}
+	cfg := &config.Config{}
+	cfg.Streaming.StreamOpenTimeoutMS = 40
+	cfg.Streaming.StreamIdleTimeoutMS = 500
+	router := (&relayServer{runtime: &fakeRuntime{}, cfg: cfg, manifest: m, policy: &requestPolicy{manifest: m}}).router()
+	relay := httptest.NewServer(router)
+	defer relay.Close()
+
+	req, err := http.NewRequest(http.MethodPost, relay.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":true}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("provider gateway request failed: %v", err)
+	}
+	responseBody, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body=%s", resp.StatusCode, responseBody)
+	}
+	if got := upstreamCalls.Load(); got != 1 {
+		t.Fatalf("upstream POST count = %d, want 1", got)
+	}
+	select {
+	case <-upstreamCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("upstream did not observe open-timeout cancellation")
+	}
+}
+
+func TestRelayServerProviderGatewayClientCancellationKeepsAttemptOwnership(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var upstreamCalls atomic.Int32
+	upstreamStarted := make(chan struct{})
+	upstreamCanceled := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(upstreamStarted)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+		close(upstreamCanceled)
+	}))
+	defer upstream.Close()
+
+	gateway := &providerGatewaySpec{BaseURL: upstream.URL, APIKey: "provider-key", UpstreamModel: "upstream-model", WireAPI: "responses"}
+	providerAccount := accountSpec{ID: "provider-account-id", Email: "provider@example.com", AuthID: "provider-auth-id", UpstreamAPIKey: "provider-key"}
+	apiKey := apiKeySpec{ID: "provider-key-id", Label: "Provider", Key: "client-key", Enabled: true, ProviderGateway: gateway, AccountIDs: []string{providerAccount.ID}}
+	m := &manifest{
+		APIKeys:       []apiKeySpec{apiKey},
+		Accounts:      []accountSpec{providerAccount},
+		ModelIDs:      []string{"gpt-5.4"},
+		apiKeyByValue: map[string]*apiKeySpec{"client-key": &apiKey},
+		accountByID:   map[string]*accountSpec{providerAccount.ID: &providerAccount},
+		accountByAPIKey: map[string]*accountSpec{
+			providerAccount.UpstreamAPIKey: &providerAccount,
+		},
+	}
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	tracker := newRequestUsageTracker()
+	tracker.setEmitter(emitter)
+	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: tracker}
+	cfg := &config.Config{}
+	cfg.Streaming.StreamOpenTimeoutMS = 5_000
+	cfg.Streaming.StreamIdleTimeoutMS = 5_000
+	router := (&relayServer{runtime: &fakeRuntime{}, cfg: cfg, manifest: m, emitter: emitter, policy: policy}).router()
+	localHandlerDone := make(chan struct{})
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(localHandlerDone)
+		router.ServeHTTP(w, r)
+	}))
+	defer relay.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, relay.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.4","input":"hello","stream":true}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	done := make(chan error, 1)
+	go func() {
+		resp, requestErr := http.DefaultClient.Do(req)
+		if resp != nil {
+			_, readErr := io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if requestErr == nil {
+				requestErr = readErr
+			}
+		}
+		done <- requestErr
+	}()
+
+	select {
+	case <-upstreamStarted:
+	case <-time.After(time.Second):
+		t.Fatal("provider gateway upstream request did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("downstream handler did not stop after client cancellation")
+	}
+	select {
+	case <-upstreamCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("upstream did not observe client cancellation")
+	}
+	select {
+	case <-localHandlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("local provider gateway handler did not finish cancellation accounting")
+	}
+	if got := upstreamCalls.Load(); got != 1 {
+		t.Fatalf("upstream POST count = %d, want 1", got)
+	}
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing provider gateway cancellation event")
+	}
+
+	var terminal upstreamAttemptPayload
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var event upstreamAttemptPayload
+		if json.Unmarshal([]byte(line), &event) == nil && event.Type == "upstream_attempt" && event.CompletedAt > 0 {
+			terminal = event
+		}
+	}
+	if terminal.AccountID != providerAccount.ID || terminal.Email != providerAccount.Email || terminal.APIKeyID != apiKey.ID {
+		t.Fatalf("provider gateway cancellation lost ownership: %#v", terminal)
+	}
+	if terminal.CanceledAt == 0 || !terminal.PossibleBillableRequest || !terminal.UpstreamCancellationUnconfirmed {
+		t.Fatalf("provider gateway cancellation flags = %#v", terminal)
 	}
 }
 
@@ -3192,7 +4278,8 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 		streamOpenMaxAttempts = oldAttempts
 		streamOpenFinalAttemptMinimum = oldFinalMinimum
 	}()
-	router := testRelayRouter(&fakeRuntime{streamWaitForContext: true})
+	runtime := &fakeRuntime{streamWaitForContext: true}
+	router := testRelayRouter(runtime)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
 	req.Header.Set("Authorization", "Bearer client-key")
@@ -3209,8 +4296,11 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "upstream_first_byte_timeout") {
 		t.Fatalf("timeout response should expose first-byte timeout code: %s", w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "after 40ms") {
-		t.Fatalf("final timeout response should expose the extended second-attempt timeout: %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "after 20ms") {
+		t.Fatalf("timeout response should expose the single-attempt timeout: %s", w.Body.String())
+	}
+	if runtime.streamCalls != 1 {
+		t.Fatalf("a first-byte timeout must not resend a possibly accepted request, got %d calls", runtime.streamCalls)
 	}
 }
 
@@ -3329,7 +4419,7 @@ func TestStreamOpenAttemptTimeoutUsesFullFirstAndLongFinalTimeouts(t *testing.T)
 	}
 }
 
-func TestStreamOpenTimeoutForSelectedAuthOnlyShortensFreshDepletedK12(t *testing.T) {
+func TestStreamOpenTimeoutForSelectedAuthNeverShortensInFlightRequest(t *testing.T) {
 	now := time.Now()
 	hourlyWindowPresent := true
 	weeklyWindowPresent := true
@@ -3376,8 +4466,8 @@ func TestStreamOpenTimeoutForSelectedAuthOnlyShortensFreshDepletedK12(t *testing
 	}{
 		{name: "healthy K12 keeps full timeout", authID: "healthy-k12.json", quotaAdaptive: true, want: 120 * time.Second},
 		{name: "Plus keeps full timeout", authID: "plus.json", quotaAdaptive: true, want: 120 * time.Second},
-		{name: "hourly depleted K12 uses short timeout", authID: "hourly-zero.json", quotaAdaptive: true, want: 30 * time.Second},
-		{name: "weekly depleted K12 uses short timeout", authID: "weekly-zero.json", quotaAdaptive: true, want: 30 * time.Second},
+		{name: "hourly depleted K12 keeps full timeout", authID: "hourly-zero.json", quotaAdaptive: true, want: 120 * time.Second},
+		{name: "weekly depleted K12 keeps full timeout", authID: "weekly-zero.json", quotaAdaptive: true, want: 120 * time.Second},
 		{name: "image request ignores depleted K12", authID: "hourly-zero.json", quotaAdaptive: false, want: 120 * time.Second},
 	}
 	for _, test := range tests {
@@ -3398,6 +4488,9 @@ func TestStreamTimeoutProfileKeepsImagesUnchangedAndExtendsFinalTextAttempt(t *t
 	textProfile := server.streamTimeoutsForRequest(textRequest, []byte(`{"input":"hello"}`), "gpt-5.5")
 	if textProfile.open != 120*time.Second || !textProfile.quotaAdaptiveOpen {
 		t.Fatalf("unexpected configured text timeout profile: %#v", textProfile)
+	}
+	if textProfile.total != 0 {
+		t.Fatalf("default stream total timeout = %s, want disabled", textProfile.total)
 	}
 	if got := streamOpenAttemptTimeout(textProfile.open, 1, 2, textProfile.quotaAdaptiveOpen); got != 120*time.Second {
 		t.Fatalf("configured text first-attempt timeout = %s, want 120s", got)
@@ -3422,6 +4515,69 @@ func TestStreamTimeoutProfileKeepsImagesUnchangedAndExtendsFinalTextAttempt(t *t
 	}
 	if got := streamOpenAttemptTimeout(imageProfile.open, 2, 2, imageProfile.quotaAdaptiveOpen); got != 120*time.Millisecond {
 		t.Fatalf("configured image final-attempt timeout = %s, want 120ms", got)
+	}
+}
+
+func TestStreamTotalTimeoutIsIndependentAndOptional(t *testing.T) {
+	server := &relayServer{cfg: &config.Config{}}
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	profile := server.streamTimeoutsForRequest(request, []byte(`{"input":"hello"}`), "gpt-5.5")
+	if profile.total != 0 {
+		t.Fatalf("default total timeout = %s, want disabled", profile.total)
+	}
+
+	server.cfg.Streaming.StreamOpenTimeoutMS = 180_000
+	server.cfg.Streaming.StreamIdleTimeoutMS = 120_000
+	server.cfg.Streaming.StreamTotalTimeoutMS = 45
+	profile = server.streamTimeoutsForRequest(request, []byte(`{"input":"hello"}`), "gpt-5.5")
+	if profile.open != 180*time.Second || profile.idle != 120*time.Second || profile.total != 45*time.Millisecond {
+		t.Fatalf("timeouts are not independent: %#v", profile)
+	}
+
+	ctx, cancel := streamContextWithTotalTimeout(context.Background(), profile.total)
+	defer cancel()
+	select {
+	case <-ctx.Done():
+		var timeoutErr relayTimeoutError
+		if !errors.As(context.Cause(ctx), &timeoutErr) || timeoutErr.phase != "stream_total" {
+			t.Fatalf("total timeout cause = %v, want stream_total", context.Cause(ctx))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("configured stream total timeout did not fire")
+	}
+}
+
+func TestRelayServerStreamTotalTimeoutCancelsWithoutRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := make(chan cliproxyexecutor.StreamChunk)
+	runtime := &fakeRuntime{
+		streamResult: &cliproxyexecutor.StreamResult{
+			Headers: http.Header{"Content-Type": {"text/event-stream"}},
+			Chunks:  stream,
+		},
+	}
+	server := testRelayServer(runtime)
+	server.cfg.Streaming.StreamOpenTimeoutMS = 1_000
+	server.cfg.Streaming.StreamIdleTimeoutMS = 1_000
+	server.cfg.Streaming.StreamTotalTimeoutMS = 40
+	router := server.router()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	startedAt := time.Now()
+	router.ServeHTTP(w, req)
+
+	if elapsed := time.Since(startedAt); elapsed < 30*time.Millisecond || elapsed > time.Second {
+		t.Fatalf("stream total timeout elapsed = %s", elapsed)
+	}
+	if runtime.streamCalls != 1 {
+		t.Fatalf("stream total timeout sent %d attempts, want 1", runtime.streamCalls)
+	}
+	if !strings.Contains(w.Body.String(), "stream_total") {
+		t.Fatalf("missing stream total timeout response: %s", w.Body.String())
 	}
 }
 
@@ -3569,7 +4725,7 @@ data: {"type":"response.completed","response":{"created_at":1710000000,"output":
 	}
 }
 
-func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
+func TestRelayServerDoesNotRetryWhenStreamDoesNotOpen(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldTimeout := streamOpenTimeout
 	oldAttempts := streamOpenMaxAttempts
@@ -3579,12 +4735,55 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 		streamOpenTimeout = oldTimeout
 		streamOpenMaxAttempts = oldAttempts
 	}()
+	runtime := &fakeRuntime{
+		streamWaitForContext: true,
+		streamAuthSelections: []string{"auth-a"},
+	}
+	router := testRelayRouter(runtime)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	if runtime.streamCalls != 1 {
+		t.Fatalf("first-byte timeout must not retry a sent request, got %d calls", runtime.streamCalls)
+	}
+	if len(runtime.streamCancelCauses) != 1 {
+		t.Fatalf("expected one canceled attempt cause, got %#v", runtime.streamCancelCauses)
+	}
+	if len(runtime.reportedFailures) != 0 {
+		t.Fatalf("timeout must not globally penalize or blacklist the selected auth: %#v", runtime.reportedFailures)
+	}
+	if len(runtime.streamOpts) != 1 {
+		t.Fatalf("expected options for one outer attempt, got %d", len(runtime.streamOpts))
+	}
+	statusCause, ok := runtime.streamCancelCauses[0].(interface{ StatusCode() int })
+	if !ok || statusCause.StatusCode() != http.StatusGatewayTimeout ||
+		!strings.Contains(runtime.streamCancelCauses[0].Error(), "stream_open attempt=1/2") ||
+		!strings.Contains(runtime.streamCancelCauses[0].Error(), "after 20ms") {
+		t.Fatalf("timeout cancel cause should be a typed stream-open 504: %#v", runtime.streamCancelCauses[0])
+	}
+}
+
+func TestRelayServerRetriesOnlyExplicitPreSendFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldAttempts := streamOpenMaxAttempts
+	streamOpenMaxAttempts = 2
+	defer func() { streamOpenMaxAttempts = oldAttempts }()
+
 	stream := make(chan cliproxyexecutor.StreamChunk, 1)
 	stream <- cliproxyexecutor.StreamChunk{Payload: []byte(`[DONE]`)}
 	close(stream)
 	runtime := &fakeRuntime{
-		streamWaitAttempts:   1,
 		streamAuthsByAttempt: [][]string{{"auth-a"}, {"auth-b"}},
+		streamErrors: []error{
+			cliproxyexecutor.WrapUpstreamAttemptError(errors.New("dial failed"), 0, false, false),
+		},
 		streamResult: &cliproxyexecutor.StreamResult{
 			Headers: http.Header{"Content-Type": []string{"application/json"}},
 			Chunks:  stream,
@@ -3598,64 +4797,55 @@ func TestRelayServerRetriesWhenStreamDoesNotOpen(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
-	}
-	if runtime.streamCalls != 2 {
-		t.Fatalf("expected retry to call stream runtime twice, got %d", runtime.streamCalls)
-	}
-	if len(runtime.streamCancelCauses) != 1 {
-		t.Fatalf("expected one canceled attempt cause, got %#v", runtime.streamCancelCauses)
-	}
-	if len(runtime.reportedFailures) != 1 || runtime.reportedFailures[0].selection.AuthID != "auth-a" || runtime.reportedFailures[0].selection.AttemptID == 0 {
-		t.Fatalf("first timeout should be synchronously reported with its selection attempt: %#v", runtime.reportedFailures)
-	}
-	if len(runtime.streamOpts) != 2 {
-		t.Fatalf("expected options for two outer attempts, got %d", len(runtime.streamOpts))
+	if w.Code != http.StatusOK || runtime.streamCalls != 2 {
+		t.Fatalf("explicit pre-send failure should retry once: status=%d calls=%d body=%s", w.Code, runtime.streamCalls, w.Body.String())
 	}
 	excluded, ok := runtime.streamOpts[1].Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey].([]string)
 	if !ok || len(excluded) != 1 || excluded[0] != "auth-a" {
-		t.Fatalf("second outer attempt excluded auths = %#v, want [auth-a]", runtime.streamOpts[1].Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey])
-	}
-	statusCause, ok := runtime.streamCancelCauses[0].(interface{ StatusCode() int })
-	if !ok || statusCause.StatusCode() != http.StatusGatewayTimeout ||
-		!strings.Contains(runtime.streamCancelCauses[0].Error(), "stream_open attempt=1/2") ||
-		!strings.Contains(runtime.streamCancelCauses[0].Error(), "after 20ms") {
-		t.Fatalf("first retry cause should be a typed stream-open 504: %#v", runtime.streamCancelCauses[0])
-	}
-	if !strings.Contains(w.Body.String(), "[DONE]") {
-		t.Fatalf("retry should stream successful second attempt: %s", w.Body.String())
+		t.Fatalf("safe retry should exclude the failed auth: %#v", runtime.streamOpts[1].Metadata[cliproxyexecutor.ExcludedAuthIDsMetadataKey])
 	}
 }
 
-func TestRelayServerBoundsBlockedSelectionFailureReporting(t *testing.T) {
+func TestRelayServerDoesNotRetryPostSendEOF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldAttempts := streamOpenMaxAttempts
+	streamOpenMaxAttempts = 2
+	defer func() { streamOpenMaxAttempts = oldAttempts }()
+
+	runtime := &fakeRuntime{
+		streamAuthsByAttempt: [][]string{{"auth-a"}, {"auth-b"}},
+		streamErrors: []error{
+			cliproxyexecutor.WrapUpstreamAttemptError(io.ErrUnexpectedEOF, 128, false, true),
+		},
+	}
+	router := testRelayRouter(runtime)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway || runtime.streamCalls != 1 {
+		t.Fatalf("post-send EOF must be returned without replay: status=%d calls=%d body=%s", w.Code, runtime.streamCalls, w.Body.String())
+	}
+}
+
+func TestRelayServerTimeoutDoesNotInvokeSelectionFailureReporter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldTimeout := streamOpenTimeout
 	oldAttempts := streamOpenMaxAttempts
-	oldReportWait := streamOpenSelectionReportWait
 	streamOpenTimeout = 20 * time.Millisecond
 	streamOpenMaxAttempts = 2
-	streamOpenSelectionReportWait = 10 * time.Millisecond
 	defer func() {
 		streamOpenTimeout = oldTimeout
 		streamOpenMaxAttempts = oldAttempts
-		streamOpenSelectionReportWait = oldReportWait
 	}()
 
-	stream := make(chan cliproxyexecutor.StreamChunk, 1)
-	stream <- cliproxyexecutor.StreamChunk{Payload: []byte(`[DONE]`)}
-	close(stream)
 	reportBlock := make(chan struct{})
-	reportReturned := make(chan struct{}, 1)
 	runtime := &fakeRuntime{
-		streamWaitAttempts:    1,
-		streamAuthsByAttempt:  [][]string{{"auth-a"}, {"auth-b"}},
-		reportFailureBlock:    reportBlock,
-		reportFailureReturned: reportReturned,
-		streamResult: &cliproxyexecutor.StreamResult{
-			Headers: http.Header{"Content-Type": []string{"application/json"}},
-			Chunks:  stream,
-		},
+		streamWaitForContext: true,
+		streamAuthSelections: []string{"auth-a"},
+		reportFailureBlock:   reportBlock,
 	}
 	router := testRelayRouter(runtime)
 
@@ -3667,18 +4857,16 @@ func TestRelayServerBoundsBlockedSelectionFailureReporting(t *testing.T) {
 	router.ServeHTTP(w, req)
 	elapsed := time.Since(startedAt)
 
-	if w.Code != http.StatusOK || runtime.streamCalls != 2 {
-		t.Fatalf("blocked reporter should not prevent failover: status=%d calls=%d body=%s", w.Code, runtime.streamCalls, w.Body.String())
+	if w.Code != http.StatusGatewayTimeout || runtime.streamCalls != 1 {
+		t.Fatalf("timeout should stop after one attempt: status=%d calls=%d body=%s", w.Code, runtime.streamCalls, w.Body.String())
 	}
 	if elapsed > 300*time.Millisecond {
 		t.Fatalf("blocked reporter delayed failover for %s", elapsed)
 	}
-	close(reportBlock)
-	select {
-	case <-reportReturned:
-	case <-time.After(time.Second):
-		t.Fatal("blocked reporter did not return after release")
+	if len(runtime.reportedFailures) != 0 {
+		t.Fatalf("timeout unexpectedly called selection failure reporter: %#v", runtime.reportedFailures)
 	}
+	close(reportBlock)
 }
 
 func TestRelayServerKeepsStreamContextOpenAfterOpen(t *testing.T) {
@@ -3722,12 +4910,11 @@ func TestRelayServerTimesOutIdleOpenedStream(t *testing.T) {
 	defer func() {
 		streamIdleTimeout = oldTimeout
 	}()
-	stream := make(chan cliproxyexecutor.StreamChunk)
+	streamContextDone := make(chan error, 1)
 	runtime := &fakeRuntime{
-		streamResult: &cliproxyexecutor.StreamResult{
-			Headers: http.Header{"Content-Type": []string{"application/json"}},
-			Chunks:  stream,
-		},
+		streamResultFromContext: true,
+		streamResultDelay:       time.Second,
+		streamContextDone:       streamContextDone,
 	}
 	router := testRelayRouter(runtime)
 
@@ -3742,6 +4929,48 @@ func TestRelayServerTimesOutIdleOpenedStream(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "stream_idle") {
 		t.Fatalf("idle timeout should be sent as terminal SSE error: %s", w.Body.String())
+	}
+	if runtime.streamCalls != 1 {
+		t.Fatalf("stream idle timeout sent %d attempts, want 1", runtime.streamCalls)
+	}
+	select {
+	case cause := <-streamContextDone:
+		var timeoutErr relayTimeoutError
+		if !errors.As(cause, &timeoutErr) || timeoutErr.phase != "stream_idle" {
+			t.Fatalf("upstream cancel cause = %v, want stream_idle timeout", cause)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("upstream stream context did not receive idle timeout cancellation")
+	}
+}
+
+func TestRelayServerStreamChunkErrorDoesNotRetry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stream := make(chan cliproxyexecutor.StreamChunk, 1)
+	stream <- cliproxyexecutor.StreamChunk{Err: errors.New("chunk read failed")}
+	close(stream)
+	runtime := &fakeRuntime{
+		streamResult: &cliproxyexecutor.StreamResult{
+			Headers: http.Header{"Content-Type": []string{"text/event-stream"}},
+			Chunks:  stream,
+		},
+	}
+	router := testRelayRouter(runtime)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("stream should retain opened HTTP status, got %d: %s", w.Code, w.Body.String())
+	}
+	if runtime.streamCalls != 1 {
+		t.Fatalf("stream chunk error sent %d attempts, want 1", runtime.streamCalls)
+	}
+	if !strings.Contains(w.Body.String(), "chunk read failed") {
+		t.Fatalf("chunk error should be sent as terminal SSE error: %s", w.Body.String())
 	}
 }
 
@@ -3944,10 +5173,12 @@ type fakeRuntime struct {
 	streamOpenDelay         time.Duration
 	streamResultDelay       time.Duration
 	streamResultPayload     []byte
+	streamContextDone       chan<- error
 	streamCancelCauses      []error
 	streamAuthSelections    []string
 	streamAuthsByAttempt    [][]string
 	streamAuthSelectionGap  time.Duration
+	streamErrors            []error
 	observedAuthSelections  []string
 	streamOpts              []cliproxyexecutor.Options
 	reportMu                sync.Mutex
@@ -4006,6 +5237,9 @@ func (r *fakeRuntime) ExecuteStream(ctx context.Context, _ []string, req cliprox
 		case <-timer.C:
 		}
 	}
+	if call <= len(r.streamErrors) && r.streamErrors[call-1] != nil {
+		return nil, r.streamErrors[call-1]
+	}
 	if r.streamWaitForContext || call <= r.streamWaitAttempts {
 		<-ctx.Done()
 		r.streamCancelCauses = append(r.streamCancelCauses, context.Cause(ctx))
@@ -4036,6 +5270,9 @@ func (r *fakeRuntime) ExecuteStream(ctx context.Context, _ []string, req cliprox
 			defer timer.Stop()
 			select {
 			case <-ctx.Done():
+				if r.streamContextDone != nil {
+					r.streamContextDone <- context.Cause(ctx)
+				}
 				return
 			case <-timer.C:
 				stream <- cliproxyexecutor.StreamChunk{Payload: payload}

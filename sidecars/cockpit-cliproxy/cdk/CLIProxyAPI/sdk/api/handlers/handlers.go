@@ -45,7 +45,7 @@ type ErrorDetail struct {
 	Code string `json:"code,omitempty"`
 }
 
-const idempotencyKeyMetadataKey = "idempotency_key"
+const idempotencyKeyMetadataKey = coreexecutor.IdempotencyKeyMetadataKey
 
 const (
 	defaultStreamingKeepAliveSeconds = 0
@@ -204,13 +204,18 @@ func PassthroughHeadersEnabled(cfg *config.SDKConfig) bool {
 }
 
 func requestExecutionMetadata(ctx context.Context) map[string]any {
-	// Idempotency-Key is an optional client-supplied header used to correlate retries.
-	// Only include it if the client explicitly provides it.
+	// Preserve a client-supplied key; otherwise use the stable logical request ID.
+	// Upstreams that implement Idempotency-Key can collapse any explicitly safe
+	// pre-send retry, while unsupported upstreams simply ignore the header.
 	key := ""
 	requestPath := ""
+	logicalRequestID := strings.TrimSpace(logging.GetRequestID(ctx))
 	if ctx != nil {
 		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 			key = strings.TrimSpace(ginCtx.GetHeader("Idempotency-Key"))
+			if logicalRequestID == "" {
+				logicalRequestID = strings.TrimSpace(logging.GetGinRequestID(ginCtx))
+			}
 			requestPath = strings.TrimSpace(ginCtx.FullPath())
 			if requestPath == "" && ginCtx.Request.URL != nil {
 				requestPath = strings.TrimSpace(ginCtx.Request.URL.Path)
@@ -219,9 +224,14 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 	}
 
 	meta := make(map[string]any)
-	if key != "" {
-		meta[idempotencyKeyMetadataKey] = key
+	if logicalRequestID == "" {
+		logicalRequestID = logging.GenerateRequestID()
 	}
+	meta[coreexecutor.LogicalRequestIDMetadataKey] = logicalRequestID
+	if key == "" {
+		key = logicalRequestID
+	}
+	meta[idempotencyKeyMetadataKey] = key
 	if requestPath != "" {
 		meta[coreexecutor.RequestPathMetadataKey] = requestPath
 	}
@@ -765,6 +775,10 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		}
 
 		bootstrapEligible := func(err error) bool {
+			if handlerType == "openai-response" {
+				known, safe := coreexecutor.UpstreamAttemptRetrySafety(err)
+				return known && safe
+			}
 			status := statusFromError(err)
 			if status == 0 {
 				return true
@@ -797,8 +811,8 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 				}
 				if chunk.Err != nil {
 					streamErr := chunk.Err
-					// Safe bootstrap recovery: if the upstream fails before any payload bytes are sent,
-					// retry a few times (to allow auth rotation / transient recovery) and then attempt model fallback.
+					// Responses bootstrap recovery is allowed only when the executor
+					// certifies that the upstream request body was never consumed.
 					if !sentPayload {
 						if bootstrapRetries < maxBootstrapRetries && bootstrapEligible(streamErr) {
 							nextRetry := bootstrapRetries + 1

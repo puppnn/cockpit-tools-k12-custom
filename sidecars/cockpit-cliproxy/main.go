@@ -34,6 +34,7 @@ import (
 	responsesconverter "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/openai/openai/responses"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
+	sdkhandlers "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
 	sdkopenai "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers/openai"
 	sdkauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy"
@@ -7386,6 +7387,15 @@ func streamKeepAliveInterval(cfg *config.Config) time.Duration {
 
 func writeStreamTerminalError(c *gin.Context, err error) {
 	status := statusCodeFromError(err)
+	path := ""
+	if c != nil && c.Request != nil {
+		path = strings.Split(requestPath(c.Request), "?")[0]
+	}
+	if strings.HasSuffix(path, "/v1/responses") {
+		payload := sdkhandlers.BuildOpenAIResponsesStreamErrorChunk(status, errorMessage(err), 0)
+		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", string(payload))
+		return
+	}
 	payload, marshalErr := json.Marshal(gin.H{
 		"error": gin.H{
 			"message": errorMessage(err),

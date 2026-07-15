@@ -3214,6 +3214,48 @@ func TestRelayServerTimesOutWhenStreamDoesNotOpen(t *testing.T) {
 	}
 }
 
+func TestRelayServerImmediateSSEResponsesTerminalErrorUsesTypedChunk(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, path := range []string{
+		"/v1/responses",
+		"/v1/chat/completions/v1/responses",
+	} {
+		t.Run(path, func(t *testing.T) {
+			server := testRelayServer(&fakeRuntime{
+				err: relayStatusError{status: http.StatusTooManyRequests, message: "upstream busy"},
+			})
+			server.manifest.ImmediateSSEResponse = true
+			router := server.router()
+
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5.5","input":"hello","stream":true}`))
+			req.Header.Set("Authorization", "Bearer client-key")
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("immediate SSE status = %d, want 200; body=%s", w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			if !strings.HasPrefix(body, ": accepted\n\n") || !strings.Contains(body, "event: error\n") {
+				t.Fatalf("unexpected immediate SSE body: %s", body)
+			}
+			dataIndex := strings.LastIndex(body, "data: ")
+			if dataIndex < 0 {
+				t.Fatalf("missing SSE error data: %s", body)
+			}
+			data := strings.TrimSpace(body[dataIndex+len("data: "):])
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(data), &payload); err != nil {
+				t.Fatalf("unmarshal SSE error: %v; data=%s", err, data)
+			}
+			if payload["type"] != "error" || payload["code"] != "rate_limit_exceeded" || payload["message"] != "upstream busy" {
+				t.Fatalf("unexpected typed SSE error: %#v", payload)
+			}
+		})
+	}
+}
+
 func TestRelayServerRefreshesOpenTimeoutAfterAuthFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	oldTimeout := streamOpenTimeout

@@ -510,6 +510,166 @@ func TestPreferredPlusSpilloverWaitsForK12StartCapacity(t *testing.T) {
 	}
 }
 
+func TestPreferredK12AtCapacityFallsBackToIdleK12BeforePlus(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-preferred": intPtr(100), "k12-idle": intPtr(80)}
+	activeLoads := map[string]int{"k12-preferred": k12MaxConcurrentSessionStarts}
+	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+		Fallback: &FillFirstSelector{},
+		TTL:      time.Hour,
+		PreferNewSession: func(auth *Auth) bool {
+			return auth != nil && auth.ID == "k12-preferred"
+		},
+		K12: &K12SessionPolicyConfig{
+			StatePath: filepath.Join(t.TempDir(), "k12-sessions.json"),
+			HMACKey:   []byte("test-local-api-key"),
+			IsK12: func(auth *Auth) bool {
+				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "k12")
+			},
+			IsSpillover: func(auth *Auth) bool {
+				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "plus")
+			},
+			QuotaSnapshot: func(auth *Auth) K12QuotaSnapshot {
+				return K12QuotaSnapshot{Fresh: true, HourlyRemainingPercent: remaining[auth.ID]}
+			},
+			ActiveSessionLoad: func(auth *Auth) int {
+				return activeLoads[auth.ID]
+			},
+		},
+	})
+	t.Cleanup(selector.Stop)
+
+	auths := []*Auth{
+		testK12Auth("k12-preferred"),
+		testK12Auth("k12-idle"),
+		testPlusAuth("plus-a"),
+	}
+	selected, err := selector.Pick(
+		context.Background(),
+		"codex",
+		"gpt-5.4",
+		promptCacheOptions("preferred-k12-at-capacity"),
+		auths,
+	)
+	if err != nil || selected == nil || selected.ID != "k12-idle" {
+		t.Fatalf("selection with preferred K12 at capacity = %#v, %v; want k12-idle", selected, err)
+	}
+}
+
+type preferredSpilloverFallbackProbe struct {
+	calls [][]string
+}
+
+func (s *preferredSpilloverFallbackProbe) Pick(_ context.Context, _, _ string, _ cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
+	ids := make([]string, 0, len(auths))
+	for _, auth := range auths {
+		if auth != nil {
+			ids = append(ids, auth.ID)
+		}
+	}
+	s.calls = append(s.calls, ids)
+	if len(auths) == 1 && auths[0] != nil && auths[0].ID == "plus-preferred" {
+		return nil, errors.New("preferred Plus is at capacity")
+	}
+	for _, auth := range auths {
+		if auth != nil && auth.ID == "plus-other" && !auth.Disabled {
+			return auth, nil
+		}
+	}
+	return nil, errors.New("no spillover auth available")
+}
+
+func TestPreferredPlusFailureFallsBackToFullSpilloverPool(t *testing.T) {
+	t.Parallel()
+
+	t.Run("preferred account unavailable", func(t *testing.T) {
+		activeLoads := map[string]int{"k12-a": k12MaxConcurrentSessionStarts}
+		selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+			Fallback: &FillFirstSelector{},
+			TTL:      time.Hour,
+			PreferNewSession: func(auth *Auth) bool {
+				return auth != nil && auth.ID == "plus-preferred"
+			},
+			K12: &K12SessionPolicyConfig{
+				StatePath: filepath.Join(t.TempDir(), "k12-sessions.json"),
+				HMACKey:   []byte("test-local-api-key"),
+				IsK12: func(auth *Auth) bool {
+					return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "k12")
+				},
+				IsSpillover: func(auth *Auth) bool {
+					return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "plus")
+				},
+				QuotaSnapshot: func(auth *Auth) K12QuotaSnapshot {
+					return K12QuotaSnapshot{Fresh: true, HourlyRemainingPercent: intPtr(100)}
+				},
+				ActiveSessionLoad: func(auth *Auth) int {
+					return activeLoads[auth.ID]
+				},
+			},
+		})
+		t.Cleanup(selector.Stop)
+
+		preferred := testPlusAuth("plus-preferred")
+		preferred.Disabled = true
+		selected, err := selector.Pick(
+			context.Background(),
+			"codex",
+			"gpt-5.4",
+			promptCacheOptions("preferred-plus-unavailable"),
+			[]*Auth{testK12Auth("k12-a"), preferred, testPlusAuth("plus-other")},
+		)
+		if err != nil || selected == nil || selected.ID != "plus-other" {
+			t.Fatalf("selection with unavailable preferred Plus = %#v, %v; want plus-other", selected, err)
+		}
+	})
+
+	t.Run("preferred subset selection fails", func(t *testing.T) {
+		activeLoads := map[string]int{"k12-a": k12MaxConcurrentSessionStarts}
+		fallback := &preferredSpilloverFallbackProbe{}
+		selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+			Fallback: fallback,
+			TTL:      time.Hour,
+			PreferNewSession: func(auth *Auth) bool {
+				return auth != nil && auth.ID == "plus-preferred"
+			},
+			K12: &K12SessionPolicyConfig{
+				StatePath: filepath.Join(t.TempDir(), "k12-sessions.json"),
+				HMACKey:   []byte("test-local-api-key"),
+				IsK12: func(auth *Auth) bool {
+					return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "k12")
+				},
+				IsSpillover: func(auth *Auth) bool {
+					return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "plus")
+				},
+				QuotaSnapshot: func(auth *Auth) K12QuotaSnapshot {
+					return K12QuotaSnapshot{Fresh: true, HourlyRemainingPercent: intPtr(100)}
+				},
+				ActiveSessionLoad: func(auth *Auth) int {
+					return activeLoads[auth.ID]
+				},
+			},
+		})
+		t.Cleanup(selector.Stop)
+
+		selected, err := selector.Pick(
+			context.Background(),
+			"codex",
+			"gpt-5.4",
+			promptCacheOptions("preferred-plus-selection-failure"),
+			[]*Auth{testK12Auth("k12-a"), testPlusAuth("plus-preferred"), testPlusAuth("plus-other")},
+		)
+		if err != nil || selected == nil || selected.ID != "plus-other" {
+			t.Fatalf("selection after preferred Plus failure = %#v, %v; want plus-other", selected, err)
+		}
+		if len(fallback.calls) != 2 || len(fallback.calls[0]) != 1 || fallback.calls[0][0] != "plus-preferred" {
+			t.Fatalf("spillover fallback calls = %#v; want preferred subset followed by full pool", fallback.calls)
+		}
+		if len(fallback.calls[1]) != 2 || fallback.calls[1][0] != "plus-preferred" || fallback.calls[1][1] != "plus-other" {
+			t.Fatalf("full spillover pool call = %#v; want [plus-preferred plus-other]", fallback.calls[1])
+		}
+	})
+}
+
 func TestChangingPreferredPoolDoesNotMoveExistingGenericSessionAheadOfK12(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "k12-sessions.json")

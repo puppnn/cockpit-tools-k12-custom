@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -153,9 +154,15 @@ func TestActiveSessionTrackerMovesRetryReservationWithoutDoubleCounting(t *testi
 	opts := cliproxyexecutor.Options{Headers: headers}
 	ctx := internallogging.WithRequestID(context.Background(), "retry-request")
 
-	tracker.reserveSelection(ctx, opts, "auth-a")
-	tracker.reserveSelection(ctx, opts, "auth-b")
-	tracker.reserveSelection(ctx, opts, "auth-b")
+	if err := tracker.reserveSelection(ctx, opts, "auth-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.reserveSelection(ctx, opts, "auth-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.reserveSelection(ctx, opts, "auth-b"); err != nil {
+		t.Fatal(err)
+	}
 	if got := tracker.activeLoad("auth-a"); got != 0 {
 		t.Fatalf("old retry auth load = %d, want 0", got)
 	}
@@ -165,6 +172,267 @@ func TestActiveSessionTrackerMovesRetryReservationWithoutDoubleCounting(t *testi
 	tracker.releaseRequest("retry-request")
 	if got := tracker.activeLoad("auth-b"); got != 0 {
 		t.Fatalf("replacement load after release = %d, want 0", got)
+	}
+}
+
+func TestActiveSessionTrackerRejectsLateReservationAfterRequestRelease(t *testing.T) {
+	tracker := newActiveSessionTracker()
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "late-session")
+	opts := cliproxyexecutor.Options{Headers: headers}
+	ctx := internallogging.WithRequestID(context.Background(), "late-request")
+	if err := tracker.reserveSelection(ctx, opts, "auth-a"); err != nil {
+		t.Fatal(err)
+	}
+	tracker.releaseRequest("late-request")
+
+	if err := tracker.reserveSelection(ctx, opts, "auth-a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("late reserve error = %v, want context.Canceled", err)
+	}
+	pickCalled := false
+	selected, err := tracker.selectAndReserve(ctx, opts, func(map[string]int, string) (*coreauth.Auth, error) {
+		pickCalled = true
+		return &coreauth.Auth{ID: "auth-a"}, nil
+	})
+	if !errors.Is(err, context.Canceled) || selected != nil || pickCalled {
+		t.Fatalf("late selection = %#v, %v, pickCalled=%t", selected, err, pickCalled)
+	}
+	if got := tracker.activeLoad("auth-a"); got != 0 {
+		t.Fatalf("late selection resurrected load = %d", got)
+	}
+}
+
+func TestActiveSessionTrackerRejectsCanceledContextBeforeReservation(t *testing.T) {
+	tracker := newActiveSessionTracker()
+	baseCtx := internallogging.WithRequestID(context.Background(), "canceled-request")
+	ctx, cancel := context.WithCancel(baseCtx)
+	cancel()
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "canceled-session")
+	err := tracker.reserveSelection(ctx, cliproxyexecutor.Options{Headers: headers}, "auth-a")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled reserve error = %v, want context.Canceled", err)
+	}
+	if got := tracker.activeLoad("auth-a"); got != 0 {
+		t.Fatalf("canceled selection reserved load = %d", got)
+	}
+}
+
+func TestActiveSessionTrackerDoesNotSplitParallelSiblingDuringRetry(t *testing.T) {
+	m, auths := activeRoutingFixture(map[string]int{"auth-a": 10, "auth-b": 0})
+	var authB *coreauth.Auth
+	for _, auth := range auths {
+		if auth != nil && auth.ID == "auth-b.json" {
+			authB = auth
+			break
+		}
+	}
+	if authB == nil {
+		t.Fatal("fixture is missing auth-b.json")
+	}
+	tracker := newActiveSessionTracker()
+	selector := &cockpitSelector{manifest: m, sessions: tracker}
+	first := activeRoutingPick(t, selector, "sibling-request-a", "sibling-session", auths)
+	second := activeRoutingPick(t, selector, "sibling-request-b", "sibling-session", auths)
+	if first.ID != "auth-a.json" || second.ID != first.ID {
+		t.Fatalf("initial sibling selections = %s, %s", first.ID, second.ID)
+	}
+
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "sibling-session")
+	ctx := internallogging.WithRequestID(context.Background(), "sibling-request-a")
+	selected, err := selector.Pick(ctx, "codex", "gpt-5.4", cliproxyexecutor.Options{Headers: headers}, []*coreauth.Auth{authB})
+	var conflict *activeSessionConflictError
+	if !errors.As(err, &conflict) || selected != nil {
+		t.Fatalf("parallel sibling retry = %#v, %v; want conflict", selected, err)
+	}
+	if tracker.activeLoad("auth-a.json") != 1 || tracker.activeLoad("auth-b.json") != 0 {
+		t.Fatalf("conflicted retry changed loads: a=%d b=%d", tracker.activeLoad("auth-a.json"), tracker.activeLoad("auth-b.json"))
+	}
+
+	tracker.releaseRequest("sibling-request-b")
+	selected, err = selector.Pick(ctx, "codex", "gpt-5.4", cliproxyexecutor.Options{Headers: headers}, []*coreauth.Auth{authB})
+	if err != nil || selected == nil || selected.ID != "auth-b.json" {
+		t.Fatalf("retry after sibling completed = %#v, %v", selected, err)
+	}
+	if tracker.activeLoad("auth-a.json") != 0 || tracker.activeLoad("auth-b.json") != 1 {
+		t.Fatalf("post-sibling retry loads: a=%d b=%d", tracker.activeLoad("auth-a.json"), tracker.activeLoad("auth-b.json"))
+	}
+}
+
+func TestRecordingSelectorWaitsForParallelSiblingBeforeMigration(t *testing.T) {
+	m, auths := activeRoutingFixture(map[string]int{"auth-a": 10, "auth-b": 0})
+	var authB *coreauth.Auth
+	for _, auth := range auths {
+		if auth != nil && auth.ID == "auth-b.json" {
+			authB = auth
+			break
+		}
+	}
+	if authB == nil {
+		t.Fatal("fixture is missing auth-b.json")
+	}
+
+	tracker := newActiveSessionTracker()
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "waiting-sibling-session")
+	opts := cliproxyexecutor.Options{Headers: headers}
+	currentCtx := internallogging.WithRequestID(context.Background(), "waiting-current-request")
+	siblingCtx := internallogging.WithRequestID(context.Background(), "waiting-sibling-request")
+	if err := tracker.reserveSelection(currentCtx, opts, "auth-a.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.reserveSelection(siblingCtx, opts, "auth-a.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	selector := &recordingSelector{
+		inner:    &cockpitSelector{manifest: m, sessions: tracker},
+		sessions: tracker,
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		tracker.releaseRequest("waiting-sibling-request")
+		close(released)
+	}()
+
+	selected, err := selector.Pick(currentCtx, "codex", "gpt-5.4", opts, []*coreauth.Auth{authB})
+	if err != nil || selected == nil || selected.ID != authB.ID {
+		t.Fatalf("selection after sibling release = %#v, %v; want %s", selected, err, authB.ID)
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("selection migrated before the sibling request released")
+	}
+	if tracker.activeLoad("auth-a.json") != 0 || tracker.activeLoad("auth-b.json") != 1 {
+		t.Fatalf("post-wait migration loads: a=%d b=%d", tracker.activeLoad("auth-a.json"), tracker.activeLoad("auth-b.json"))
+	}
+}
+
+func TestRecordingSelectorConvergesParallelRetriesOnOneAuth(t *testing.T) {
+	m, auths := activeRoutingFixture(map[string]int{"auth-a": 10, "auth-b": 0})
+	var authB *coreauth.Auth
+	for _, auth := range auths {
+		if auth != nil && auth.ID == "auth-b.json" {
+			authB = auth
+			break
+		}
+	}
+	if authB == nil {
+		t.Fatal("fixture is missing auth-b.json")
+	}
+
+	tracker := newActiveSessionTracker()
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "converging-retry-session")
+	opts := cliproxyexecutor.Options{Headers: headers}
+	ctxA := internallogging.WithRequestID(context.Background(), "converging-retry-a")
+	ctxB := internallogging.WithRequestID(context.Background(), "converging-retry-b")
+	if err := tracker.reserveSelection(ctxA, opts, "auth-a.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.reserveSelection(ctxB, opts, "auth-a.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	selector := &recordingSelector{
+		inner:    &cockpitSelector{manifest: m, sessions: tracker},
+		sessions: tracker,
+	}
+	type result struct {
+		auth *coreauth.Auth
+		err  error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for _, ctx := range []context.Context{ctxA, ctxB} {
+		ctx := ctx
+		go func() {
+			<-start
+			selected, err := selector.Pick(ctx, "codex", "gpt-5.4", opts, []*coreauth.Auth{authB})
+			results <- result{auth: selected, err: err}
+		}()
+	}
+	close(start)
+	for i := 0; i < 2; i++ {
+		select {
+		case got := <-results:
+			if got.err != nil || got.auth == nil || got.auth.ID != authB.ID {
+				t.Fatalf("parallel retry %d = %#v, %v; want %s", i, got.auth, got.err, authB.ID)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("parallel retries deadlocked while converging on one auth")
+		}
+	}
+	if tracker.activeLoad("auth-a.json") != 0 || tracker.activeLoad("auth-b.json") != 1 {
+		t.Fatalf("converged retry loads: a=%d b=%d", tracker.activeLoad("auth-a.json"), tracker.activeLoad("auth-b.json"))
+	}
+}
+
+func TestRecordingSelectorSiblingWaitHonorsCancellation(t *testing.T) {
+	m, auths := activeRoutingFixture(map[string]int{"auth-a": 10, "auth-b": 0})
+	var authB *coreauth.Auth
+	for _, auth := range auths {
+		if auth != nil && auth.ID == "auth-b.json" {
+			authB = auth
+			break
+		}
+	}
+	if authB == nil {
+		t.Fatal("fixture is missing auth-b.json")
+	}
+
+	tracker := newActiveSessionTracker()
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "cancel-wait-session")
+	opts := cliproxyexecutor.Options{Headers: headers}
+	baseCtx := internallogging.WithRequestID(context.Background(), "cancel-wait-current")
+	ctx, cancel := context.WithTimeout(baseCtx, 20*time.Millisecond)
+	defer cancel()
+	siblingCtx := internallogging.WithRequestID(context.Background(), "cancel-wait-sibling")
+	if err := tracker.reserveSelection(ctx, opts, "auth-a.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.reserveSelection(siblingCtx, opts, "auth-a.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	selector := &recordingSelector{
+		inner:    &cockpitSelector{manifest: m, sessions: tracker},
+		sessions: tracker,
+	}
+	selected, err := selector.Pick(ctx, "codex", "gpt-5.4", opts, []*coreauth.Auth{authB})
+	if !errors.Is(err, context.DeadlineExceeded) || selected != nil {
+		t.Fatalf("canceled sibling wait = %#v, %v; want context deadline", selected, err)
+	}
+}
+
+func TestActiveSessionTrackerCleansTombstonesInExpiryOrder(t *testing.T) {
+	tracker := newActiveSessionTracker()
+	now := time.Now()
+	oldExpiry := now.Add(-time.Second)
+	extendedExpiry := now.Add(time.Minute)
+	tracker.closedRequests["expired"] = oldExpiry
+	tracker.closedRequests["extended"] = extendedExpiry
+	tracker.closedRequestQueue = []closedRequestTombstone{
+		{requestID: "expired", expiresAt: oldExpiry},
+		{requestID: "extended", expiresAt: oldExpiry},
+		{requestID: "extended", expiresAt: extendedExpiry},
+	}
+
+	tracker.mu.Lock()
+	tracker.cleanupClosedRequestsLocked(now)
+	tracker.mu.Unlock()
+	if _, ok := tracker.closedRequests["expired"]; ok {
+		t.Fatal("expired tombstone was not removed")
+	}
+	if expiresAt, ok := tracker.closedRequests["extended"]; !ok || !expiresAt.Equal(extendedExpiry) {
+		t.Fatalf("extended tombstone = %v, %t; want %v", expiresAt, ok, extendedExpiry)
+	}
+	if tracker.closedRequestHead != 2 {
+		t.Fatalf("closed request queue head = %d, want 2", tracker.closedRequestHead)
 	}
 }
 

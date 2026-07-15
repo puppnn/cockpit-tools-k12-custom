@@ -1635,34 +1635,60 @@ func (s *recordingSelector) Pick(ctx context.Context, provider, model string, op
 	if s == nil || s.inner == nil {
 		return nil, fmt.Errorf("recording selector is not initialized")
 	}
-	if s.sessions != nil {
-		s.sessions.selectionMu.Lock()
-		defer s.sessions.selectionMu.Unlock()
+	for {
+		selected, err := func() (*coreauth.Auth, error) {
+			if s.sessions != nil {
+				s.sessions.selectionMu.Lock()
+				defer s.sessions.selectionMu.Unlock()
+			}
+			selected, err := s.inner.Pick(ctx, provider, model, opts, auths)
+			if err == nil && selected != nil && s.sessions != nil {
+				if reserveErr := s.sessions.reserveSelection(ctx, opts, selected.ID); reserveErr != nil {
+					return nil, reserveErr
+				}
+			}
+			return selected, err
+		}()
+		var conflict *activeSessionConflictError
+		if !errors.As(err, &conflict) || s.sessions == nil {
+			return selected, err
+		}
+		if waitErr := s.sessions.waitForSiblingRelease(ctx, opts, conflict.targetAuthID); waitErr != nil {
+			return nil, waitErr
+		}
 	}
-	selected, err := s.inner.Pick(ctx, provider, model, opts, auths)
-	if err == nil && selected != nil && s.sessions != nil {
-		s.sessions.reserveSelection(ctx, opts, selected.ID)
-	}
-	return selected, err
 }
 
 func (s *recordingSelector) PickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, bool, error) {
 	if s == nil || s.inner == nil {
 		return nil, false, nil
 	}
-	if s.sessions != nil {
-		s.sessions.selectionMu.Lock()
-		defer s.sessions.selectionMu.Unlock()
+	for {
+		selected, handled, err := func() (*coreauth.Auth, bool, error) {
+			if s.sessions != nil {
+				s.sessions.selectionMu.Lock()
+				defer s.sessions.selectionMu.Unlock()
+			}
+			preSelector, ok := s.inner.(coreauth.PreAvailabilitySelector)
+			if !ok || preSelector == nil {
+				return nil, false, nil
+			}
+			selected, handled, err := preSelector.PickBeforeAvailability(ctx, provider, model, opts, auths)
+			if err == nil && handled && selected != nil && s.sessions != nil {
+				if reserveErr := s.sessions.reserveSelection(ctx, opts, selected.ID); reserveErr != nil {
+					return nil, true, reserveErr
+				}
+			}
+			return selected, handled, err
+		}()
+		var conflict *activeSessionConflictError
+		if !errors.As(err, &conflict) || s.sessions == nil {
+			return selected, handled, err
+		}
+		if waitErr := s.sessions.waitForSiblingRelease(ctx, opts, conflict.targetAuthID); waitErr != nil {
+			return nil, true, waitErr
+		}
 	}
-	preSelector, ok := s.inner.(coreauth.PreAvailabilitySelector)
-	if !ok || preSelector == nil {
-		return nil, false, nil
-	}
-	selected, handled, err := preSelector.PickBeforeAvailability(ctx, provider, model, opts, auths)
-	if err == nil && handled && selected != nil && s.sessions != nil {
-		s.sessions.reserveSelection(ctx, opts, selected.ID)
-	}
-	return selected, handled, err
 }
 
 func (s *recordingSelector) OnSelectionResult(ctx context.Context, result coreauth.Result, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {

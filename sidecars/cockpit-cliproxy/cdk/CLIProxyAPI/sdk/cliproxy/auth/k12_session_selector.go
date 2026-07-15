@@ -525,7 +525,9 @@ func (p *k12SessionPolicy) reserveCandidate(
 	sessionDigest string,
 	source string,
 	k12Candidates []*Auth,
+	preferredK12Candidates []*Auth,
 	spilloverCandidates []*Auth,
+	preferredSpilloverCandidates []*Auth,
 	now time.Time,
 	pickK12 func([]*Auth) (*Auth, error),
 	pickSpillover func([]*Auth) (*Auth, error),
@@ -538,6 +540,26 @@ func (p *k12SessionPolicy) reserveCandidate(
 	defer p.mu.Unlock()
 	p.cleanupTentativeLocked(now)
 	p.cleanupSpilloversLocked(now)
+	preferredSubset := func(candidates, preferred []*Auth) []*Auth {
+		if len(candidates) == 0 || len(preferred) == 0 {
+			return nil
+		}
+		preferredIDs := make(map[string]struct{}, len(preferred))
+		for _, auth := range preferred {
+			if auth != nil && auth.ID != "" {
+				preferredIDs[auth.ID] = struct{}{}
+			}
+		}
+		out := make([]*Auth, 0, len(preferredIDs))
+		for _, auth := range candidates {
+			if auth != nil {
+				if _, ok := preferredIDs[auth.ID]; ok {
+					out = append(out, auth)
+				}
+			}
+		}
+		return out
+	}
 	eligibleK12 := make([]*Auth, 0, len(k12Candidates))
 	for _, auth := range k12Candidates {
 		if p.canStart(auth, now) {
@@ -614,6 +636,9 @@ func (p *k12SessionPolicy) reserveCandidate(
 	}
 	if len(underCapacity) > 0 {
 		k12Candidates = underCapacity
+		if preferred := preferredSubset(underCapacity, preferredK12Candidates); len(preferred) > 0 {
+			k12Candidates = preferred
+		}
 		if hasSpillover {
 			delete(p.spillovers, sessionDigest)
 		}
@@ -621,20 +646,30 @@ func (p *k12SessionPolicy) reserveCandidate(
 		if reusableSpillover != nil {
 			return k12CandidateReservation{auth: reusableSpillover, spilled: true, reused: true}, nil
 		}
-		selected, spilloverErr := pickSpillover(spilloverCandidates)
-		if spilloverErr == nil && selected != nil && selected.ID != "" {
-			p.spillovers[sessionDigest] = k12SpilloverSelection{
-				authID:    selected.ID,
-				source:    source,
-				expiresAt: now.Add(p.spilloverTTL),
-			}
-			reservation.auth = selected
-			reservation.spilled = true
-			return reservation, nil
+		preferredSpillover := preferredSubset(spilloverCandidates, preferredSpilloverCandidates)
+		pools := make([][]*Auth, 0, 2)
+		if len(preferredSpillover) > 0 {
+			pools = append(pools, preferredSpillover)
 		}
-		reservation.spilloverErr = spilloverErr
-		if spilloverErr == nil {
-			reservation.spilloverErr = fmt.Errorf("spillover selector returned an empty auth")
+		if len(preferredSpillover) != len(spilloverCandidates) {
+			pools = append(pools, spilloverCandidates)
+		}
+		for _, pool := range pools {
+			selected, spilloverErr := pickSpillover(pool)
+			if spilloverErr == nil && selected != nil && selected.ID != "" {
+				p.spillovers[sessionDigest] = k12SpilloverSelection{
+					authID:    selected.ID,
+					source:    source,
+					expiresAt: now.Add(p.spilloverTTL),
+				}
+				reservation.auth = selected
+				reservation.spilled = true
+				return reservation, nil
+			}
+			reservation.spilloverErr = spilloverErr
+			if spilloverErr == nil {
+				reservation.spilloverErr = fmt.Errorf("spillover selector returned an empty auth")
+			}
 		}
 	}
 
@@ -691,6 +726,9 @@ func (p *k12SessionPolicy) reserveCandidate(
 			}
 			balanced = withBestKnownQuota
 		}
+	}
+	if preferred := preferredSubset(balanced, preferredK12Candidates); len(preferred) > 0 {
+		balanced = preferred
 	}
 
 	selected, err := pickK12(balanced)
@@ -897,16 +935,12 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		return nil, nil, true, &Error{Code: "k12_session_auth_unavailable", Message: "confirmed K12 session account is temporarily unavailable"}
 	}
 
+	var preferredK12 []*Auth
+	var preferredNonK12 []*Auth
 	if s.k12.tentativeAuth(digest, now) == "" {
-		preferredK12 := s.preferredNewSessionAuths(k12Candidates)
+		preferredK12 = s.preferredNewSessionAuths(k12Candidates)
 		availableNonK12, _ := getAvailableAuths(nonK12, provider, model, now)
-		preferredNonK12 := s.preferredNewSessionAuths(availableNonK12)
-		if len(preferredNonK12) > 0 {
-			spilloverCandidates = preferredNonK12
-		}
-		if len(preferredK12) > 0 {
-			k12Candidates = preferredK12
-		}
+		preferredNonK12 = s.preferredNewSessionAuths(availableNonK12)
 	}
 
 	if len(k12Candidates) > 0 {
@@ -914,7 +948,9 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 			digest,
 			identity.Source,
 			k12Candidates,
+			preferredK12,
 			spilloverCandidates,
+			preferredNonK12,
 			now,
 			func(balanced []*Auth) (*Auth, error) {
 				return s.fallback.Pick(ctx, provider, model, opts, balanced)

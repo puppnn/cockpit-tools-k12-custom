@@ -673,6 +673,35 @@ mod tests {
     }
 
     #[test]
+    fn codex_spark_compatibility_model_is_visible_with_a_safe_catalog_fallback() {
+        let response = build_codex_client_models_response(&[
+            "gpt-5.3-codex".to_string(),
+            "gpt-5.3-codex-spark".to_string(),
+        ]);
+        let models = response
+            .get("models")
+            .and_then(Value::as_array)
+            .expect("models should be an array");
+        let spark = models
+            .iter()
+            .find(|model| model.get("slug").and_then(Value::as_str) == Some("gpt-5.3-codex-spark"))
+            .expect("Spark should be visible to Codex clients");
+
+        assert_eq!(
+            spark.get("display_name").and_then(Value::as_str),
+            Some("GPT-5.3 Codex Spark")
+        );
+        assert_eq!(
+            spark.get("visibility").and_then(Value::as_str),
+            Some("list")
+        );
+        assert_eq!(
+            spark.get("supported_in_api").and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
     fn codex_5_6_models_preserve_official_reasoning_and_speed_capabilities() {
         assert_eq!(
             managed_codex_model_ids(),

@@ -3874,10 +3874,6 @@ export function CodexAccountsPage() {
     useState("");
   const [oauthBindingSaving, setOauthBindingSaving] = useState(false);
   const [oauthBindingAutoSwitch, setOauthBindingAutoSwitch] = useState(false);
-  const [
-    oauthBindingUseLocalGateway,
-    setOauthBindingUseLocalGateway,
-  ] = useState(false);
   const [oauthBindingQuotaReserve, setOauthBindingQuotaReserve] =
     useState<CodexLocalAccessOAuthQuotaReserve | null>(null);
   const [oauthBindingQuotaReserveEditorOpen, setOauthBindingQuotaReserveEditorOpen] =
@@ -4185,7 +4181,6 @@ export function CodexAccountsPage() {
       setOauthBindingAccountId(null);
       setOauthBindingSelectedAccountId("");
       setOauthBindingAutoSwitch(false);
-      setOauthBindingUseLocalGateway(false);
       setOauthBindingError(null);
     }
     if (oauthBindingTargetKind === "local_access" && !localAccessCollection) {
@@ -4193,7 +4188,6 @@ export function CodexAccountsPage() {
       setOauthBindingAccountId(null);
       setOauthBindingSelectedAccountId("");
       setOauthBindingAutoSwitch(false);
-      setOauthBindingUseLocalGateway(false);
       setOauthBindingError(null);
     }
   }, [
@@ -5203,7 +5197,6 @@ export function CodexAccountsPage() {
     setOauthBindingAccountId(null);
     setOauthBindingSelectedAccountId("");
     setOauthBindingAutoSwitch(false);
-    setOauthBindingUseLocalGateway(false);
     setOauthBindingQuotaReserve(null);
     setOauthBindingQuotaReserveEditorOpen(false);
     setOauthBindingHourlyReserveDraft("");
@@ -5217,44 +5210,6 @@ export function CodexAccountsPage() {
     resetOAuthBindingModal();
   }, [oauthBindingSaving, resetOAuthBindingModal]);
 
-  const handleOAuthBindingLocalGatewayToggle = useCallback(
-    async (checked: boolean) => {
-      if (!checked) {
-        setOauthBindingUseLocalGateway(false);
-        return;
-      }
-      const isLocalAccessBinding = oauthBindingTargetKind === "local_access";
-      const confirmed = await confirmDialog(
-        isLocalAccessBinding
-          ? t(
-              "codex.localAccess.oauthBinding.imageGenerationConfirm.message",
-              "开启后，API 服务会在本地网关转发普通文本对话前移除 image_generation 工具声明，避免部分供应商报 “Image generation is not enabled”；不会删除 gpt-image 等生图模型。是否继续？",
-            )
-          : t(
-              "codex.api.oauthBinding.localGatewayConfirm.message",
-              "开启后，该 API Key 账号绑定 OAuth 后的普通文本对话会走本地网关，并在转发前移除 image_generation 工具声明，避免部分供应商报 “Image generation is not enabled”；不会删除 gpt-image 等生图模型。是否继续？",
-            ),
-        {
-          title: isLocalAccessBinding
-            ? t(
-                "codex.localAccess.oauthBinding.imageGenerationConfirm.title",
-                "禁用 image_generation 能力",
-              )
-            : t(
-                "codex.api.oauthBinding.localGatewayConfirm.title",
-                "禁用 image_generation 能力",
-              ),
-          okLabel: t("common.confirm", "确认"),
-          cancelLabel: t("common.cancel", "取消"),
-        },
-      );
-      if (confirmed) {
-        setOauthBindingUseLocalGateway(true);
-      }
-    },
-    [oauthBindingTargetKind, t],
-  );
-
   const openOAuthBindingModal = useCallback(
     (account: CodexAccount, options?: { autoSwitch?: boolean }) => {
       if (!isCodexApiKeyAccount(account)) return;
@@ -5267,9 +5222,6 @@ export function CodexAccountsPage() {
           : "",
       );
       setOauthBindingAutoSwitch(options?.autoSwitch ?? false);
-      setOauthBindingUseLocalGateway(
-        Boolean(account.bound_oauth_use_local_gateway),
-      );
       setOauthBindingQuotaReserve(null);
       setOauthBindingQuotaReserveEditorOpen(false);
       setOauthBindingHourlyReserveDraft("");
@@ -5316,9 +5268,6 @@ export function CodexAccountsPage() {
           : "",
       );
       setOauthBindingAutoSwitch(options?.autoSwitch ?? false);
-      setOauthBindingUseLocalGateway(
-        localAccessCollection?.imageGenerationMode === "images_only",
-      );
       setOauthBindingQuotaReserve(quotaReserve);
       setOauthBindingQuotaReserveEditorOpen(false);
       setOauthBindingHourlyReserveDraft("");
@@ -5329,7 +5278,6 @@ export function CodexAccountsPage() {
     [
       boundLocalAccessOAuthAccount,
       isOAuthBindingEligibleAccount,
-      localAccessCollection?.imageGenerationMode,
       localAccessCollection?.boundOauthQuotaReserve,
       setOauthBindingError,
     ],
@@ -5599,7 +5547,6 @@ export function CodexAccountsPage() {
         const nextState =
           await codexLocalAccessService.updateCodexLocalAccessBoundOAuthAccount(
             selectedOAuthBindingAccount.id,
-            oauthBindingUseLocalGateway,
             quotaReserve,
           );
         setLocalAccessState(nextState);
@@ -5607,7 +5554,6 @@ export function CodexAccountsPage() {
         await updateApiKeyBoundOAuthAccount(
           oauthBindingAccount.id,
           selectedOAuthBindingAccount.id,
-          oauthBindingUseLocalGateway,
         );
       }
       setMessage({
@@ -5636,7 +5582,6 @@ export function CodexAccountsPage() {
     oauthBindingAutoSwitch,
     oauthBindingQuotaReserve,
     oauthBindingTargetKind,
-    oauthBindingUseLocalGateway,
     isOAuthBindingEligibleAccount,
     selectedOAuthBindingAccount,
     setMessage,
@@ -5662,7 +5607,7 @@ export function CodexAccountsPage() {
           );
         setLocalAccessState(nextState);
       } else if (oauthBindingAccount) {
-        await updateApiKeyBoundOAuthAccount(oauthBindingAccount.id, null, false);
+        await updateApiKeyBoundOAuthAccount(oauthBindingAccount.id, null);
       }
       setMessage({
         text: t("codex.api.oauthBinding.clearSuccess", "OAuth 绑定已解除"),
@@ -15627,41 +15572,6 @@ export function CodexAccountsPage() {
                                 </button>
                               )}
                             </div>
-                          )}
-                          {oauthBindingTargetKind && (
-                            <label
-                              className="codex-oauth-binding-gateway-toggle"
-                              title={t(
-                                oauthBindingTargetKind === "local_access"
-                                  ? "codex.localAccess.oauthBinding.imageGenerationTooltip"
-                                  : "codex.api.oauthBinding.localGatewayTooltip",
-                                oauthBindingTargetKind === "local_access"
-                                  ? "开启后，API 服务会在本地网关转发普通文本对话前移除 image_generation 工具声明；不会删除生图模型。"
-                                  : "开启后，绑定 OAuth 的 API Key 文本对话会走本地网关，并在转发前移除 image_generation 工具声明；不会删除生图模型。",
-                              )}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={oauthBindingUseLocalGateway}
-                                onChange={(event) =>
-                                  void handleOAuthBindingLocalGatewayToggle(
-                                    event.target.checked,
-                                  )
-                                }
-                                disabled={oauthBindingSaving}
-                              />
-                              <span
-                                className="codex-oauth-binding-checkbox-ui"
-                                aria-hidden="true"
-                              />
-                              <span>
-                                {t(
-                                  "codex.api.oauthBinding.useLocalGateway",
-                                  "禁用 image_generation",
-                                )}
-                              </span>
-                              <Info size={14} />
-                            </label>
                           )}
                         </div>
                       </div>

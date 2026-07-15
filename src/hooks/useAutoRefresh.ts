@@ -505,7 +505,7 @@ export function useAutoRefresh() {
             },
             {
               key: 'windsurf',
-              label: 'Windsurf',
+              label: 'Devin',
               intervalMinutes: config.windsurf_auto_refresh_minutes,
               currentMinutes: resolveCurrentMinutes('windsurf', currentAccountEmails.windsurf, currentRefreshMinutesMap),
               fullRefreshingRef: windsurfRefreshingRef,

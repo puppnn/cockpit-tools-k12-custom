@@ -11,6 +11,7 @@ export type CodexLocalAccessImageGenerationStatus =
 
 export type CodexLocalAccessRoutingStrategy =
   | "auto"
+  | "random"
   | "single_account"
   | "quota_high_first"
   | "quota_low_first"
@@ -63,7 +64,10 @@ export interface CodexLocalAccessApiKey {
   id: string;
   label: string;
   key: string;
+  providerGateway?: unknown | null;
+  inheritAccountPool?: boolean;
   accountIds?: string[];
+  priorityAccountIds?: string[];
   modelPrefix?: string | null;
   allowedModels: string[];
   excludedModels: string[];
@@ -122,6 +126,7 @@ export interface CodexLocalAccessCollection {
   modelPricingVersion: number;
   modelPricings: CodexLocalAccessModelPricing[];
   debugLogs: boolean;
+  immediateSseResponse: boolean;
   excludedModels: string[];
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
@@ -199,6 +204,8 @@ export interface CodexLocalAccessUsageEvent {
   email: string;
   apiKeyId: string;
   apiKeyLabel: string;
+  /** 多开实例目录 ID（x-cockpit-instance-id） */
+  clientInstanceId?: string;
   modelId: string;
   gatewayMode?: CodexLocalAccessGatewayMode | null;
   requestKind: CodexLocalAccessRequestKind;
@@ -245,9 +252,12 @@ export interface CodexLocalAccessRequestLogQuery {
   page: number;
   pageSize: number;
   statsRange?: "daily" | "weekly" | "monthly" | null;
+  startAt?: number | null;
+  endAt?: number | null;
   modelQuery?: string | null;
   accountQuery?: string | null;
   apiKeyQuery?: string | null;
+  instanceQuery?: string | null;
   gatewayMode?: CodexLocalAccessGatewayMode | null;
   requestKind?: CodexLocalAccessRequestKind | null;
   success?: boolean | null;

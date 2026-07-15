@@ -242,7 +242,7 @@
     "settings": "Cài đặt",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "Bảng điều khiển",
     "morePlatforms": "Thêm nền tảng",
     "instances": "Đa Phiên Bản",
@@ -667,10 +667,10 @@
       "githubCopilotSettingsTitle": "Cài đặt GitHub Copilot",
       "ghcpAutoRefresh": "Tự động làm mới quota GitHub Copilot",
       "ghcpAutoRefreshDesc": "Tần suất cập nhật nền",
-      "windsurfSettingsTitle": "Cài đặt Windsurf",
-      "windsurfAutoRefresh": "Tự động làm mới hạn mức Windsurf",
+      "windsurfSettingsTitle": "Cài đặt Devin",
+      "windsurfAutoRefresh": "Tự động làm mới hạn mức Devin",
       "windsurfAutoRefreshDesc": "Tần suất cập nhật tự động dưới nền",
-      "windsurfAppPath": "Đường dẫn ứng dụng Windsurf",
+      "windsurfAppPath": "Đường dẫn ứng dụng Devin",
       "windsurfAppPathDesc": "Để trống để dùng đường dẫn mặc định",
       "windsurfAppPathPlaceholder": "Đường dẫn mặc định",
       "windsurfPathSelect": "Chọn",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "Ưu tiên gói cao",
         "planLowFirst": "Ưu tiên gói thấp",
         "expirySoonFirst": "Sắp hết hạn trước",
+        "random": "Phân tán ngẫu nhiên",
         "custom": "Tùy chỉnh"
       },
       "statusUnconfigured": "Chưa cấu hình",
@@ -1976,7 +1977,12 @@
         "label": "Khoảng thống kê",
         "daily": "Ngày",
         "weekly": "Tuần",
-        "monthly": "Tháng"
+        "monthly": "Tháng",
+        "custom": "Tùy chỉnh",
+        "start": "Bắt đầu",
+        "end": "Kết thúc",
+        "apply": "Áp dụng",
+        "invalid": "Thời gian kết thúc không được sớm hơn thời gian bắt đầu"
       },
       "enableBeforeActivateTitle": "Dịch vụ chưa bật",
       "enableBeforeActivateMessage": "Dịch vụ API hiện đang tắt và cần bật trước. Bật và chuyển ngay?",
@@ -3194,6 +3200,11 @@
         "models": "Mô hình và năng lực",
         "logs": "Thống kê và nhật ký"
       },
+      "statsRange": {
+        "today": "Hôm nay",
+        "thisWeek": "Tuần này",
+        "thisMonth": "Tháng này"
+      },
       "healthTitle": "Sức khỏe dịch vụ",
       "compat": {
         "title": "Tương thích giao thức",
@@ -3271,6 +3282,24 @@
       "keys": {
         "policyTitle": "Chính sách mô hình",
         "advancedPolicyTitle": "Nâng cao: chính sách mô hình",
+        "accountScope": "Phạm vi luân chuyển",
+        "accountScopeInherit": "Tự động theo nhóm tài khoản dịch vụ",
+        "accountScopeFixed": "Khóa này cố định với tài khoản liên kết và không thể kế thừa nhóm dịch vụ",
+        "accountScopeSelected": "Đã chọn {{count}} tài khoản",
+        "accountScopeInheritedCount": "Nhóm: kế thừa {{count}}",
+        "accountScopeUnavailable": "Nhóm: không có tài khoản",
+        "accountScopeCount": "Nhóm: {{selected}}/{{total}}",
+        "accountScopeRequired": "Chọn ít nhất một tài khoản",
+        "accountScopeModeInherit": "Kế thừa nhóm dịch vụ",
+        "accountScopeModeCustom": "Nhóm tài khoản tùy chỉnh",
+        "accountPrioritySet": "Ghim tài khoản ưu tiên",
+        "accountPriorityPromote": "Đưa tài khoản lên ưu tiên cao nhất",
+        "accountPriorityClear": "Bỏ ghim tài khoản ưu tiên",
+        "accountPrioritySaved": "Đã ghim tài khoản ưu tiên",
+        "accountPriorityCleared": "Đã bỏ ghim tài khoản ưu tiên",
+        "usageRange": "Kỳ sử dụng khóa API",
+        "unsaved": "Chưa lưu",
+        "resetPolicy": "Bỏ thay đổi",
         "modelPrefix": "Tiền tố mô hình",
         "modelPrefixPlaceholder": "Ví dụ: codex",
         "allowedModels": "Mô hình được phép",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "Chờ retry",
         "disableCooling": "Tắt cooldown",
         "saveOptions": "Lưu tùy chọn",
+        "immediateSseResponse": "SSE trả 200 ngay",
         "optionsSaved": "Đã lưu tùy chọn định tuyến"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "Nhập phần trăm",
     "inputCredits": "Nhập credits",
     "windsurf": {
-      "title": "Cài đặt Windsurf",
-      "appPath": "Đường dẫn Windsurf"
+      "title": "Cài đặt Devin",
+      "appPath": "Đường dẫn Devin"
     },
     "windsurfRefreshInterval": "Tự động làm mới hạn ngạch",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Quản lý tài khoản Windsurf",
+    "title": "Quản lý tài khoản Devin",
     "instances": {
       "unsupported": {
-        "desc": "Đa phiên bản Windsurf hiện chỉ khả dụng trên macOS."
+        "desc": "Đa phiên bản Devin hiện chỉ khả dụng trên macOS."
       }
     },
     "empty": {
       "description": "Nhấn \"Thêm tài khoản\" để bắt đầu"
     },
     "addModal": {
-      "title": "Thêm tài khoản Windsurf",
+      "title": "Thêm tài khoản Devin",
       "password": "Đăng nhập email"
     },
     "password": {
-      "desc": "Đăng nhập bằng email và mật khẩu tài khoản Windsurf để tự động lấy API key và dữ liệu tài khoản.",
+      "desc": "Đăng nhập bằng email và mật khẩu tài khoản Devin để tự động lấy API key và dữ liệu tài khoản.",
       "emailPlaceholder": "Địa chỉ email",
       "passwordPlaceholder": "Mật khẩu",
       "empty": "Nhập email và mật khẩu",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "{{count}} mục khác thất bại"
     },
     "oauth": {
-      "desc": "Nhấn nút bên dưới và hoàn tất ủy quyền Windsurf trong trình duyệt."
+      "desc": "Nhấn nút bên dưới và hoàn tất ủy quyền Devin trong trình duyệt."
     },
     "token": {
-      "desc": "Dán token truy cập Windsurf hoặc dữ liệu JSON đã xuất."
+      "desc": "Dán token truy cập Devin hoặc dữ liệu JSON đã xuất."
     },
     "import": {
-      "localDesc": "Nhập tài khoản Windsurf từ các phiên đăng nhập cục bộ.",
-      "localClient": "Nhập từ Windsurf cục bộ"
+      "localDesc": "Nhập tài khoản Devin từ các phiên đăng nhập cục bộ.",
+      "localClient": "Nhập từ Devin cục bộ"
     },
     "credits": {
       "title": "Gói",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "Nạp tự động",
       "remaining": "Còn {{value}}"
     },
-    "injectToVSCode": "Chuyển sang Windsurf",
-    "injectSuccess": "Chuyển đổi hoàn tất. Windsurf đang khởi chạy.",
-    "injectRequireClose": "Vui lòng đóng Windsurf trước khi chuyển đổi.",
+    "injectToVSCode": "Chuyển sang Devin",
+    "injectSuccess": "Chuyển đổi hoàn tất. Devin đang khởi chạy.",
+    "injectRequireClose": "Vui lòng đóng Devin trước khi chuyển đổi.",
     "flowNotice": {
-      "title": "Hướng dẫn tài khoản Windsurf (bấm để mở rộng/thu gọn)",
-      "desc": "Việc chuyển tài khoản yêu cầu đọc kho xác thực cục bộ của Windsurf và dùng dịch vụ thông tin xác thực hệ thống để giải mã/ghi lại; dữ liệu chỉ được xử lý trên máy cục bộ.",
-      "inject": "Chuyển đổi một lần nhấp: công cụ này đọc dữ liệu mã hóa cục bộ của Windsurf (DPAPI/Keychain/Secret Service), giải mã phiên xác thực trong state.vscdb, thay thế token Windsurf rồi mã hóa lại — mọi thao tác đều diễn ra cục bộ trên máy của bạn.",
-      "reason": "Phạm vi quyền: đọc cơ sở dữ liệu xác thực Windsurf (state.vscdb) và gọi khả năng mã hóa hệ thống (Windows DPAPI / macOS Keychain / Linux Secret Service) để giải mã/ghi lại.",
-      "storage": "Phạm vi đọc: chỉ xử lý dữ liệu liên quan đến phiên đăng nhập Windsurf; mọi quy trình đều được thực thi cục bộ."
+      "title": "Hướng dẫn tài khoản Devin (bấm để mở rộng/thu gọn)",
+      "desc": "Việc chuyển tài khoản yêu cầu đọc kho xác thực cục bộ của Devin và dùng dịch vụ thông tin xác thực hệ thống để giải mã/ghi lại; dữ liệu chỉ được xử lý trên máy cục bộ.",
+      "inject": "Chuyển đổi một lần nhấp: công cụ này đọc dữ liệu mã hóa cục bộ của Devin (DPAPI/Keychain/Secret Service), giải mã phiên xác thực trong state.vscdb, thay thế token Devin rồi mã hóa lại — mọi thao tác đều diễn ra cục bộ trên máy của bạn.",
+      "reason": "Phạm vi quyền: đọc cơ sở dữ liệu xác thực Devin (state.vscdb) và gọi khả năng mã hóa hệ thống (Windows DPAPI / macOS Keychain / Linux Secret Service) để giải mã/ghi lại.",
+      "storage": "Phạm vi đọc: chỉ xử lý dữ liệu liên quan đến phiên đăng nhập Devin; mọi quy trình đều được thực thi cục bộ."
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "Đi tới cài đặt",
       "goVerification": "Đi tới xác minh wakeup",
       "goWakeup": "Đi tới tác vụ wakeup",
-      "goWindsurf": "Đi tới Windsurf",
+      "goWindsurf": "Đi tới Devin",
       "openLayout": "Mở bố cục nền tảng"
     },
     "antigravity": {
@@ -4286,11 +4316,11 @@
     "navTitle": "Sổ tay sử dụng",
     "providers": {
       "cautions": {
-        "0": "Sao lưu dữ liệu trước thao tác rủi ro hoặc hàng loạt trong Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "Kiểm tra bộ lọc và phạm vi mục tiêu trước khi chạy trong Codex / GitHub Copilot / Windsurf / Kiro."
+        "0": "Sao lưu dữ liệu trước thao tác rủi ro hoặc hàng loạt trong Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "Kiểm tra bộ lọc và phạm vi mục tiêu trước khi chạy trong Codex / GitHub Copilot / Devin / Kiro."
       },
       "keywords": {
-        "0": "Nền tảng Codex / GitHub Copilot / Windsurf / Kiro",
+        "0": "Nền tảng Codex / GitHub Copilot / Devin / Kiro",
         "1": "hướng dẫn",
         "2": "quy trình",
         "3": "tài khoản",
@@ -4298,17 +4328,17 @@
         "5": "khắc phục lỗi"
       },
       "outcomes": {
-        "0": "Hiểu Codex / GitHub Copilot / Windsurf / Kiro giúp giải quyết điều gì.",
-        "1": "Dùng quy trình đề xuất trong Codex / GitHub Copilot / Windsurf / Kiro để giảm lỗi thao tác.",
-        "2": "Xác nhận một lần chạy thành công trong Codex / GitHub Copilot / Windsurf / Kiro trước khi mở rộng."
+        "0": "Hiểu Codex / GitHub Copilot / Devin / Kiro giúp giải quyết điều gì.",
+        "1": "Dùng quy trình đề xuất trong Codex / GitHub Copilot / Devin / Kiro để giảm lỗi thao tác.",
+        "2": "Xác nhận một lần chạy thành công trong Codex / GitHub Copilot / Devin / Kiro trước khi mở rộng."
       },
       "steps": {
-        "0": "Mở trang Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "Hoàn tất cấu hình cơ bản và liên kết bắt buộc cho Codex / GitHub Copilot / Windsurf / Kiro.",
-        "2": "Chạy một thao tác thủ công trong Codex / GitHub Copilot / Windsurf / Kiro để xác minh kết quả."
+        "0": "Mở trang Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "Hoàn tất cấu hình cơ bản và liên kết bắt buộc cho Codex / GitHub Copilot / Devin / Kiro.",
+        "2": "Chạy một thao tác thủ công trong Codex / GitHub Copilot / Devin / Kiro để xác minh kết quả."
       },
-      "summary": "Mục này giải thích cách dùng Codex / GitHub Copilot / Windsurf / Kiro trong quy trình hàng ngày.",
-      "title": "Nền tảng Codex / GitHub Copilot / Windsurf / Kiro"
+      "summary": "Mục này giải thích cách dùng Codex / GitHub Copilot / Devin / Kiro trong quy trình hàng ngày.",
+      "title": "Nền tảng Codex / GitHub Copilot / Devin / Kiro"
     },
     "quickStart": {
       "cautions": {

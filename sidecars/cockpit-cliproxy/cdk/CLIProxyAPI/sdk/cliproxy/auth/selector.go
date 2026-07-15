@@ -492,7 +492,7 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 	return selector
 }
 
-func (s *SessionAffinitySelector) needsCrossPriorityCandidates() bool {
+func (s *SessionAffinitySelector) NeedsCrossPriorityCandidates() bool {
 	return s != nil && s.k12 != nil
 }
 
@@ -576,9 +576,9 @@ func (s *SessionAffinitySelector) pickNewGenericSession(ctx context.Context, pro
 //  4. Other client thread/request identifiers
 //  5. Stable hash from the first few messages (fallback)
 //
-// Note: The cache key includes provider, session ID, and model to handle cases where
-// a session uses multiple models (e.g., gemini-2.5-pro and gemini-3-flash-preview)
-// that may be supported by different auth credentials, and to avoid cross-provider conflicts.
+// Note: The cache key includes provider, an optional caller namespace, session ID, and
+// model to handle cases where a session uses multiple models (e.g., gemini-2.5-pro and
+// gemini-3-flash-preview), and to avoid cross-provider or cross-caller conflicts.
 func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
 	entry := selectorLogEntry(ctx)
 	primary, fallback := extractSessionIdentities(opts.Headers, opts.OriginalRequest, opts.Metadata)
@@ -611,7 +611,7 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 		selected, remaining, handled, err := s.pickK12(ctx, provider, model, opts, primary, auths)
 		if handled {
 			if err == nil && selected != nil && selected.ID != "" {
-				digest := s.k12.store.digest(primary.ID)
+				digest := s.k12.store.digest(k12SessionKey(opts.Metadata, primary.ID))
 				s.k12.registerSelectionAttempt(digest, selected.ID, opts, time.Now(), s.k12.isK12(selected))
 			}
 			return selected, err
@@ -633,7 +633,8 @@ func (s *SessionAffinitySelector) pickGenericSession(ctx context.Context, provid
 		return nil, err
 	}
 
-	cacheKey := provider + "::" + primary.ID + "::" + model
+	namespace := sessionAffinityNamespace(opts.Metadata)
+	cacheKey := sessionAffinityCacheKey(provider, namespace, primary.ID, model)
 	if cachedAuthID, ok := s.cache.GetAndRefresh(cacheKey); ok {
 		for _, auth := range available {
 			if auth.ID == cachedAuthID {
@@ -657,7 +658,7 @@ func (s *SessionAffinitySelector) pickGenericSession(ctx context.Context, provid
 	}
 
 	if fallback.ID != "" && fallback.ID != primary.ID {
-		fallbackKey := provider + "::" + fallback.ID + "::" + model
+		fallbackKey := sessionAffinityCacheKey(provider, namespace, fallback.ID, model)
 		if cachedAuthID, ok := s.cache.Get(fallbackKey); ok {
 			for _, auth := range available {
 				if auth.ID == cachedAuthID {
@@ -682,6 +683,29 @@ func (s *SessionAffinitySelector) pickGenericSession(ctx context.Context, provid
 	}
 	entry.Infof("session-affinity: cache miss, new binding | source=%s session=%s auth=%s provider=%s model=%s", primary.Source, sessionLogSummary(primary.ID), auth.ID, provider, model)
 	return auth, nil
+}
+
+func sessionAffinityNamespace(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	value, _ := metadata[cliproxyexecutor.SessionAffinityNamespaceMetadataKey].(string)
+	return strings.TrimSpace(value)
+}
+
+func k12SessionKey(metadata map[string]any, sessionID string) string {
+	namespace := sessionAffinityNamespace(metadata)
+	if namespace == "" {
+		return sessionID
+	}
+	return "namespace:" + namespace + "\x00session:" + sessionID
+}
+
+func sessionAffinityCacheKey(provider, namespace, sessionID, model string) string {
+	if namespace == "" {
+		return provider + "::" + sessionID + "::" + model
+	}
+	return provider + "::" + namespace + "::" + sessionID + "::" + model
 }
 
 func selectorLogEntry(ctx context.Context) *log.Entry {

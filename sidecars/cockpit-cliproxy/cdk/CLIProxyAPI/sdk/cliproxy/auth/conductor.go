@@ -136,11 +136,12 @@ type PreAvailabilitySelector interface {
 	PickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, bool, error)
 }
 
-// crossPrioritySelector opts into receiving every ready, model-compatible auth
+// CrossPrioritySelector opts into receiving every ready, model-compatible auth
 // instead of only the highest-priority group. Implementations must preserve
 // priority ordering when they delegate to their fallback selector.
-type crossPrioritySelector interface {
-	needsCrossPriorityCandidates() bool
+type CrossPrioritySelector interface {
+	Selector
+	NeedsCrossPriorityCandidates() bool
 }
 
 // SelectionResultDirective controls retry and cooldown behavior for one selected auth.
@@ -819,8 +820,8 @@ func (m *Manager) availableAuthsForRouteModel(auths []*Auth, provider, routeMode
 }
 
 func (m *Manager) authsForSelector(auths, available []*Auth, routeModel string, now time.Time) []*Auth {
-	selector, ok := m.selector.(crossPrioritySelector)
-	if !ok || selector == nil || !selector.needsCrossPriorityCandidates() {
+	selector, ok := m.selector.(CrossPrioritySelector)
+	if !ok || selector == nil || !selector.NeedsCrossPriorityCandidates() {
 		return available
 	}
 

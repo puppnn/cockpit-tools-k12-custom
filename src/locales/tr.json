@@ -242,7 +242,7 @@
     "settings": "Ayarlar",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "Gösterge Paneli",
     "morePlatforms": "Daha Fazla Platform",
     "instances": "Çoklu Örnek",
@@ -667,10 +667,10 @@
       "githubCopilotSettingsTitle": "GitHub Copilot Ayarları",
       "ghcpAutoRefresh": "GitHub Copilot kota otomatik yenileme",
       "ghcpAutoRefreshDesc": "Arka plan güncelleme sıklığı",
-      "windsurfSettingsTitle": "Windsurf Ayarları",
-      "windsurfAutoRefresh": "Windsurf kota otomatik yenileme",
+      "windsurfSettingsTitle": "Devin Ayarları",
+      "windsurfAutoRefresh": "Devin kota otomatik yenileme",
       "windsurfAutoRefreshDesc": "Arka plan güncelleme sıklığı",
-      "windsurfAppPath": "Windsurf Uygulama Yolu",
+      "windsurfAppPath": "Devin Uygulama Yolu",
       "windsurfAppPathDesc": "Varsayılan yolu kullanmak için boş bırakın",
       "windsurfAppPathPlaceholder": "Varsayılan yol",
       "windsurfPathSelect": "Seç",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "Önce yüksek plan",
         "planLowFirst": "Önce düşük plan",
         "expirySoonFirst": "Yakında Biten Önce",
+        "random": "Rastgele",
         "custom": "Özel"
       },
       "statusUnconfigured": "Yapılandırılmadı",
@@ -1976,7 +1977,12 @@
         "label": "İstatistik aralığı",
         "daily": "Gün",
         "weekly": "Hafta",
-        "monthly": "Ay"
+        "monthly": "Ay",
+        "custom": "Özel",
+        "start": "Başlangıç",
+        "end": "Bitiş",
+        "apply": "Uygula",
+        "invalid": "Bitiş zamanı başlangıç zamanından önce olamaz"
       },
       "enableBeforeActivateTitle": "Hizmet etkin değil",
       "enableBeforeActivateMessage": "API hizmeti şu anda devre dışı ve önce etkinleştirilmesi gerekiyor. Şimdi etkinleştirip geçiş yapılsın mı?",
@@ -3194,6 +3200,11 @@
         "models": "Modeller ve yetenekler",
         "logs": "İstatistik ve günlükler"
       },
+      "statsRange": {
+        "today": "Bugün",
+        "thisWeek": "Bu hafta",
+        "thisMonth": "Bu ay"
+      },
       "healthTitle": "Hizmet durumu",
       "compat": {
         "title": "Protokol Uyumu",
@@ -3271,6 +3282,24 @@
       "keys": {
         "policyTitle": "Model ilkesi",
         "advancedPolicyTitle": "Gelişmiş: model ilkesi",
+        "accountScope": "Hesap döndürme kapsamı",
+        "accountScopeInherit": "Hizmet hesap havuzunu otomatik izle",
+        "accountScopeFixed": "Bu anahtar bağlı hesabına sabittir; hizmet havuzunu devralamaz",
+        "accountScopeSelected": "{{count}} hesap seçildi",
+        "accountScopeInheritedCount": "Havuz: {{count}} hesap devralındı",
+        "accountScopeUnavailable": "Havuz: kullanılabilir hesap yok",
+        "accountScopeCount": "Havuz: {{selected}}/{{total}}",
+        "accountScopeRequired": "En az bir hesap seçin",
+        "accountScopeModeInherit": "Hizmet havuzunu devral",
+        "accountScopeModeCustom": "Özel hesap havuzu",
+        "accountPrioritySet": "Hesabı öncelikli sabitle",
+        "accountPriorityPromote": "Hesabı en yüksek önceliğe taşı",
+        "accountPriorityClear": "Hesap önceliğini kaldır",
+        "accountPrioritySaved": "Öncelikli hesap sabitlendi",
+        "accountPriorityCleared": "Hesap önceliği kaldırıldı",
+        "usageRange": "API anahtarı kullanım dönemi",
+        "unsaved": "Kaydedilmedi",
+        "resetPolicy": "Değişiklikleri at",
         "modelPrefix": "Model ön eki",
         "modelPrefixPlaceholder": "Örnek: codex",
         "allowedModels": "İzinli modeller",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "Retry bekleme",
         "disableCooling": "Cooldown kapat",
         "saveOptions": "Seçenekleri kaydet",
+        "immediateSseResponse": "Anında SSE 200",
         "optionsSaved": "Yönlendirme seçenekleri kaydedildi"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "Yüzde girin",
     "inputCredits": "Kredi girin",
     "windsurf": {
-      "title": "Windsurf Ayarları",
-      "appPath": "Windsurf Yolu"
+      "title": "Devin Ayarları",
+      "appPath": "Devin Yolu"
     },
     "windsurfRefreshInterval": "Kotayı otomatik yenile",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf Hesap Yönetimi",
+    "title": "Devin Hesap Yönetimi",
     "instances": {
       "unsupported": {
-        "desc": "Windsurf çoklu örnek şu anda yalnızca macOS'ta kullanılabilir."
+        "desc": "Devin çoklu örnek şu anda yalnızca macOS'ta kullanılabilir."
       }
     },
     "empty": {
       "description": "\"Hesap ekle\"ye tıklayın"
     },
     "addModal": {
-      "title": "Windsurf hesabı ekle",
+      "title": "Devin hesabı ekle",
       "password": "E-posta girişi"
     },
     "password": {
-      "desc": "API anahtarını ve hesap verilerini otomatik almak için Windsurf hesabınızın e-postası ve şifresiyle giriş yapın.",
+      "desc": "API anahtarını ve hesap verilerini otomatik almak için Devin hesabınızın e-postası ve şifresiyle giriş yapın.",
       "emailPlaceholder": "E-posta adresi",
       "passwordPlaceholder": "Şifre",
       "empty": "E-posta ve şifre girin",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "{{count}} tane daha başarısız"
     },
     "oauth": {
-      "desc": "Aşağıdaki düğmeye tıklayın ve tarayıcıda Windsurf yetkilendirmesini tamamlayın."
+      "desc": "Aşağıdaki düğmeye tıklayın ve tarayıcıda Devin yetkilendirmesini tamamlayın."
     },
     "token": {
-      "desc": "Windsurf erişim belirtecini veya dışa aktarılan JSON verisini yapıştırın."
+      "desc": "Devin erişim belirtecini veya dışa aktarılan JSON verisini yapıştırın."
     },
     "import": {
-      "localDesc": "Yerelde oturum açılmış oturumlardan Windsurf hesaplarını içe aktar.",
-      "localClient": "Yerel Windsurf'ten içe aktar"
+      "localDesc": "Yerelde oturum açılmış oturumlardan Devin hesaplarını içe aktar.",
+      "localClient": "Yerel Devin'ten içe aktar"
     },
     "credits": {
       "title": "Planı",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "Otomatik yükleme",
       "remaining": "{{value}} kaldı"
     },
-    "injectToVSCode": "Windsurf'a geç",
-    "injectSuccess": "Geçiş tamamlandı. Windsurf başlatılıyor.",
-    "injectRequireClose": "Geçiş yapmadan önce lütfen Windsurf'ü kapatın.",
+    "injectToVSCode": "Devin'a geç",
+    "injectSuccess": "Geçiş tamamlandı. Devin başlatılıyor.",
+    "injectRequireClose": "Geçiş yapmadan önce lütfen Devin'ü kapatın.",
     "flowNotice": {
-      "title": "Windsurf hesap kılavuzu (genişletmek/daraltmak için tıklayın)",
-      "desc": "Hesap değiştirme, Windsurf yerel kimlik doğrulama deposunun okunmasını ve şifre çözme/geri yazma için sistem kimlik bilgisi hizmetinin kullanılmasını gerektirir; veriler yalnızca yerelde işlenir.",
-      "inject": "Tek tıkla geçiş: Bu araç Windsurf'un yerel şifreleme materyalini (DPAPI/Keychain/Secret Service) okur, state.vscdb içindeki kimlik doğrulama oturumunu çözer, Windsurf belirtecini değiştirir ve yeniden şifreler — tüm işlem cihazınızda yerel olarak yapılır.",
-      "reason": "İzin kapsamı: Windsurf kimlik doğrulama veritabanını (state.vscdb) okumak ve şifre çözme/geri yazma için sistem şifreleme yeteneklerini (Windows DPAPI / macOS Keychain / Linux Secret Service) çağırmak.",
-      "storage": "Okuma kapsamı: yalnızca Windsurf oturum açma oturumu ile ilgili veriler işlenir; tüm işlemler yerel olarak yürütülür."
+      "title": "Devin hesap kılavuzu (genişletmek/daraltmak için tıklayın)",
+      "desc": "Hesap değiştirme, Devin yerel kimlik doğrulama deposunun okunmasını ve şifre çözme/geri yazma için sistem kimlik bilgisi hizmetinin kullanılmasını gerektirir; veriler yalnızca yerelde işlenir.",
+      "inject": "Tek tıkla geçiş: Bu araç Devin'un yerel şifreleme materyalini (DPAPI/Keychain/Secret Service) okur, state.vscdb içindeki kimlik doğrulama oturumunu çözer, Devin belirtecini değiştirir ve yeniden şifreler — tüm işlem cihazınızda yerel olarak yapılır.",
+      "reason": "İzin kapsamı: Devin kimlik doğrulama veritabanını (state.vscdb) okumak ve şifre çözme/geri yazma için sistem şifreleme yeteneklerini (Windows DPAPI / macOS Keychain / Linux Secret Service) çağırmak.",
+      "storage": "Okuma kapsamı: yalnızca Devin oturum açma oturumu ile ilgili veriler işlenir; tüm işlemler yerel olarak yürütülür."
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "Ayarlara git",
       "goVerification": "Wakeup doğrulamasına git",
       "goWakeup": "Wakeup görevlerine git",
-      "goWindsurf": "Windsurf sayfasına git",
+      "goWindsurf": "Devin sayfasına git",
       "openLayout": "Platform düzenini aç"
     },
     "antigravity": {
@@ -4286,11 +4316,11 @@
     "navTitle": "Kullanım Kılavuzu",
     "providers": {
       "cautions": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro içinde riskli veya toplu işlemden önce veri yedeği alın.",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro çalıştırmadan önce filtre ve hedef kapsamını doğrulayın."
+        "0": "Codex / GitHub Copilot / Devin / Kiro içinde riskli veya toplu işlemden önce veri yedeği alın.",
+        "1": "Codex / GitHub Copilot / Devin / Kiro çalıştırmadan önce filtre ve hedef kapsamını doğrulayın."
       },
       "keywords": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro platformları",
+        "0": "Codex / GitHub Copilot / Devin / Kiro platformları",
         "1": "rehber",
         "2": "akış",
         "3": "hesap",
@@ -4298,17 +4328,17 @@
         "5": "sorun giderme"
       },
       "outcomes": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro ile nelerin çözüldüğünü anlayın.",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro içinde önerilen akışı kullanarak hataları azaltın.",
-        "2": "Ölçeklemeden önce Codex / GitHub Copilot / Windsurf / Kiro içinde bir başarılı çalıştırma doğrulayın."
+        "0": "Codex / GitHub Copilot / Devin / Kiro ile nelerin çözüldüğünü anlayın.",
+        "1": "Codex / GitHub Copilot / Devin / Kiro içinde önerilen akışı kullanarak hataları azaltın.",
+        "2": "Ölçeklemeden önce Codex / GitHub Copilot / Devin / Kiro içinde bir başarılı çalıştırma doğrulayın."
       },
       "steps": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro sayfasını açın.",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro için temel kurulum ve gerekli bağları tamamlayın.",
-        "2": "Beklenen sonucu doğrulamak için Codex / GitHub Copilot / Windsurf / Kiro içinde bir manuel işlem çalıştırın."
+        "0": "Codex / GitHub Copilot / Devin / Kiro sayfasını açın.",
+        "1": "Codex / GitHub Copilot / Devin / Kiro için temel kurulum ve gerekli bağları tamamlayın.",
+        "2": "Beklenen sonucu doğrulamak için Codex / GitHub Copilot / Devin / Kiro içinde bir manuel işlem çalıştırın."
       },
-      "summary": "Bu bölüm, günlük akışta Codex / GitHub Copilot / Windsurf / Kiro kullanımını açıklar.",
-      "title": "Codex / GitHub Copilot / Windsurf / Kiro platformları"
+      "summary": "Bu bölüm, günlük akışta Codex / GitHub Copilot / Devin / Kiro kullanımını açıklar.",
+      "title": "Codex / GitHub Copilot / Devin / Kiro platformları"
     },
     "quickStart": {
       "cautions": {

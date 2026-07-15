@@ -59,6 +59,7 @@ import {
   saveCodexInstanceQuickConfig,
 } from "../services/codexInstanceService";
 import { CodexSpeedSelect } from "./codex/CodexSpeedSelect";
+import { SingleSelectDropdown } from "./SingleSelectDropdown";
 import type { CodexAppSpeed } from "../types/codex";
 
 type MessageState = { text: string; tone?: "error" };
@@ -2162,109 +2163,18 @@ export function InstancesManager<TAccount extends AccountLike>({
     />
   );
 
-  type InstanceSelectProps = {
-    value: string;
-    onChange: (nextId: string) => void;
-    disabled?: boolean;
-  };
-
-  const InstanceSelect = ({
-    value,
-    onChange,
-    disabled = false,
-  }: InstanceSelectProps) => {
-    const [open, setOpen] = useState(false);
-    const menuRef = useRef<HTMLDivElement | null>(null);
-
-    useEffect(() => {
-      if (!open) return;
-      const handleClick = (event: MouseEvent) => {
-        if (
-          menuRef.current &&
-          !menuRef.current.contains(event.target as Node)
-        ) {
-          setOpen(false);
-        }
-      };
-      document.addEventListener("mousedown", handleClick);
-      return () => {
-        document.removeEventListener("mousedown", handleClick);
-      };
-    }, [open]);
-
-    useEffect(() => {
-      if (disabled && open) {
-        setOpen(false);
-      }
-    }, [disabled, open]);
-
-    const selected =
-      availableCopySourceInstances.find((item) => item.id === value) ||
-      availableCopySourceInstances.find((item) => item.isDefault) ||
-      null;
-    const selectedLabel = selected
-      ? selected.isDefault
-        ? t("instances.defaultName", "默认实例")
-        : selected.name || ""
-      : value === "__default__"
-        ? t("instances.defaultName", "默认实例")
-        : t("instances.form.copySourcePlaceholder", "选择来源实例");
-
-    return (
-      <div
-        className={`account-select ${disabled ? "disabled" : ""}`}
-        ref={menuRef}
-      >
-        <button
-          type="button"
-          className={`account-select-trigger ${open ? "open" : ""}`}
-          onClick={() => {
-            if (disabled) return;
-            setOpen((prev) => !prev);
-          }}
-          disabled={disabled}
-        >
-          <span className="account-select-label" title={selectedLabel}>
-            {selectedLabel}
-          </span>
-          <span className="account-select-meta">
-            <ChevronDown size={14} />
-          </span>
-        </button>
-        {open && !disabled && (
-          <div className="account-select-menu">
-            {availableCopySourceInstances.length === 0 ? (
-              <div className="account-select-item active">
-                <span className="account-select-email muted">
-                  {t("instances.defaultName", "默认实例")}
-                </span>
-              </div>
-            ) : (
-              availableCopySourceInstances.map((instance) => {
-                const label = instance.isDefault
-                  ? t("instances.defaultName", "默认实例")
-                  : instance.name || "";
-                return (
-                  <button
-                    type="button"
-                    key={instance.id}
-                    className={`account-select-item ${value === instance.id ? "active" : ""}`}
-                    onClick={() => {
-                      onChange(instance.id);
-                      setOpen(false);
-                    }}
-                    title={instance.userDataDir}
-                  >
-                    <span className="account-select-email">{label}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  // 注意：不要把带 useState 的下拉组件定义在 render 内部（否则父级重渲染会重置 open）。
+  // 复制来源实例使用模块级 SingleSelectDropdown（portal + 稳定类型）。
+  const copySourceOptions = useMemo(
+    () =>
+      availableCopySourceInstances.map((instance) => ({
+        value: instance.id,
+        label: instance.isDefault
+          ? t("instances.defaultName", "默认实例")
+          : instance.name || instance.id,
+      })),
+    [availableCopySourceInstances, t],
+  );
 
   const handleFormAccountChange = (nextId: string | null) => {
     setFormBindAccountId(resolveBindAccountValue(nextId) ?? "");
@@ -3144,9 +3054,31 @@ export function InstancesManager<TAccount extends AccountLike>({
                     <label>
                       {t("instances.form.copySource", "复制来源实例")}
                     </label>
-                    <InstanceSelect
+                    <SingleSelectDropdown
                       value={formCopySourceInstanceId}
                       onChange={setFormCopySourceInstanceId}
+                      options={
+                        copySourceOptions.length > 0
+                          ? copySourceOptions
+                          : [
+                              {
+                                value: "__default__",
+                                label: t(
+                                  "instances.defaultName",
+                                  "默认实例",
+                                ),
+                              },
+                            ]
+                      }
+                      placeholder={t(
+                        "instances.form.copySourcePlaceholder",
+                        "选择来源实例",
+                      )}
+                      ariaLabel={t(
+                        "instances.form.copySource",
+                        "复制来源实例",
+                      )}
+                      className="instance-copy-source-select"
                     />
                     <p className="form-hint">
                       {t(

@@ -175,6 +175,7 @@ function isAllowedEnglishReuse(key, value) {
     'WeChat',
     'WeChat Pay',
     'Windsurf',
+    'Devin',
     'Trae',
     'TRAE SOLO',
     'Trae CN',

@@ -1637,7 +1637,7 @@
 
 .codex-local-access-stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1685,6 +1685,10 @@
 
 .codex-local-access-stat-card-specialTokens {
   color: #7c3aed;
+}
+
+.codex-local-access-stat-card-cost {
+  color: #059669;
 }
 
 .codex-local-access-stat-card-latency {
@@ -2542,7 +2546,6 @@
 }
 
 @media (max-width: 980px) {
-  .codex-local-access-stats-grid,
   .codex-local-access-config-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2685,7 +2688,6 @@
 }
 
 @media (max-width: 640px) {
-  .codex-local-access-stats-grid,
   .codex-local-access-config-grid,
   .codex-local-access-config-extra-grid {
     grid-template-columns: 1fr;

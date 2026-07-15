@@ -242,7 +242,7 @@
     "settings": "設定",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "ダッシュボード",
     "morePlatforms": "その他のプラットフォーム",
     "instances": "マルチインスタンス",
@@ -667,10 +667,10 @@
       "githubCopilotSettingsTitle": "GitHub Copilot 設定",
       "ghcpAutoRefresh": "GitHub Copilot クォータの自動更新",
       "ghcpAutoRefreshDesc": "バックグラウンド更新頻度",
-      "windsurfSettingsTitle": "Windsurf 設定",
-      "windsurfAutoRefresh": "Windsurf 自動更新クォータ",
+      "windsurfSettingsTitle": "Devin 設定",
+      "windsurfAutoRefresh": "Devin 自動更新クォータ",
       "windsurfAutoRefreshDesc": "バックグラウンドでの更新頻度",
-      "windsurfAppPath": "Windsurf アプリのパス",
+      "windsurfAppPath": "Devin アプリのパス",
       "windsurfAppPathDesc": "空欄の場合は既定のパスを使用します",
       "windsurfAppPathPlaceholder": "既定のパス",
       "windsurfPathSelect": "選択",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "上位プラン優先",
         "planLowFirst": "下位プラン優先",
         "expirySoonFirst": "期限が近い順",
+        "random": "ランダム",
         "custom": "カスタム"
       },
       "statusUnconfigured": "未設定",
@@ -1976,7 +1977,12 @@
         "label": "統計範囲",
         "daily": "日",
         "weekly": "週",
-        "monthly": "月"
+        "monthly": "月",
+        "custom": "カスタム",
+        "start": "開始",
+        "end": "終了",
+        "apply": "適用",
+        "invalid": "終了時刻は開始時刻より前にできません"
       },
       "enableBeforeActivateTitle": "サービスが未有効です",
       "enableBeforeActivateMessage": "APIサービスは現在無効です。先に有効化する必要があります。有効化して切り替えますか？",
@@ -3194,6 +3200,11 @@
         "models": "モデルと機能",
         "logs": "統計とログ"
       },
+      "statsRange": {
+        "today": "今日",
+        "thisWeek": "今週",
+        "thisMonth": "今月"
+      },
       "healthTitle": "サービス状態",
       "compat": {
         "title": "プロトコル互換",
@@ -3271,6 +3282,24 @@
       "keys": {
         "policyTitle": "モデルポリシー",
         "advancedPolicyTitle": "詳細機能：モデルポリシー",
+        "accountScope": "アカウント切替範囲",
+        "accountScopeInherit": "サービスのアカウントプールに自動追従",
+        "accountScopeFixed": "このキーは紐づけたアカウントに固定され、サービスプールを継承できません",
+        "accountScopeSelected": "{{count}} 件選択済み",
+        "accountScopeInheritedCount": "アカウントプール：{{count}} 件継承",
+        "accountScopeUnavailable": "アカウントプール：利用可能なアカウントなし",
+        "accountScopeCount": "アカウントプール：{{selected}}/{{total}}",
+        "accountScopeRequired": "カスタムプールにはアカウントを1件以上選択してください",
+        "accountScopeModeInherit": "サービスプールを継承",
+        "accountScopeModeCustom": "カスタムプール",
+        "accountPrioritySet": "優先ルーティング用にアカウントを固定",
+        "accountPriorityPromote": "アカウントを最優先に移動",
+        "accountPriorityClear": "優先アカウントの固定を解除",
+        "accountPrioritySaved": "優先アカウントを固定しました",
+        "accountPriorityCleared": "優先アカウントの固定を解除しました",
+        "usageRange": "API キー使用期間",
+        "unsaved": "未保存",
+        "resetPolicy": "変更を破棄",
         "modelPrefix": "モデル接頭辞",
         "modelPrefixPlaceholder": "例: codex",
         "allowedModels": "許可モデル",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "再試行待ち",
         "disableCooling": "クールダウン無効",
         "saveOptions": "設定を保存",
+        "immediateSseResponse": "即時 SSE 200",
         "optionsSaved": "ルーティング設定を保存しました"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "パーセントを入力",
     "inputCredits": "Credits を入力",
     "windsurf": {
-      "title": "Windsurf 設定",
-      "appPath": "Windsurf パス"
+      "title": "Devin 設定",
+      "appPath": "Devin パス"
     },
     "windsurfRefreshInterval": "クォータ自動更新",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf アカウント管理",
+    "title": "Devin アカウント管理",
     "instances": {
       "unsupported": {
-        "desc": "Windsurfマルチインスタンスは現在macOSでのみ利用可能です。"
+        "desc": "Devinマルチインスタンスは現在macOSでのみ利用可能です。"
       }
     },
     "empty": {
-      "description": "「アカウントを追加」から Windsurf アカウントを管理できます"
+      "description": "「アカウントを追加」から Devin アカウントを管理できます"
     },
     "addModal": {
-      "title": "Windsurf アカウントを追加",
+      "title": "Devin アカウントを追加",
       "password": "メールログイン"
     },
     "password": {
-      "desc": "Windsurf アカウントのメールアドレスとパスワードでログインし、API Key とアカウント情報を自動取得します。",
+      "desc": "Devin アカウントのメールアドレスとパスワードでログインし、API Key とアカウント情報を自動取得します。",
       "emailPlaceholder": "メールアドレス",
       "passwordPlaceholder": "パスワード",
       "empty": "メールアドレスとパスワードを入力してください",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "さらに {{count}} 件失敗"
     },
     "oauth": {
-      "desc": "下のボタンをクリックし、ブラウザで Windsurf の認可を完了してください。"
+      "desc": "下のボタンをクリックし、ブラウザで Devin の認可を完了してください。"
     },
     "token": {
-      "desc": "Windsurf のアクセストークン、またはエクスポートした JSON データを貼り付けてください。"
+      "desc": "Devin のアクセストークン、またはエクスポートした JSON データを貼り付けてください。"
     },
     "import": {
-      "localDesc": "ローカルでログイン済みのセッションから Windsurf アカウントをインポート。",
-      "localClient": "ローカル Windsurf からインポート"
+      "localDesc": "ローカルでログイン済みのセッションから Devin アカウントをインポート。",
+      "localClient": "ローカル Devin からインポート"
     },
     "credits": {
       "title": "プラン",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "自動チャージ",
       "remaining": "残り {{value}}"
     },
-    "injectToVSCode": "Windsurfに切り替え",
-    "injectSuccess": "切り替えが完了しました。Windsurf を起動しています。",
-    "injectRequireClose": "切り替える前に Windsurf を閉じてください。",
+    "injectToVSCode": "Devinに切り替え",
+    "injectSuccess": "切り替えが完了しました。Devin を起動しています。",
+    "injectRequireClose": "切り替える前に Devin を閉じてください。",
     "flowNotice": {
-      "title": "Windsurf アカウントガイド（クリックで展開/折りたたみ）",
-      "desc": "アカウント切り替えでは、Windsurf のローカル認証ストレージを読み取り、システムの資格情報サービスを使って復号・再書き込みを行う必要があります。データは端末内のみで処理されます。",
-      "inject": "ワンクリック切り替え: このツールはローカルの Windsurf 暗号化情報（DPAPI/Keychain/Secret Service）を読み取り、state.vscdb 内の認証セッションを復号して Windsurf トークンを置き換え、再暗号化します。処理はすべて端末内で完結します。",
-      "reason": "必要な権限: Windsurf 認証データベース（state.vscdb）を読み取り、システム暗号化機能（Windows DPAPI / macOS Keychain / Linux Secret Service）を呼び出して復号・再書き込みを行います。",
-      "storage": "読み取り範囲: Windsurf ログインセッション関連データのみを処理し、すべての処理はローカルで実行されます。"
+      "title": "Devin アカウントガイド（クリックで展開/折りたたみ）",
+      "desc": "アカウント切り替えでは、Devin のローカル認証ストレージを読み取り、システムの資格情報サービスを使って復号・再書き込みを行う必要があります。データは端末内のみで処理されます。",
+      "inject": "ワンクリック切り替え: このツールはローカルの Devin 暗号化情報（DPAPI/Keychain/Secret Service）を読み取り、state.vscdb 内の認証セッションを復号して Devin トークンを置き換え、再暗号化します。処理はすべて端末内で完結します。",
+      "reason": "必要な権限: Devin 認証データベース（state.vscdb）を読み取り、システム暗号化機能（Windows DPAPI / macOS Keychain / Linux Secret Service）を呼び出して復号・再書き込みを行います。",
+      "storage": "読み取り範囲: Devin ログインセッション関連データのみを処理し、すべての処理はローカルで実行されます。"
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "設定へ",
       "goVerification": "起動検証へ",
       "goWakeup": "起動タスクへ",
-      "goWindsurf": "Windsurfへ",
+      "goWindsurf": "Devinへ",
       "openLayout": "プラットフォーム配置を開く"
     },
     "antigravity": {
@@ -4286,11 +4316,11 @@
     "navTitle": "機能マニュアル",
     "providers": {
       "cautions": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro で一括・高リスク操作を行う前に必ずバックアップします。",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro 実行前にフィルタ条件と対象を再確認します。"
+        "0": "Codex / GitHub Copilot / Devin / Kiro で一括・高リスク操作を行う前に必ずバックアップします。",
+        "1": "Codex / GitHub Copilot / Devin / Kiro 実行前にフィルタ条件と対象を再確認します。"
       },
       "keywords": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro プラットフォーム",
+        "0": "Codex / GitHub Copilot / Devin / Kiro プラットフォーム",
         "1": "ガイド",
         "2": "手順",
         "3": "アカウント",
@@ -4298,17 +4328,17 @@
         "5": "障害対応"
       },
       "outcomes": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro で何ができるかを理解します。",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro の推奨フローでミスを減らします。",
-        "2": "Codex / GitHub Copilot / Windsurf / Kiro で1回成功を確認してから拡張します。"
+        "0": "Codex / GitHub Copilot / Devin / Kiro で何ができるかを理解します。",
+        "1": "Codex / GitHub Copilot / Devin / Kiro の推奨フローでミスを減らします。",
+        "2": "Codex / GitHub Copilot / Devin / Kiro で1回成功を確認してから拡張します。"
       },
       "steps": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro のページを開きます。",
-        "1": "Codex / GitHub Copilot / Windsurf / Kiro の基本設定と必要な紐付けを完了します。",
-        "2": "Codex / GitHub Copilot / Windsurf / Kiro で手動操作を1回実行し、結果を確認します。"
+        "0": "Codex / GitHub Copilot / Devin / Kiro のページを開きます。",
+        "1": "Codex / GitHub Copilot / Devin / Kiro の基本設定と必要な紐付けを完了します。",
+        "2": "Codex / GitHub Copilot / Devin / Kiro で手動操作を1回実行し、結果を確認します。"
       },
-      "summary": "このセクションでは Codex / GitHub Copilot / Windsurf / Kiro の使い方を説明します。",
-      "title": "Codex / GitHub Copilot / Windsurf / Kiro プラットフォーム"
+      "summary": "このセクションでは Codex / GitHub Copilot / Devin / Kiro の使い方を説明します。",
+      "title": "Codex / GitHub Copilot / Devin / Kiro プラットフォーム"
     },
     "quickStart": {
       "cautions": {

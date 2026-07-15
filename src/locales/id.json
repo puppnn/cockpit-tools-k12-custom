@@ -291,7 +291,7 @@
     "zed": "Zed​",
     "codebuddy": "CodeBuddy​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "Dasbor",
     "morePlatforms": "Platform Lainnya",
     "collapseSidebar": "Ciutkan bilah sisi",
@@ -725,10 +725,10 @@
       "githubCopilotSettingsTitle": "Pengaturan GitHub Copilot",
       "ghcpAutoRefresh": "Penyegaran Otomatis Kuota GitHub Copilot",
       "ghcpAutoRefreshDesc": "Frekuensi pembaruan latar belakang",
-      "windsurfSettingsTitle": "Pengaturan Windsurf",
-      "windsurfAutoRefresh": "Penyegaran Otomatis Kuota Windsurf",
+      "windsurfSettingsTitle": "Pengaturan Devin",
+      "windsurfAutoRefresh": "Penyegaran Otomatis Kuota Devin",
       "windsurfAutoRefreshDesc": "Frekuensi pembaruan latar belakang",
-      "windsurfAppPath": "Jalur Aplikasi Windsurf",
+      "windsurfAppPath": "Jalur Aplikasi Devin",
       "windsurfAppPathDesc": "Biarkan kosong untuk menggunakan jalur bawaan",
       "windsurfAppPathPlaceholder": "Jalur bawaan",
       "windsurfPathSelect": "Pilih",
@@ -2004,6 +2004,7 @@
         "planHighFirst": "Paket Tinggi Dulu",
         "planLowFirst": "Paket Rendah Dulu",
         "expirySoonFirst": "Kedaluwarsa Cepat Dulu",
+        "random": "Acak",
         "custom": "Kustom"
       },
       "statusUnconfigured": "Belum dikonfigurasi",
@@ -2026,7 +2027,12 @@
         "label": "Rentang statistik",
         "daily": "Hari",
         "weekly": "Minggu",
-        "monthly": "Bulan"
+        "monthly": "Bulan",
+        "custom": "Kustom",
+        "start": "Mulai",
+        "end": "Selesai",
+        "apply": "Terapkan",
+        "invalid": "Waktu selesai tidak boleh lebih awal dari waktu mulai"
       },
       "enableBeforeActivateTitle": "Layanan belum diaktifkan",
       "enableBeforeActivateMessage": "Layanan API saat ini dinonaktifkan dan harus diaktifkan terlebih dahulu. Aktifkan dan alihkan sekarang?",
@@ -3241,6 +3247,11 @@
         "models": "Model dan kemampuan",
         "logs": "Statistik dan log"
       },
+      "statsRange": {
+        "today": "Hari ini",
+        "thisWeek": "Minggu ini",
+        "thisMonth": "Bulan ini"
+      },
       "healthTitle": "Kesehatan layanan",
       "compat": {
         "title": "Kompatibilitas Protokol",
@@ -3318,6 +3329,24 @@
       "keys": {
         "policyTitle": "Kebijakan Model",
         "advancedPolicyTitle": "Lanjutan: Kebijakan Model",
+        "accountScope": "Cakupan rotasi akun",
+        "accountScopeInherit": "Ikuti kumpulan akun layanan secara otomatis",
+        "accountScopeFixed": "Kunci ini tetap terikat ke akunnya dan tidak dapat mengikuti kumpulan layanan",
+        "accountScopeSelected": "{{count}} akun dipilih",
+        "accountScopeInheritedCount": "Kumpulan akun: mengikuti {{count}}",
+        "accountScopeUnavailable": "Kumpulan akun: tidak ada akun tersedia",
+        "accountScopeCount": "Kumpulan akun: {{selected}}/{{total}}",
+        "accountScopeRequired": "Pilih minimal satu akun untuk kumpulan khusus",
+        "accountScopeModeInherit": "Ikuti kumpulan layanan",
+        "accountScopeModeCustom": "Kumpulan akun khusus",
+        "accountPrioritySet": "Sematkan akun untuk perutean prioritas",
+        "accountPriorityPromote": "Pindahkan akun ke prioritas tertinggi",
+        "accountPriorityClear": "Hapus sematan akun prioritas",
+        "accountPrioritySaved": "Akun prioritas disematkan",
+        "accountPriorityCleared": "Sematan akun prioritas dihapus",
+        "usageRange": "Periode penggunaan kunci API",
+        "unsaved": "Belum disimpan",
+        "resetPolicy": "Buang perubahan",
         "modelPrefix": "Prefiks Model",
         "modelPrefixPlaceholder": "Contoh: codex",
         "allowedModels": "Model Diizinkan",
@@ -3344,6 +3373,7 @@
         "maxRetryInterval": "Tunggu retry",
         "disableCooling": "Matikan cooldown",
         "saveOptions": "Simpan Opsi",
+        "immediateSseResponse": "SSE 200 langsung",
         "optionsSaved": "Opsi routing tersimpan"
       },
       "validation": {
@@ -3939,8 +3969,8 @@
     "inputPercent": "Enter percentage​",
     "inputCredits": "Masukkan kredit",
     "windsurf": {
-      "title": "Windsurf Settings​",
-      "appPath": "Windsurf Path​"
+      "title": "Devin Settings​",
+      "appPath": "Devin Path​"
     },
     "windsurfRefreshInterval": "Quota Auto Refresh​",
     "kiro": {
@@ -4044,21 +4074,21 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf Account​",
+    "title": "Devin Account​",
     "instances": {
       "unsupported": {
-        "desc": "Windsurf multi-instance is available only on macOS.​"
+        "desc": "Devin multi-instance is available only on macOS.​"
       }
     },
     "empty": {
-      "description": "Klik \"Tambah Akun\" untuk mulai mengelola akun Windsurf Anda"
+      "description": "Klik \"Tambah Akun\" untuk mulai mengelola akun Devin Anda"
     },
     "addModal": {
-      "title": "Tambah Akun Windsurf",
+      "title": "Tambah Akun Devin",
       "password": "Login email"
     },
     "password": {
-      "desc": "Masuk dengan email dan kata sandi akun Windsurf untuk mengambil API key dan data akun secara otomatis.",
+      "desc": "Masuk dengan email dan kata sandi akun Devin untuk mengambil API key dan data akun secara otomatis.",
       "emailPlaceholder": "Alamat email",
       "passwordPlaceholder": "Kata sandi",
       "empty": "Masukkan email dan kata sandi",
@@ -4105,14 +4135,14 @@
       "batchFailureMore": "{{count}} lainnya gagal"
     },
     "oauth": {
-      "desc": "Klik tombol di bawah ini dan selesaikan otorisasi Windsurf di peramban Anda."
+      "desc": "Klik tombol di bawah ini dan selesaikan otorisasi Devin di peramban Anda."
     },
     "token": {
-      "desc": "Tempel token akses Windsurf atau data JSON yang diekspor."
+      "desc": "Tempel token akses Devin atau data JSON yang diekspor."
     },
     "import": {
-      "localDesc": "Impor data akun Windsurf dari berkas JSON.",
-      "localClient": "Impor dari Windsurf lokal"
+      "localDesc": "Impor data akun Devin dari berkas JSON.",
+      "localClient": "Impor dari Devin lokal"
     },
     "credits": {
       "title": "Plan​",
@@ -4136,15 +4166,15 @@
       "autoRecharge": "Isi ulang otomatis",
       "remaining": "{{value}} tersisa"
     },
-    "injectToVSCode": "Beralih ke Windsurf",
-    "injectSuccess": "Penggantian selesai. Windsurf diluncurkan.",
-    "injectRequireClose": "Silakan tutup Windsurf sebelum beralih.",
+    "injectToVSCode": "Beralih ke Devin",
+    "injectSuccess": "Penggantian selesai. Devin diluncurkan.",
+    "injectRequireClose": "Silakan tutup Devin sebelum beralih.",
     "flowNotice": {
-      "title": "Panduan akun Windsurf (klik untuk perluas/ciutkan)",
-      "desc": "Penggantian akun memerlukan pembacaan penyimpanan auth lokal Windsurf dan, dengan aturan yang kompatibel dengan klien, menggunakan kemampuan kredensial/enkripsi sistem untuk dekripsi/tulis-balik. Data diproses secara lokal saja.",
-      "inject": "Penggantian satu klik: Alat ini membaca materi enkripsi lokal Windsurf (DPAPI/Keychain/Secret Service), memproses sesi auth di state.vscdb, menulis kembali token Windsurf, dan menjaga semuanya lokal di mesin Anda.",
-      "reason": "Cakupan izin: baca database auth Windsurf (state.vscdb) dan gunakan kemampuan enkripsi sistem (Windows DPAPI / macOS Keychain / Linux Secret Service) untuk mendekripsi dan menulis kembali data sesi auth.",
-      "storage": "Cakupan data: hanya entri terkait sesi auth Windsurf yang dibaca/diperbarui; semua proses berjalan secara lokal."
+      "title": "Panduan akun Devin (klik untuk perluas/ciutkan)",
+      "desc": "Penggantian akun memerlukan pembacaan penyimpanan auth lokal Devin dan, dengan aturan yang kompatibel dengan klien, menggunakan kemampuan kredensial/enkripsi sistem untuk dekripsi/tulis-balik. Data diproses secara lokal saja.",
+      "inject": "Penggantian satu klik: Alat ini membaca materi enkripsi lokal Devin (DPAPI/Keychain/Secret Service), memproses sesi auth di state.vscdb, menulis kembali token Devin, dan menjaga semuanya lokal di mesin Anda.",
+      "reason": "Cakupan izin: baca database auth Devin (state.vscdb) dan gunakan kemampuan enkripsi sistem (Windows DPAPI / macOS Keychain / Linux Secret Service) untuk mendekripsi dan menulis kembali data sesi auth.",
+      "storage": "Cakupan data: hanya entri terkait sesi auth Devin yang dibaca/diperbarui; semua proses berjalan secara lokal."
     }
   },
   "kiro": {
@@ -4322,7 +4352,7 @@
       "goSettings": "Go to Settings​",
       "goVerification": "Go to Wakeup Verification​",
       "goWakeup": "Go to Wakeup Tasks​",
-      "goWindsurf": "Go to Windsurf​",
+      "goWindsurf": "Go to Devin​",
       "openLayout": "Open Platform Layout​"
     },
     "antigravity": {
@@ -4443,7 +4473,7 @@
         "1": "Beberapa platform atau kemampuan dibatasi sistem. Ikuti petunjuk di halaman."
       },
       "keywords": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro platforms​",
+        "0": "Codex / GitHub Copilot / Devin / Kiro platforms​",
         "1": "github copilot​",
         "2": "windsurf​",
         "3": "kiro​",
@@ -4452,7 +4482,7 @@
       },
       "outcomes": {
         "0": "Codex: penggantian akun + penyegaran kuota.",
-        "1": "GitHub Copilot/Windsurf/Kiro: mendukung injeksi ke rantai VS Code.",
+        "1": "GitHub Copilot/Devin/Kiro: mendukung injeksi ke rantai VS Code.",
         "2": "Setiap platform mendukung filter independen, pengelompokan, impor, dan ekspor."
       },
       "steps": {
@@ -4461,7 +4491,7 @@
         "2": "Jalankan \"Ganti/Injeksi\" dan verifikasi di klien bahwa itu berlaku."
       },
       "summary": "Keempat halaman platform berbagi struktur yang sama: ringkasan akun + multi-instansi, dengan OAuth, impor Token/JSON dan penggantian.",
-      "title": "Platform Codex / GitHub Copilot / Windsurf / Kiro"
+      "title": "Platform Codex / GitHub Copilot / Devin / Kiro"
     },
     "quickStart": {
       "cautions": {

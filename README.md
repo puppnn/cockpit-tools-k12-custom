@@ -3,11 +3,11 @@
 [English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
 [![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
-[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.2-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.2)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.4-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.4)
 [![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
 > [!IMPORTANT]
-> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.2**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
+> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.4**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
 
 一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Grok CLI**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN**、**Zed** 和 **ZCode**，并支持多账号多实例并行运行。
 
@@ -24,11 +24,13 @@
 
 ---
 
-## 上游 v1.3.2 集成
+## 上游 v1.3.4 集成
 
-- **完整平台能力**：保留上游 v1.3.2 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
+- **完整平台能力**：保留上游 v1.3.4 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
 - **新版 Codex 账号体验**：采用动态套餐筛选和额度摘要、模型专属附加额度显隐、清空筛选、改进后的账号展示名与导入流程。
-- **API 服务增强**：保留上游备用账号、导入后同步加入 API 服务账号池、请求日志账号展示和代理连接优化；本 Fork 的 K12 会话策略叠加在这些能力之上。
+- **Client Key 账号范围**：保留按 Key 继承或自定义有序账号池、置顶优先账号、允许/排除模型与分周期用量统计。K12 会话亲和和新会话优先池只在当前 Client Key 允许的账号范围内工作，不会越过 Key 的账号或模型限制。
+- **路由与流式响应**：保留上游随机账号路由和可选的“SSE 立即返回 200”。随机路由仍遵守会话亲和、账号健康、冷却、额度保留和模型资格；立即 SSE 默认关闭，仅改变流式响应提交时机，不改变账号选择策略。
+- **API 服务增强**：保留上游备用账号、导入后同步加入 API 服务账号池、请求日志账号/多开实例展示和代理连接优化；本 Fork 的 K12 会话策略叠加在这些能力之上。
 - **配置兼容**：继续支持本 Fork 的 `weeklyPercent: null`、新会话优先账号池和 K12 持久会话状态，不会用上游默认值覆盖这些定制配置。
 
 ---
@@ -50,7 +52,7 @@
 ### 新会话优先账号池
 
 - 可在 **API 服务 > 调度选项** 中开启“新会话优先”，并选择一个或多个当前服务成员账号。
-- 只有能识别出稳定会话且尚未建立任何亲和绑定的新会话才会使用所选池；已确认 K12、临时/溢出 K12 和普通内存亲和命中始终保持原账号。仍有 K12 能承接新会话时，K12 也始终先于所选的非 K12 账号。
+- 只有能识别出稳定会话且尚未建立任何亲和绑定的新会话才会使用所选池；已确认 K12、临时/溢出 K12 和普通内存亲和命中始终保持原账号。仍有 K12 能承接新会话时，K12 也始终先于所选的非 K12 账号；当 Client Key 设置了账号范围时，只使用优先池与该范围的交集。
 - 修改、关闭优先池不会迁移已经建立的会话。所选账号因模型、额度、冷却、禁用或并发容量不可用时，自动回退现有调度策略。
 - 设置通过 sidecar 热状态文件更新，不会仅因调整优先池而重启 API 服务或清空普通内存亲和；账号移出服务或被删除后会自动清理对应选择。
 

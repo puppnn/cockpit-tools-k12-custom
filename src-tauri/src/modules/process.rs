@@ -747,12 +747,18 @@ fn windows_app_launch_signature(app: &str) -> Option<WindowsAppLaunchSignature> 
             supports_multi_instance: true,
         }),
         "windsurf" => Some(WindowsAppLaunchSignature {
-            label: "Windsurf",
-            exe_names: &["Windsurf.exe", "Electron.exe"],
-            command_names: &["windsurf"],
-            protocol_names: &["windsurf"],
-            display_keywords: &["windsurf", "codeium"],
-            common_paths: &["Windsurf\\Windsurf.exe", "Windsurf\\Electron.exe"],
+            // Windsurf 已重命名为 Devin；保留旧路径关键字以兼容旧安装。
+            label: "Devin",
+            exe_names: &["Devin.exe", "Windsurf.exe", "Electron.exe"],
+            command_names: &["devin", "windsurf"],
+            protocol_names: &["devin", "windsurf"],
+            display_keywords: &["devin", "windsurf", "codeium", "exafunction"],
+            common_paths: &[
+                "Devin\\Devin.exe",
+                "Devin\\Electron.exe",
+                "Windsurf\\Windsurf.exe",
+                "Windsurf\\Electron.exe",
+            ],
             supports_multi_instance: true,
         }),
         "kiro" => Some(WindowsAppLaunchSignature {

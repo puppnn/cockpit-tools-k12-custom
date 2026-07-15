@@ -1606,6 +1606,116 @@ fn normalize_schedule(raw: &CodexWakeupSchedule) -> CodexWakeupSchedule {
     }
 }
 
+fn existing_codex_account_id_set() -> HashSet<String> {
+    codex_account::list_accounts()
+        .into_iter()
+        .map(|account| account.id)
+        .collect()
+}
+
+/// Keep only non-empty account ids that still exist in the Codex account store.
+/// Returns true when the list changed.
+fn retain_existing_account_ids(account_ids: &mut Vec<String>, existing: &HashSet<String>) -> bool {
+    let before = account_ids.clone();
+    account_ids.retain(|account_id| {
+        let trimmed = account_id.trim();
+        !trimmed.is_empty() && existing.contains(trimmed)
+    });
+    if account_ids != &before {
+        return true;
+    }
+    false
+}
+
+/// Drop deleted/missing account ids from every task. Tasks that become empty are removed.
+/// Returns true when state changed.
+fn prune_missing_accounts_from_state(
+    state: &mut CodexWakeupState,
+    existing: &HashSet<String>,
+) -> bool {
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(state.tasks.len());
+    for mut task in state.tasks.drain(..) {
+        if retain_existing_account_ids(&mut task.account_ids, existing) {
+            changed = true;
+            task.updated_at = now_ts();
+        }
+        if task.account_ids.is_empty() {
+            changed = true;
+            continue;
+        }
+        kept.push(task);
+    }
+    state.tasks = kept;
+    changed
+}
+
+/// Remove deleted account ids from persisted Codex wakeup tasks.
+/// Called when Codex accounts are deleted so task snapshots stay in sync.
+pub fn remove_deleted_accounts_from_tasks(account_ids: &[String]) -> Result<(), String> {
+    let remove_ids: HashSet<String> = account_ids
+        .iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect();
+    if remove_ids.is_empty() {
+        return Ok(());
+    }
+
+    let _lock = TASKS_LOCK.lock().map_err(|_| "获取 Codex 唤醒任务锁失败")?;
+    let path = tasks_path()?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取 Codex 唤醒任务失败: {}", e))?;
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+    let mut state: CodexWakeupState = match serde_json::from_str(&content) {
+        Ok(state) => state,
+        Err(error) => {
+            quarantine_corrupted_wakeup_file(&path, "任务配置", &error);
+            return Ok(());
+        }
+    };
+
+    let mut changed = false;
+    let mut kept = Vec::with_capacity(state.tasks.len());
+    for mut task in state.tasks.drain(..) {
+        let before_len = task.account_ids.len();
+        task.account_ids
+            .retain(|account_id| !remove_ids.contains(account_id.trim()));
+        if task.account_ids.len() != before_len {
+            changed = true;
+            task.updated_at = now_ts();
+        }
+        if task.account_ids.is_empty() {
+            changed = true;
+            continue;
+        }
+        kept.push(task);
+    }
+    if !changed {
+        return Ok(());
+    }
+
+    state.tasks = kept;
+    // Normalize + refresh schedules before writing, without re-entering load_state locks.
+    state.tasks = state.tasks.iter().map(normalize_task).collect();
+    state.tasks.retain(|task| !task.account_ids.is_empty());
+    let existing = existing_codex_account_id_set();
+    let _ = prune_missing_accounts_from_state(&mut state, &existing);
+    refresh_next_run_at(&mut state);
+    save_json_atomic(&path, &state)?;
+    logger::log_info(&format!(
+        "[CodexWakeup] 已从唤醒任务中移除已删除账号引用: removed={}, remaining_tasks={}",
+        remove_ids.len(),
+        state.tasks.len()
+    ));
+    Ok(())
+}
+
 fn normalize_task(raw: &CodexWakeupTask) -> CodexWakeupTask {
     let now = now_ts();
     let mut account_ids: Vec<String> = raw
@@ -1759,8 +1869,10 @@ fn load_state_inner() -> Result<CodexWakeupState, String> {
     state.model_preset_migrations.sort();
     state.model_preset_migrations.dedup();
     let migration_changed = apply_model_preset_migrations(&mut state);
+    let existing_accounts = existing_codex_account_id_set();
+    let account_prune_changed = prune_missing_accounts_from_state(&mut state, &existing_accounts);
     refresh_next_run_at(&mut state);
-    if migration_changed {
+    if migration_changed || account_prune_changed {
         let _lock = TASKS_LOCK.lock().map_err(|_| "获取 Codex 唤醒任务锁失败")?;
         save_json_atomic(&path, &state)?;
     }
@@ -1816,6 +1928,8 @@ pub fn save_state(next_state: &CodexWakeupState) -> Result<CodexWakeupState, Str
     state.model_preset_migrations.sort();
     state.model_preset_migrations.dedup();
     apply_model_preset_migrations(&mut state);
+    let existing_accounts = existing_codex_account_id_set();
+    let _ = prune_missing_accounts_from_state(&mut state, &existing_accounts);
 
     refresh_next_run_at(&mut state);
 
@@ -2390,13 +2504,15 @@ pub async fn run_batch(
     run_id: Option<String>,
     cancel_scope_id: Option<&str>,
 ) -> Result<CodexWakeupBatchResult, String> {
+    let existing_accounts = existing_codex_account_id_set();
     let cleaned_ids: Vec<String> = account_ids
         .into_iter()
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
+        .filter(|item| existing_accounts.contains(item))
         .collect();
     if cleaned_ids.is_empty() {
-        return Err("至少选择一个账号".to_string());
+        return Err("至少选择一个有效账号（已删除的账号不会被执行）".to_string());
     }
 
     let prompt = prompt
@@ -2584,10 +2700,12 @@ pub fn get_task(task_id: &str) -> Result<Option<CodexWakeupTask>, String> {
 mod tests {
     use super::{
         append_version_manager_cli_dirs, apply_model_preset_migrations, default_model_presets,
-        CodexWakeupModelPreset, CodexWakeupState, GPT_5_5_MODEL_PRESET_MIGRATION_ID,
+        prune_missing_accounts_from_state, retain_existing_account_ids, CodexWakeupModelPreset,
+        CodexWakeupSchedule, CodexWakeupState, CodexWakeupTask, GPT_5_5_MODEL_PRESET_MIGRATION_ID,
         GPT_5_6_MODEL_PRESETS_MIGRATION_ID, PRUNE_LEGACY_MODEL_PRESETS_MIGRATION_ID,
         REASONING_EFFORT_MEDIUM,
     };
+    use std::collections::HashSet;
     use std::fs;
     use std::path::PathBuf;
 
@@ -2599,6 +2717,75 @@ mod tests {
             allowed_reasoning_efforts: vec![REASONING_EFFORT_MEDIUM.to_string()],
             default_reasoning_effort: REASONING_EFFORT_MEDIUM.to_string(),
         }
+    }
+
+    fn sample_task(id: &str, account_ids: &[&str]) -> CodexWakeupTask {
+        CodexWakeupTask {
+            id: id.to_string(),
+            name: id.to_string(),
+            enabled: true,
+            account_ids: account_ids.iter().map(|item| item.to_string()).collect(),
+            prompt: None,
+            model: None,
+            model_display_name: None,
+            model_reasoning_effort: None,
+            schedule: CodexWakeupSchedule {
+                kind: "daily".to_string(),
+                daily_time: Some("09:00".to_string()),
+                weekly_days: Vec::new(),
+                weekly_time: None,
+                interval_hours: None,
+                quota_reset_window: None,
+                startup_delay_minutes: None,
+            },
+            created_at: 1,
+            updated_at: 1,
+            last_run_at: None,
+            last_status: None,
+            last_message: None,
+            last_success_count: None,
+            last_failure_count: None,
+            last_duration_ms: None,
+            next_run_at: None,
+            execution_mode: None,
+            confirm_timeout_minutes: None,
+        }
+    }
+
+    #[test]
+    fn retain_existing_account_ids_drops_missing() {
+        let existing = HashSet::from(["keep-a".to_string(), "keep-b".to_string()]);
+        let mut account_ids = vec![
+            "keep-a".to_string(),
+            "deleted".to_string(),
+            "keep-b".to_string(),
+            "".to_string(),
+        ];
+        assert!(retain_existing_account_ids(&mut account_ids, &existing));
+        assert_eq!(
+            account_ids,
+            vec!["keep-a".to_string(), "keep-b".to_string()]
+        );
+        assert!(!retain_existing_account_ids(&mut account_ids, &existing));
+    }
+
+    #[test]
+    fn prune_missing_accounts_removes_stale_ids_and_empty_tasks() {
+        let mut state = CodexWakeupState {
+            enabled: true,
+            tasks: vec![
+                sample_task("task-keep", &["acc-1", "acc-gone"]),
+                sample_task("task-empty", &["acc-gone"]),
+            ],
+            model_presets: Vec::new(),
+            model_preset_migrations: Vec::new(),
+        };
+        let existing = HashSet::from(["acc-1".to_string()]);
+
+        assert!(prune_missing_accounts_from_state(&mut state, &existing));
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(state.tasks[0].id, "task-keep");
+        assert_eq!(state.tasks[0].account_ids, vec!["acc-1".to_string()]);
     }
 
     #[test]

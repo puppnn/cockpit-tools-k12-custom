@@ -19,7 +19,7 @@ use crate::modules::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -73,9 +73,7 @@ fn get_codex_batch_delete_jobs_dir() -> PathBuf {
     let data_dir = account::get_data_dir()
         .or_else(|_| account::resolve_data_dir())
         .unwrap_or_else(|_| PathBuf::from(".antigravity_cockpit"));
-    let dir = data_dir.join(CODEX_BATCH_DELETE_JOBS_DIR);
-    let _ = fs::create_dir_all(&dir);
-    dir
+    data_dir.join(CODEX_BATCH_DELETE_JOBS_DIR)
 }
 
 fn sanitize_codex_batch_delete_job_id(job_id: &str) -> Result<String, String> {
@@ -97,14 +95,32 @@ fn codex_batch_delete_job_snapshot_path(job_id: &str) -> Result<PathBuf, String>
     Ok(get_codex_batch_delete_jobs_dir().join(format!("{}.json", safe_id)))
 }
 
+fn ensure_codex_batch_delete_jobs_dir(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        return Ok(());
+    }
+    if path.exists() {
+        return Err(format!(
+            "创建 Codex 批量删除任务目录失败: path={} 不是目录",
+            path.display()
+        ));
+    }
+    fs::create_dir(path).map_err(|error| {
+        format!(
+            "创建 Codex 批量删除任务目录失败: path={}, error={}",
+            path.display(),
+            error
+        )
+    })
+}
+
 fn save_codex_batch_delete_job_snapshot(
     job_id: &str,
     job: &CodexBatchDeleteJob,
 ) -> Result<(), String> {
     let path = codex_batch_delete_job_snapshot_path(job_id)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("创建 Codex 批量删除任务目录失败: {}", error))?;
+        ensure_codex_batch_delete_jobs_dir(parent)?;
     }
     let content = serde_json::to_string_pretty(job)
         .map_err(|error| format!("序列化 Codex 批量删除任务失败: {}", error))?;
@@ -252,6 +268,14 @@ async fn run_codex_batch_delete_job(job_id: String) {
 
         if let Some(account_id) = deleted_account_id_for_cleanup {
             if let Err(error) =
+                codex_wakeup::remove_deleted_accounts_from_tasks(&[account_id.clone()])
+            {
+                logger::log_warn(&format!(
+                    "[Codex Batch Delete] 清理唤醒任务账号引用失败: job_id={}, account_id={}, error={}",
+                    job_id, account_id, error
+                ));
+            }
+            if let Err(error) =
                 codex_local_access::remove_deleted_accounts_from_local_access_pool(&[account_id])
                     .await
             {
@@ -315,7 +339,9 @@ fn start_codex_batch_delete_job(
         created_at: now,
         updated_at: now,
     };
-    save_codex_batch_delete_job_snapshot(&job_id, &job)?;
+    // 任务快照用于崩溃恢复，但不能阻断实际删除。某些 Windows 数据目录位于
+    // junction/reparse point 下时，创建新目录可能返回 ERROR_UNTRUSTED_MOUNT_POINT。
+    save_codex_batch_delete_job_snapshot_best_effort(&job_id, &job);
     {
         let mut jobs = CODEX_BATCH_DELETE_JOBS.lock().unwrap();
         jobs.insert(job_id.clone(), job);
@@ -876,6 +902,12 @@ async fn run_codex_post_refresh_checks(app: &AppHandle) {
 #[tauri::command]
 pub async fn delete_codex_account(account_id: String) -> Result<(), String> {
     codex_account::remove_account(&account_id)?;
+    if let Err(error) = codex_wakeup::remove_deleted_accounts_from_tasks(&[account_id.clone()]) {
+        logger::log_warn(&format!(
+            "[Codex] 清理唤醒任务账号引用失败: account_id={}, error={}",
+            account_id, error
+        ));
+    }
     codex_local_access::remove_deleted_accounts_from_local_access_pool(&[account_id]).await?;
     Ok(())
 }
@@ -884,6 +916,13 @@ pub async fn delete_codex_account(account_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn delete_codex_accounts(account_ids: Vec<String>) -> Result<(), String> {
     codex_account::remove_accounts(&account_ids)?;
+    if let Err(error) = codex_wakeup::remove_deleted_accounts_from_tasks(&account_ids) {
+        logger::log_warn(&format!(
+            "[Codex] 批量清理唤醒任务账号引用失败: count={}, error={}",
+            account_ids.len(),
+            error
+        ));
+    }
     codex_local_access::remove_deleted_accounts_from_local_access_pool(&account_ids).await?;
     Ok(())
 }
@@ -951,7 +990,8 @@ fn apply_codex_switch_auth_projections(account: &CodexAccount, user_config: &con
             } else {
                 logger::log_info("OpenCode 未在运行，准备启动");
             }
-            if let Err(e) = process::start_opencode_with_path(Some(&user_config.opencode_app_path)) {
+            if let Err(e) = process::start_opencode_with_path(Some(&user_config.opencode_app_path))
+            {
                 logger::log_warn(&format!("OpenCode 启动失败: {}", e));
             }
         } else if !user_config.opencode_auth_overwrite_on_switch {
@@ -997,10 +1037,7 @@ async fn reactivate_imported_current_if_needed(imported: &[CodexAccount]) {
         let user_config = config::get_user_config();
         apply_codex_switch_auth_projections(&account, &user_config);
         if let Err(e) = codex_speed::write_official_app_speed(account.app_speed.clone()) {
-            logger::log_warn(&format!(
-                "[Codex导入] 重新激活后写入 app speed 失败: {}",
-                e
-            ));
+            logger::log_warn(&format!("[Codex导入] 重新激活后写入 app speed 失败: {}", e));
         }
     }
 }
@@ -1454,14 +1491,8 @@ pub fn update_codex_api_key_credentials(
 pub async fn update_codex_api_key_bound_oauth_account(
     account_id: String,
     bound_oauth_account_id: Option<String>,
-    bound_oauth_use_local_gateway: Option<bool>,
 ) -> Result<CodexAccount, String> {
-    codex_account::update_api_key_bound_oauth_account(
-        &account_id,
-        bound_oauth_account_id,
-        bound_oauth_use_local_gateway.unwrap_or(false),
-    )
-    .await
+    codex_account::update_api_key_bound_oauth_account(&account_id, bound_oauth_account_id).await
 }
 
 #[tauri::command]
@@ -2142,9 +2173,7 @@ async fn run_single_model_provider_chat_test(
             success: false,
             prompt: prompt.to_string(),
             reply: None,
-            error: Some(
-                codex_local_access::MODEL_PROVIDER_CHAT_TEST_CANCELLED_ERROR.to_string(),
-            ),
+            error: Some(codex_local_access::MODEL_PROVIDER_CHAT_TEST_CANCELLED_ERROR.to_string()),
             duration_ms: None,
             timestamp,
         };
@@ -3065,12 +3094,10 @@ pub async fn codex_local_access_rotate_api_key() -> Result<CodexLocalAccessState
 #[tauri::command]
 pub async fn codex_local_access_update_bound_oauth_account(
     bound_oauth_account_id: Option<String>,
-    bound_oauth_use_local_gateway: Option<bool>,
     bound_oauth_quota_reserve: Option<CodexLocalAccessQuotaReserve>,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_bound_oauth_account(
         bound_oauth_account_id,
-        bound_oauth_use_local_gateway.unwrap_or(false),
         bound_oauth_quota_reserve,
     )
     .await
@@ -3086,9 +3113,12 @@ pub async fn codex_local_access_query_request_logs(
     page: u32,
     page_size: u32,
     stats_range: Option<String>,
+    start_at: Option<i64>,
+    end_at: Option<i64>,
     model_query: Option<String>,
     account_query: Option<String>,
     api_key_query: Option<String>,
+    instance_query: Option<String>,
     gateway_mode: Option<CodexLocalAccessGatewayMode>,
     request_kind: Option<CodexLocalAccessRequestKind>,
     success: Option<bool>,
@@ -3098,15 +3128,26 @@ pub async fn codex_local_access_query_request_logs(
         page,
         page_size,
         stats_range,
+        start_at,
+        end_at,
         model_query,
         account_query,
         api_key_query,
+        instance_query,
         gateway_mode,
         request_kind,
         success,
         error_category,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_query_stats(
+    start_at: i64,
+    end_at: i64,
+) -> Result<crate::models::codex_local_access::CodexLocalAccessStatsWindow, String> {
+    codex_local_access::query_local_access_stats_window(start_at, end_at).await
 }
 
 #[tauri::command]
@@ -3175,6 +3216,7 @@ pub async fn codex_local_access_update_routing_options(
     max_retry_credentials: u16,
     max_retry_interval_ms: u64,
     disable_cooling: bool,
+    immediate_sse_response: bool,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_routing_options(
         session_affinity,
@@ -3184,6 +3226,7 @@ pub async fn codex_local_access_update_routing_options(
         max_retry_credentials,
         max_retry_interval_ms,
         disable_cooling,
+        immediate_sse_response,
     )
     .await
 }
@@ -3244,13 +3287,6 @@ pub async fn codex_local_access_update_client_base_url_host(
 }
 
 #[tauri::command]
-pub async fn codex_local_access_update_image_generation_mode(
-    image_generation_mode: crate::models::codex_local_access::CodexLocalAccessImageGenerationMode,
-) -> Result<CodexLocalAccessState, String> {
-    codex_local_access::update_local_access_image_generation_mode(image_generation_mode).await
-}
-
-#[tauri::command]
 pub async fn codex_local_access_create_api_key(
     label: Option<String>,
 ) -> Result<CodexLocalAccessState, String> {
@@ -3265,6 +3301,8 @@ pub async fn codex_local_access_update_api_key(
     model_prefix: Option<String>,
     allowed_models: Option<Vec<String>>,
     excluded_models: Option<Vec<String>>,
+    account_ids: Option<Vec<String>>,
+    inherit_account_pool: Option<bool>,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_api_key(
         api_key_id,
@@ -3273,8 +3311,20 @@ pub async fn codex_local_access_update_api_key(
         model_prefix,
         allowed_models,
         excluded_models,
+        account_ids,
+        inherit_account_pool,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_set_api_key_account_priority(
+    api_key_id: String,
+    account_id: String,
+    pinned: bool,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::set_local_access_api_key_account_priority(api_key_id, account_id, pinned)
+        .await
 }
 
 #[tauri::command]
@@ -3446,6 +3496,37 @@ pub async fn codex_local_access_chat_test_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_delete_jobs_dir_reuses_existing_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "codex-batch-delete-dir-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let jobs_dir = root.join(CODEX_BATCH_DELETE_JOBS_DIR);
+        fs::create_dir_all(&jobs_dir).expect("create jobs dir");
+
+        ensure_codex_batch_delete_jobs_dir(&jobs_dir).expect("reuse existing jobs dir");
+        assert!(jobs_dir.is_dir());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn batch_delete_jobs_dir_rejects_existing_file() {
+        let path = std::env::temp_dir().join(format!(
+            "codex-batch-delete-file-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        fs::write(&path, b"not a directory").expect("create conflicting file");
+
+        let error = ensure_codex_batch_delete_jobs_dir(&path).expect_err("file must fail");
+        assert!(error.contains("不是目录"));
+
+        let _ = fs::remove_file(path);
+    }
 
     fn models(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()

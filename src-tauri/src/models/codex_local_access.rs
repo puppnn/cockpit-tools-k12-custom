@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum CodexLocalAccessRoutingStrategy {
     Auto,
+    Random,
     SingleAccount,
     QuotaHighFirst,
     QuotaLowFirst,
@@ -399,8 +400,14 @@ pub struct CodexLocalAccessApiKey {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_gateway: Option<CodexLocalAccessProviderGateway>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherit_account_pool: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub account_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub priority_account_ids: Vec<String>,
+    #[serde(default, skip_serializing)]
+    pub preferred_account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_prefix: Option<String>,
     #[serde(default)]
@@ -487,6 +494,8 @@ pub struct CodexLocalAccessCollection {
     pub restrict_free_accounts: bool,
     #[serde(default = "default_true")]
     pub debug_logs: bool,
+    #[serde(default)]
+    pub immediate_sse_response: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bound_oauth_account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -602,6 +611,9 @@ pub struct CodexLocalAccessUsageEvent {
     pub api_key_id: String,
     #[serde(default)]
     pub api_key_label: String,
+    /// 来自客户端静态 header `x-cockpit-instance-id`（多开 profile 目录名）。
+    #[serde(default)]
+    pub client_instance_id: String,
     #[serde(default)]
     pub model_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

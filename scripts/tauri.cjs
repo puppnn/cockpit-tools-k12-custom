@@ -4,13 +4,30 @@ const os = require('node:os');
 const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..');
+const goBinPath = 'C:\\Program Files\\Go\\bin';
+
+function withGoPath(options = {}) {
+  const currentPath = process.env.PATH || '';
+  const pathValue = fs.existsSync(goBinPath)
+    ? `${goBinPath}${path.delimiter}${currentPath}`
+    : currentPath;
+
+  return {
+    ...options,
+    env: {
+      ...process.env,
+      ...options.env,
+      PATH: pathValue,
+    },
+  };
+}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     stdio: 'inherit',
     shell: false,
-    ...options,
+    ...withGoPath(options),
   });
 
   if (result.error) {
@@ -27,7 +44,7 @@ function runFinal(command, args, options = {}) {
     cwd: repoRoot,
     stdio: 'inherit',
     shell: false,
-    ...options,
+    ...withGoPath(options),
   });
 
   if (result.error) {
@@ -48,7 +65,6 @@ if (process.platform !== 'win32') {
 }
 
 const vcvars64Path = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat';
-const goBinPath = 'C:\\Program Files\\Go\\bin';
 
 if (!fs.existsSync(vcvars64Path)) {
   console.warn('vcvars64.bat not found, falling back to the existing shell environment.');

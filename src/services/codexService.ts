@@ -413,12 +413,10 @@ export async function updateCodexApiKeyCredentials(
 export async function updateCodexApiKeyBoundOAuthAccount(
   accountId: string,
   boundOauthAccountId: string | null,
-  boundOauthUseLocalGateway = false,
 ): Promise<CodexAccount> {
   return await invoke('update_codex_api_key_bound_oauth_account', {
     accountId,
     boundOauthAccountId,
-    boundOauthUseLocalGateway,
   });
 }
 

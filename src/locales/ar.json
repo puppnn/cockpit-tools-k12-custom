@@ -289,7 +289,7 @@
     "settings": "الإعدادات",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "لوحة التحكم",
     "morePlatforms": "المزيد من المنصات",
     "instances": "مثيلات متعددة",
@@ -711,10 +711,10 @@
       "githubCopilotSettingsTitle": "إعدادات GitHub Copilot",
       "ghcpAutoRefresh": "تحديث حصة GitHub Copilot تلقائيا",
       "ghcpAutoRefreshDesc": "تكرار التحديث في الخلفية",
-      "windsurfSettingsTitle": "إعدادات Windsurf",
-      "windsurfAutoRefresh": "تحديث تلقائي لحصة Windsurf",
+      "windsurfSettingsTitle": "إعدادات Devin",
+      "windsurfAutoRefresh": "تحديث تلقائي لحصة Devin",
       "windsurfAutoRefreshDesc": "تردد التحديث التلقائي في الخلفية",
-      "windsurfAppPath": "مسار تطبيق Windsurf",
+      "windsurfAppPath": "مسار تطبيق Devin",
       "windsurfAppPathDesc": "اتركه فارغًا لاستخدام المسار الافتراضي",
       "windsurfAppPathPlaceholder": "المسار الافتراضي",
       "windsurfPathSelect": "اختيار",
@@ -2001,6 +2001,7 @@
         "planHighFirst": "الأعلى باقة أولاً",
         "planLowFirst": "الأقل باقة أولاً",
         "expirySoonFirst": "الأقرب انتهاءً أولاً",
+        "random": "عشوائي",
         "custom": "مخصص"
       },
       "statusUnconfigured": "غير مُعدّ",
@@ -2023,7 +2024,12 @@
         "label": "نطاق الإحصاءات",
         "daily": "يوم",
         "weekly": "أسبوع",
-        "monthly": "شهر"
+        "monthly": "شهر",
+        "custom": "مخصص",
+        "start": "البداية",
+        "end": "النهاية",
+        "apply": "تطبيق",
+        "invalid": "لا يمكن أن يسبق وقت النهاية وقت البداية"
       },
       "enableBeforeActivateTitle": "الخدمة غير مفعلة",
       "enableBeforeActivateMessage": "خدمة API غير مفعلة حاليًا، ويجب تفعيلها أولًا. هل تريد التفعيل والتبديل الآن؟",
@@ -3241,6 +3247,11 @@
         "models": "النماذج والقدرات",
         "logs": "الإحصاءات والسجلات"
       },
+      "statsRange": {
+        "today": "اليوم",
+        "thisWeek": "هذا الأسبوع",
+        "thisMonth": "هذا الشهر"
+      },
       "healthTitle": "صحة الخدمة",
       "compat": {
         "title": "توافق البروتوكولات",
@@ -3318,6 +3329,24 @@
       "keys": {
         "policyTitle": "سياسة النماذج",
         "advancedPolicyTitle": "ميزة متقدمة: سياسة النماذج",
+        "accountScope": "نطاق تدوير الحسابات",
+        "accountScopeInherit": "التحديث تلقائيًا وفق مجموعة حسابات الخدمة",
+        "accountScopeFixed": "هذا المفتاح مرتبط بحساب ثابت ولا يمكنه وراثة مجموعة الخدمة",
+        "accountScopeSelected": "تم تحديد {{count}} حسابًا",
+        "accountScopeInheritedCount": "مجموعة الحسابات: وراثة {{count}}",
+        "accountScopeUnavailable": "مجموعة الحسابات: لا حسابات متاحة",
+        "accountScopeCount": "مجموعة الحسابات: {{selected}}/{{total}}",
+        "accountScopeRequired": "اختر حسابًا واحدًا على الأقل للمجموعة المخصصة",
+        "accountScopeModeInherit": "وراثة مجموعة الخدمة",
+        "accountScopeModeCustom": "مجموعة حسابات مخصصة",
+        "accountPrioritySet": "تثبيت الحساب للتوجيه ذي الأولوية",
+        "accountPriorityPromote": "رفع الحساب إلى أعلى أولوية",
+        "accountPriorityClear": "إلغاء تثبيت حساب الأولوية",
+        "accountPrioritySaved": "تم تثبيت حساب الأولوية",
+        "accountPriorityCleared": "تم إلغاء تثبيت حساب الأولوية",
+        "usageRange": "فترة استخدام مفتاح API",
+        "unsaved": "غير محفوظ",
+        "resetPolicy": "تجاهل التغييرات",
         "modelPrefix": "بادئة النموذج",
         "modelPrefixPlaceholder": "مثال: codex",
         "allowedModels": "النماذج المسموحة",
@@ -3344,6 +3373,7 @@
         "maxRetryInterval": "انتظار retry",
         "disableCooling": "تعطيل cooldown",
         "saveOptions": "حفظ الخيارات",
+        "immediateSseResponse": "SSE فوري 200",
         "optionsSaved": "تم حفظ خيارات التوجيه"
       },
       "validation": {
@@ -3833,8 +3863,8 @@
     "inputPercent": "أدخل النسبة المئوية",
     "inputCredits": "أدخل الرصيد",
     "windsurf": {
-      "title": "إعدادات Windsurf",
-      "appPath": "مسار Windsurf"
+      "title": "إعدادات Devin",
+      "appPath": "مسار Devin"
     },
     "windsurfRefreshInterval": "تحديث الحصة تلقائياً",
     "kiro": {
@@ -3938,21 +3968,21 @@
     }
   },
   "windsurf": {
-    "title": "إدارة حسابات Windsurf",
+    "title": "إدارة حسابات Devin",
     "instances": {
       "unsupported": {
-        "desc": "ميزة المثيلات المتعددة لـ Windsurf متاحة على macOS فقط."
+        "desc": "ميزة المثيلات المتعددة لـ Devin متاحة على macOS فقط."
       }
     },
     "empty": {
-      "description": "انقر على \"إضافة حساب\" لبدء إدارة حسابات Windsurf"
+      "description": "انقر على \"إضافة حساب\" لبدء إدارة حسابات Devin"
     },
     "addModal": {
-      "title": "إضافة حساب Windsurf",
+      "title": "إضافة حساب Devin",
       "password": "تسجيل البريد الإلكتروني"
     },
     "password": {
-      "desc": "سجّل الدخول ببريد حساب Windsurf الإلكتروني وكلمة المرور لجلب مفتاح API وبيانات الحساب تلقائيًا.",
+      "desc": "سجّل الدخول ببريد حساب Devin الإلكتروني وكلمة المرور لجلب مفتاح API وبيانات الحساب تلقائيًا.",
       "emailPlaceholder": "عنوان البريد الإلكتروني",
       "passwordPlaceholder": "كلمة المرور",
       "empty": "أدخل البريد الإلكتروني وكلمة المرور",
@@ -3999,14 +4029,14 @@
       "batchFailureMore": "فشل {{count}} أخرى"
     },
     "oauth": {
-      "desc": "انقر الزر أدناه وأكمل تفويض Windsurf في المتصفح."
+      "desc": "انقر الزر أدناه وأكمل تفويض Devin في المتصفح."
     },
     "token": {
-      "desc": "الصق رمز وصول Windsurf أو بيانات JSON المصدّرة."
+      "desc": "الصق رمز وصول Devin أو بيانات JSON المصدّرة."
     },
     "import": {
-      "localDesc": "استيراد بيانات حسابات Windsurf من ملف JSON.",
-      "localClient": "استيراد من Windsurf المحلي"
+      "localDesc": "استيراد بيانات حسابات Devin من ملف JSON.",
+      "localClient": "استيراد من Devin المحلي"
     },
     "credits": {
       "title": "الباقة",
@@ -4030,15 +4060,15 @@
       "autoRecharge": "إعادة الشحن التلقائي",
       "remaining": "متبقٍ {{value}}"
     },
-    "injectToVSCode": "التبديل إلى Windsurf",
-    "injectSuccess": "اكتمل التبديل. جارٍ تشغيل Windsurf.",
-    "injectRequireClose": "يرجى إغلاق Windsurf قبل التبديل.",
+    "injectToVSCode": "التبديل إلى Devin",
+    "injectSuccess": "اكتمل التبديل. جارٍ تشغيل Devin.",
+    "injectRequireClose": "يرجى إغلاق Devin قبل التبديل.",
     "flowNotice": {
-      "title": "دليل حسابات Windsurf (انقر للتوسيع/الطي)",
-      "desc": "يتطلب تبديل الحساب قراءة مخزن المصادقة المحلي في Windsurf واستخدام خدمة بيانات الاعتماد في النظام لفك التشفير وإعادة الكتابة؛ وتتم معالجة البيانات محليًا فقط.",
-      "inject": "تبديل بنقرة واحدة: تقرأ هذه الأداة مواد التشفير المحلية في Windsurf (DPAPI/Keychain/Secret Service)، وتفك تشفير جلسة المصادقة في state.vscdb، وتستبدل رمز Windsurf ثم تعيد التشفير — وكل ذلك محليًا على جهازك.",
-      "reason": "نطاق الأذونات: قراءة قاعدة بيانات مصادقة Windsurf ‏(state.vscdb) واستدعاء قدرات التشفير في النظام (Windows DPAPI / macOS Keychain / Linux Secret Service) لفك التشفير وإعادة الكتابة.",
-      "storage": "نطاق القراءة: تتم معالجة بيانات جلسات تسجيل الدخول المرتبطة بـ Windsurf فقط، وجميع العمليات تُنفّذ محليًا."
+      "title": "دليل حسابات Devin (انقر للتوسيع/الطي)",
+      "desc": "يتطلب تبديل الحساب قراءة مخزن المصادقة المحلي في Devin واستخدام خدمة بيانات الاعتماد في النظام لفك التشفير وإعادة الكتابة؛ وتتم معالجة البيانات محليًا فقط.",
+      "inject": "تبديل بنقرة واحدة: تقرأ هذه الأداة مواد التشفير المحلية في Devin (DPAPI/Keychain/Secret Service)، وتفك تشفير جلسة المصادقة في state.vscdb، وتستبدل رمز Devin ثم تعيد التشفير — وكل ذلك محليًا على جهازك.",
+      "reason": "نطاق الأذونات: قراءة قاعدة بيانات مصادقة Devin ‏(state.vscdb) واستدعاء قدرات التشفير في النظام (Windows DPAPI / macOS Keychain / Linux Secret Service) لفك التشفير وإعادة الكتابة.",
+      "storage": "نطاق القراءة: تتم معالجة بيانات جلسات تسجيل الدخول المرتبطة بـ Devin فقط، وجميع العمليات تُنفّذ محليًا."
     }
   },
   "kiro": {
@@ -4216,7 +4246,7 @@
       "goSettings": "اذهب إلى الإعدادات",
       "goVerification": "اذهب إلى تحقق الإيقاظ",
       "goWakeup": "اذهب إلى مهام الإيقاظ",
-      "goWindsurf": "اذهب إلى Windsurf",
+      "goWindsurf": "اذهب إلى Devin",
       "openLayout": "فتح تخطيط المنصات"
     },
     "antigravity": {
@@ -4333,11 +4363,11 @@
     "navTitle": "دليل الاستخدام",
     "providers": {
       "cautions": {
-        "0": "انسخ البيانات احتياطيًا قبل الإجراءات الخطرة أو المجمعة في Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "تحقق من المرشحات والهدف قبل التنفيذ في Codex / GitHub Copilot / Windsurf / Kiro."
+        "0": "انسخ البيانات احتياطيًا قبل الإجراءات الخطرة أو المجمعة في Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "تحقق من المرشحات والهدف قبل التنفيذ في Codex / GitHub Copilot / Devin / Kiro."
       },
       "keywords": {
-        "0": "منصات Codex / GitHub Copilot / Windsurf / Kiro",
+        "0": "منصات Codex / GitHub Copilot / Devin / Kiro",
         "1": "دليل",
         "2": "سير عمل",
         "3": "حساب",
@@ -4345,17 +4375,17 @@
         "5": "استكشاف أخطاء"
       },
       "outcomes": {
-        "0": "افهم ما الذي يمكن أن يقدمه Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "استخدم التدفق المقترح في Codex / GitHub Copilot / Windsurf / Kiro لتقليل الأخطاء.",
-        "2": "تحقق من نجاح تشغيل واحد في Codex / GitHub Copilot / Windsurf / Kiro قبل التوسع."
+        "0": "افهم ما الذي يمكن أن يقدمه Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "استخدم التدفق المقترح في Codex / GitHub Copilot / Devin / Kiro لتقليل الأخطاء.",
+        "2": "تحقق من نجاح تشغيل واحد في Codex / GitHub Copilot / Devin / Kiro قبل التوسع."
       },
       "steps": {
-        "0": "افتح صفحة Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "أكمل الإعداد الأساسي والربط المطلوب في Codex / GitHub Copilot / Windsurf / Kiro.",
-        "2": "نفّذ عملية يدوية واحدة في Codex / GitHub Copilot / Windsurf / Kiro للتحقق من النتيجة."
+        "0": "افتح صفحة Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "أكمل الإعداد الأساسي والربط المطلوب في Codex / GitHub Copilot / Devin / Kiro.",
+        "2": "نفّذ عملية يدوية واحدة في Codex / GitHub Copilot / Devin / Kiro للتحقق من النتيجة."
       },
-      "summary": "يوضح هذا القسم كيفية استخدام Codex / GitHub Copilot / Windsurf / Kiro ضمن سير العمل اليومي.",
-      "title": "منصات Codex / GitHub Copilot / Windsurf / Kiro"
+      "summary": "يوضح هذا القسم كيفية استخدام Codex / GitHub Copilot / Devin / Kiro ضمن سير العمل اليومي.",
+      "title": "منصات Codex / GitHub Copilot / Devin / Kiro"
     },
     "quickStart": {
       "cautions": {

@@ -1973,7 +1973,7 @@ export function SettingsPage() {
       case 'vscode':
         return 'Visual Studio Code';
       case 'windsurf':
-        return 'Windsurf';
+        return 'Devin';
       case 'kiro':
         return 'Kiro';
       case 'cursor':
@@ -3647,7 +3647,7 @@ export function SettingsPage() {
                     </option>
                     <option value="claude">{t('nav.claude', 'Claude')}</option>
                     <option value="github-copilot">{t('nav.githubCopilot', 'GitHub Copilot')}</option>
-                    <option value="windsurf">{t('nav.windsurf', 'Windsurf')}</option>
+                    <option value="windsurf">{t('nav.windsurf', 'Devin')}</option>
                     <option value="kiro">Kiro</option>
                     <option value="cursor">Cursor</option>
                     <option value="grok">Grok CLI</option>

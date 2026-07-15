@@ -242,7 +242,7 @@
     "settings": "Nastavení",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "Dashboard​",
     "morePlatforms": "Další platformy",
     "instances": "Více instancí",
@@ -664,10 +664,10 @@
       "githubCopilotSettingsTitle": "Nastavení GitHub Copilot",
       "ghcpAutoRefresh": "Automatické obnovení kvóty GitHub Copilot",
       "ghcpAutoRefreshDesc": "Frekvence aktualizace na pozadí",
-      "windsurfSettingsTitle": "Nastavení Windsurf",
-      "windsurfAutoRefresh": "Automatické obnovení kvóty Windsurf",
+      "windsurfSettingsTitle": "Nastavení Devin",
+      "windsurfAutoRefresh": "Automatické obnovení kvóty Devin",
       "windsurfAutoRefreshDesc": "Frekvence aktualizace na pozadí",
-      "windsurfAppPath": "Cesta k aplikaci Windsurf",
+      "windsurfAppPath": "Cesta k aplikaci Devin",
       "windsurfAppPathDesc": "Ponechte prázdné pro použití výchozí cesty",
       "windsurfAppPathPlaceholder": "Výchozí cesta",
       "windsurfPathSelect": "Vybrat",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "Nejvyšší tarif napřed",
         "planLowFirst": "Nejnižší tarif napřed",
         "expirySoonFirst": "Brzy končící první",
+        "random": "Náhodné",
         "custom": "Vlastní"
       },
       "statusUnconfigured": "Nenastaveno",
@@ -1976,7 +1977,12 @@
         "label": "Rozsah statistik",
         "daily": "Den",
         "weekly": "Týden",
-        "monthly": "Měsíc"
+        "monthly": "Měsíc",
+        "custom": "Vlastní",
+        "start": "Začátek",
+        "end": "Konec",
+        "apply": "Použít",
+        "invalid": "Čas konce nesmí být dříve než čas začátku"
       },
       "enableBeforeActivateTitle": "Služba není zapnutá",
       "enableBeforeActivateMessage": "Služba API je momentálně vypnutá a je potřeba ji nejdříve zapnout. Zapnout a přepnout nyní?",
@@ -3194,6 +3200,11 @@
         "models": "Modely a schopnosti",
         "logs": "Statistiky a protokoly"
       },
+      "statsRange": {
+        "today": "Dnes",
+        "thisWeek": "Tento týden",
+        "thisMonth": "Tento měsíc"
+      },
       "healthTitle": "Stav služby",
       "compat": {
         "title": "Kompatibilita protokolů",
@@ -3271,6 +3282,24 @@
       "keys": {
         "policyTitle": "Zásady modelů",
         "advancedPolicyTitle": "Pokročilé: zásady modelů",
+        "accountScope": "Rozsah rotace účtů",
+        "accountScopeInherit": "Automaticky podle fondu účtů služby",
+        "accountScopeFixed": "Tento Key je pevně vázán na účet a nemůže dědit fond služby",
+        "accountScopeSelected": "Vybráno účtů: {{count}}",
+        "accountScopeInheritedCount": "Fond účtů: dědí {{count}}",
+        "accountScopeUnavailable": "Fond účtů: žádné dostupné",
+        "accountScopeCount": "Fond účtů: {{selected}}/{{total}}",
+        "accountScopeRequired": "Pro vlastní fond vyberte alespoň jeden účet",
+        "accountScopeModeInherit": "Zdědit fond služby",
+        "accountScopeModeCustom": "Vlastní fond účtů",
+        "accountPrioritySet": "Připnout účet pro prioritní směrování",
+        "accountPriorityPromote": "Přesunout účet na nejvyšší prioritu",
+        "accountPriorityClear": "Odepnout prioritní účet",
+        "accountPrioritySaved": "Prioritní účet připnut",
+        "accountPriorityCleared": "Prioritní účet odepnut",
+        "usageRange": "Období využití API klíče",
+        "unsaved": "Neuloženo",
+        "resetPolicy": "Zahodit změny",
         "modelPrefix": "Předpona modelu",
         "modelPrefixPlaceholder": "Příklad: codex",
         "allowedModels": "Povolené modely",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "Čekání retry",
         "disableCooling": "Vypnout cooldown",
         "saveOptions": "Uložit volby",
+        "immediateSseResponse": "Okamžitá SSE 200",
         "optionsSaved": "Volby směrování uloženy"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "Zadejte procento",
     "inputCredits": "Zadejte kredity",
     "windsurf": {
-      "title": "Nastavení Windsurf",
-      "appPath": "Cesta k Windsurf"
+      "title": "Nastavení Devin",
+      "appPath": "Cesta k Devin"
     },
     "windsurfRefreshInterval": "Automatická aktualizace kvóty",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Správa účtů Windsurf",
+    "title": "Správa účtů Devin",
     "instances": {
       "unsupported": {
-        "desc": "Více instancí Windsurf je aktuálně dostupné pouze na macOS."
+        "desc": "Více instancí Devin je aktuálně dostupné pouze na macOS."
       }
     },
     "empty": {
       "description": "Klikněte na „Přidat účet“"
     },
     "addModal": {
-      "title": "Přidat účet Windsurf",
+      "title": "Přidat účet Devin",
       "password": "Přihlášení e-mailem"
     },
     "password": {
-      "desc": "Přihlaste se e-mailem a heslem k účtu Windsurf a automaticky načtěte API klíč i data účtu.",
+      "desc": "Přihlaste se e-mailem a heslem k účtu Devin a automaticky načtěte API klíč i data účtu.",
       "emailPlaceholder": "E-mailová adresa",
       "passwordPlaceholder": "Heslo",
       "empty": "Zadejte e-mail a heslo",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "Dalších {{count}} selhalo"
     },
     "oauth": {
-      "desc": "Klikněte níže a dokončete autorizaci Windsurf v prohlížeči."
+      "desc": "Klikněte níže a dokončete autorizaci Devin v prohlížeči."
     },
     "token": {
-      "desc": "Vložte access token Windsurf nebo exportovaná data JSON."
+      "desc": "Vložte access token Devin nebo exportovaná data JSON."
     },
     "import": {
-      "localDesc": "Importovat účty Windsurf z místně přihlášených relací.",
-      "localClient": "Import z místního Windsurf"
+      "localDesc": "Importovat účty Devin z místně přihlášených relací.",
+      "localClient": "Import z místního Devin"
     },
     "credits": {
       "title": "Tarif",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "Automatické dobíjení",
       "remaining": "Zbývá {{value}}"
     },
-    "injectToVSCode": "Přepnout do Windsurf",
-    "injectSuccess": "Přepnutí dokončeno. Windsurf se spouští.",
-    "injectRequireClose": "Před přepnutím prosím zavřete Windsurf.",
+    "injectToVSCode": "Přepnout do Devin",
+    "injectSuccess": "Přepnutí dokončeno. Devin se spouští.",
+    "injectRequireClose": "Před přepnutím prosím zavřete Devin.",
     "flowNotice": {
-      "title": "Průvodce účty Windsurf (kliknutím rozbalit/sbalit)",
-      "desc": "Přepnutí účtu vyžaduje čtení lokálního úložiště ověření ve Windsurf a použití systémové služby přihlašovacích údajů pro dešifrování a zpětný zápis; data se zpracovávají pouze lokálně.",
-      "inject": "Přepnutí jedním kliknutím: Tento nástroj načte lokální šifrovací materiál Windsurf (DPAPI/Keychain/Secret Service), dešifruje autentizační relaci ve state.vscdb, nahradí token Windsurf a znovu ji zašifruje — vše lokálně na vašem zařízení.",
-      "reason": "Rozsah oprávnění: čtení databáze ověření Windsurf (state.vscdb) a volání systémového šifrování (Windows DPAPI / macOS Keychain / Linux Secret Service) pro dešifrování a zpětný zápis.",
-      "storage": "Rozsah čtení: zpracovávají se pouze položky související s relací přihlášení Windsurf a veškeré procesy probíhají lokálně."
+      "title": "Průvodce účty Devin (kliknutím rozbalit/sbalit)",
+      "desc": "Přepnutí účtu vyžaduje čtení lokálního úložiště ověření ve Devin a použití systémové služby přihlašovacích údajů pro dešifrování a zpětný zápis; data se zpracovávají pouze lokálně.",
+      "inject": "Přepnutí jedním kliknutím: Tento nástroj načte lokální šifrovací materiál Devin (DPAPI/Keychain/Secret Service), dešifruje autentizační relaci ve state.vscdb, nahradí token Devin a znovu ji zašifruje — vše lokálně na vašem zařízení.",
+      "reason": "Rozsah oprávnění: čtení databáze ověření Devin (state.vscdb) a volání systémového šifrování (Windows DPAPI / macOS Keychain / Linux Secret Service) pro dešifrování a zpětný zápis.",
+      "storage": "Rozsah čtení: zpracovávají se pouze položky související s relací přihlášení Devin a veškeré procesy probíhají lokálně."
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "Přejít do nastavení",
       "goVerification": "Přejít na Wakeup ověření",
       "goWakeup": "Přejít na Wakeup úlohy",
-      "goWindsurf": "Přejít na Windsurf",
+      "goWindsurf": "Přejít na Devin",
       "openLayout": "Otevřít rozložení platforem"
     },
     "antigravity": {
@@ -4286,11 +4316,11 @@
     "navTitle": "Uživatelská příručka",
     "providers": {
       "cautions": {
-        "0": "Před rizikovými nebo hromadnými akcemi v Codex / GitHub Copilot / Windsurf / Kiro zálohujte data.",
-        "1": "Před spuštěním v Codex / GitHub Copilot / Windsurf / Kiro zkontrolujte filtry a cíle."
+        "0": "Před rizikovými nebo hromadnými akcemi v Codex / GitHub Copilot / Devin / Kiro zálohujte data.",
+        "1": "Před spuštěním v Codex / GitHub Copilot / Devin / Kiro zkontrolujte filtry a cíle."
       },
       "keywords": {
-        "0": "Platformy Codex / GitHub Copilot / Windsurf / Kiro",
+        "0": "Platformy Codex / GitHub Copilot / Devin / Kiro",
         "1": "návod",
         "2": "postup",
         "3": "účet",
@@ -4298,17 +4328,17 @@
         "5": "řešení problémů"
       },
       "outcomes": {
-        "0": "Pochopte, co vám Codex / GitHub Copilot / Windsurf / Kiro přináší.",
-        "1": "Použijte doporučený postup v Codex / GitHub Copilot / Windsurf / Kiro a snižte chyby.",
-        "2": "Než půjdete do hromadných akcí, ověřte jeden úspěšný běh v Codex / GitHub Copilot / Windsurf / Kiro."
+        "0": "Pochopte, co vám Codex / GitHub Copilot / Devin / Kiro přináší.",
+        "1": "Použijte doporučený postup v Codex / GitHub Copilot / Devin / Kiro a snižte chyby.",
+        "2": "Než půjdete do hromadných akcí, ověřte jeden úspěšný běh v Codex / GitHub Copilot / Devin / Kiro."
       },
       "steps": {
-        "0": "Otevřete stránku Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "Dokončete základní nastavení a potřebné vazby pro Codex / GitHub Copilot / Windsurf / Kiro.",
-        "2": "Proveďte jednu ruční operaci v Codex / GitHub Copilot / Windsurf / Kiro a ověřte výsledek."
+        "0": "Otevřete stránku Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "Dokončete základní nastavení a potřebné vazby pro Codex / GitHub Copilot / Devin / Kiro.",
+        "2": "Proveďte jednu ruční operaci v Codex / GitHub Copilot / Devin / Kiro a ověřte výsledek."
       },
-      "summary": "Tato sekce vysvětluje, jak používat Codex / GitHub Copilot / Windsurf / Kiro v běžném workflow.",
-      "title": "Platformy Codex / GitHub Copilot / Windsurf / Kiro"
+      "summary": "Tato sekce vysvětluje, jak používat Codex / GitHub Copilot / Devin / Kiro v běžném workflow.",
+      "title": "Platformy Codex / GitHub Copilot / Devin / Kiro"
     },
     "quickStart": {
       "cautions": {

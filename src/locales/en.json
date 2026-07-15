@@ -291,7 +291,7 @@
     "zed": "Zed",
     "codebuddy": "CodeBuddy",
     "githubCopilot": "GitHub Copilot",
-    "windsurf": "Windsurf",
+    "windsurf": "Devin",
     "dashboard": "Dashboard",
     "morePlatforms": "More Platforms",
     "collapseSidebar": "Collapse sidebar",
@@ -1039,10 +1039,10 @@
       "githubCopilotSettingsTitle": "GitHub Copilot Settings",
       "ghcpAutoRefresh": "GitHub Copilot Auto Refresh Quota",
       "ghcpAutoRefreshDesc": "Background update frequency",
-      "windsurfSettingsTitle": "Windsurf Settings",
-      "windsurfAutoRefresh": "Windsurf Auto Refresh Quota",
+      "windsurfSettingsTitle": "Devin Settings",
+      "windsurfAutoRefresh": "Devin Auto Refresh Quota",
       "windsurfAutoRefreshDesc": "Background update frequency",
-      "windsurfAppPath": "Windsurf App Path",
+      "windsurfAppPath": "Devin App Path",
       "windsurfAppPathDesc": "Leave empty to use default path",
       "windsurfAppPathPlaceholder": "Default path",
       "windsurfPathSelect": "Select",
@@ -2247,7 +2247,12 @@
         "label": "Stats Range",
         "daily": "Day",
         "weekly": "Week",
-        "monthly": "Month"
+        "monthly": "Month",
+        "custom": "Custom",
+        "start": "Start",
+        "end": "End",
+        "apply": "Apply",
+        "invalid": "End time cannot be earlier than start time"
       },
       "quotaPool": {
         "title": "Quota Pool",
@@ -2273,6 +2278,7 @@
         "planHighFirst": "High Plan First",
         "planLowFirst": "Low Plan First",
         "expirySoonFirst": "Expiry Soon First",
+        "random": "Random",
         "custom": "Custom"
       },
       "requestKind": {
@@ -3405,6 +3411,11 @@
         "models": "Models & Capabilities",
         "logs": "Stats & Logs"
       },
+      "statsRange": {
+        "today": "Today",
+        "thisWeek": "This week",
+        "thisMonth": "This month"
+      },
       "healthTitle": "Service Health",
       "compat": {
         "title": "Protocol Compat",
@@ -3492,8 +3503,26 @@
         "pricingRepriceSaveBlocked": "Historical estimate update in progress; save after it finishes"
       },
       "keys": {
-        "policyTitle": "Model Policy",
-        "advancedPolicyTitle": "Advanced: Model Policy",
+        "policyTitle": "Account Pool & Model Policy",
+        "advancedPolicyTitle": "Account Pool & Model Policy",
+        "accountScope": "Account Rotation Scope",
+        "accountScopeInherit": "Follow the service account pool automatically",
+        "accountScopeFixed": "This Key is fixed to its bound account and cannot inherit the service pool",
+        "accountScopeSelected": "{{count}} accounts selected",
+        "accountScopeInheritedCount": "Account pool: inheriting {{count}}",
+        "accountScopeUnavailable": "Account pool: no available accounts",
+        "accountScopeCount": "Account pool: {{selected}}/{{total}}",
+        "accountScopeRequired": "Select at least one account for a custom pool",
+        "accountScopeModeInherit": "Inherit Service Pool",
+        "accountScopeModeCustom": "Custom Account Pool",
+        "accountPrioritySet": "Pin account for priority routing",
+        "accountPriorityPromote": "Move account to highest priority",
+        "accountPriorityClear": "Remove priority account pin",
+        "accountPrioritySaved": "Priority account pinned",
+        "accountPriorityCleared": "Priority account pin removed",
+        "usageRange": "API key usage period",
+        "unsaved": "Unsaved",
+        "resetPolicy": "Discard Changes",
         "modelPrefix": "Model Prefix",
         "modelPrefixPlaceholder": "Example: codex",
         "allowedModels": "Allowed Models",
@@ -3501,7 +3530,7 @@
         "excludedModels": "Excluded Models",
         "excludedModelsPlaceholder": "One model or wildcard per line",
         "savePolicy": "Save Policy",
-        "policySaved": "Key model policy saved"
+        "policySaved": "API key policy saved"
       },
       "routing": {
         "optionsTitle": "Routing Options",
@@ -3520,6 +3549,7 @@
         "maxRetryInterval": "Retry Wait",
         "disableCooling": "Disable Cooldown",
         "saveOptions": "Save Options",
+        "immediateSseResponse": "Immediate SSE 200",
         "optionsSaved": "Routing options saved"
       },
       "timeouts": {
@@ -4096,8 +4126,8 @@
     "inputPercent": "Enter percentage",
     "inputCredits": "Enter credits",
     "windsurf": {
-      "title": "Windsurf Settings",
-      "appPath": "Windsurf Path"
+      "title": "Devin Settings",
+      "appPath": "Devin Path"
     },
     "windsurfRefreshInterval": "Quota Auto Refresh",
     "kiro": {
@@ -4196,24 +4226,24 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf Account",
+    "title": "Devin Account",
     "instances": {
       "unsupported": {
-        "desc": "Windsurf multi-instance is available only on macOS."
+        "desc": "Devin multi-instance is available only on macOS."
       }
     },
     "empty": {
-      "description": "Click \"Add Account\" to start managing your Windsurf accounts"
+      "description": "Click \"Add Account\" to start managing your Devin accounts"
     },
     "addModal": {
-      "title": "Add Windsurf Account",
+      "title": "Add Devin Account",
       "password": "Email Login"
     },
     "oauth": {
-      "desc": "Click the button below and complete Windsurf authorization in your browser."
+      "desc": "Click the button below and complete Devin authorization in your browser."
     },
     "password": {
-      "desc": "Sign in with your Windsurf email and password to fetch the API key and account data automatically.",
+      "desc": "Sign in with your Devin email and password to fetch the API key and account data automatically.",
       "emailPlaceholder": "Email address",
       "passwordPlaceholder": "Password",
       "empty": "Enter your email and password",
@@ -4260,11 +4290,11 @@
       "batchFailureMore": "{{count}} more failed"
     },
     "token": {
-      "desc": "Paste your Windsurf access token or exported JSON data."
+      "desc": "Paste your Devin access token or exported JSON data."
     },
     "import": {
-      "localDesc": "Import Windsurf account data from a JSON file.",
-      "localClient": "Import from local Windsurf"
+      "localDesc": "Import Devin account data from a JSON file.",
+      "localClient": "Import from local Devin"
     },
     "credits": {
       "title": "Plan",
@@ -4288,15 +4318,15 @@
       "autoRecharge": "Auto recharge",
       "remaining": "{{value}} remaining"
     },
-    "injectToVSCode": "Switch to Windsurf",
-    "injectSuccess": "Switch completed. Windsurf is launching.",
-    "injectRequireClose": "Please close Windsurf before switching.",
+    "injectToVSCode": "Switch to Devin",
+    "injectSuccess": "Switch completed. Devin is launching.",
+    "injectRequireClose": "Please close Devin before switching.",
     "flowNotice": {
-      "title": "Windsurf account guide (click to expand/collapse)",
-      "desc": "Switching accounts requires reading Windsurf local auth storage and, with client-compatible rules, using system credential/encryption capabilities for decrypt/write-back. Data is processed locally only.",
-      "inject": "One-click switching: This tool reads local Windsurf encryption material (DPAPI/Keychain/Secret Service), processes the auth session in state.vscdb, writes back the Windsurf token, and keeps everything local on your machine.",
-      "reason": "Permission scope: read Windsurf auth database (state.vscdb) and use system encryption capabilities (Windows DPAPI / macOS Keychain / Linux Secret Service) to decrypt and write back auth-session data.",
-      "storage": "Data scope: only Windsurf auth-session related entries are read/updated; all processes run locally."
+      "title": "Devin account guide (click to expand/collapse)",
+      "desc": "Switching accounts requires reading Devin local auth storage and, with client-compatible rules, using system credential/encryption capabilities for decrypt/write-back. Data is processed locally only.",
+      "inject": "One-click switching: This tool reads local Devin encryption material (DPAPI/Keychain/Secret Service), processes the auth session in state.vscdb, writes back the Devin token, and keeps everything local on your machine.",
+      "reason": "Permission scope: read Devin auth database (state.vscdb) and use system encryption capabilities (Windows DPAPI / macOS Keychain / Linux Secret Service) to decrypt and write back auth-session data.",
+      "storage": "Data scope: only Devin auth-session related entries are read/updated; all processes run locally."
     }
   },
   "kiro": {
@@ -4474,7 +4504,7 @@
       "goSettings": "Go to Settings",
       "goVerification": "Go to Wakeup Verification",
       "goWakeup": "Go to Wakeup Tasks",
-      "goWindsurf": "Go to Windsurf",
+      "goWindsurf": "Go to Devin",
       "openLayout": "Open Platform Layout"
     },
     "antigravity": {
@@ -4595,7 +4625,7 @@
         "1": "Some platforms or capabilities are system-limited. Follow on-page prompts."
       },
       "keywords": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro platforms",
+        "0": "Codex / GitHub Copilot / Devin / Kiro platforms",
         "1": "github copilot",
         "2": "windsurf",
         "3": "kiro",
@@ -4604,7 +4634,7 @@
       },
       "outcomes": {
         "0": "Codex: account switching + quota refresh.",
-        "1": "GitHub Copilot/Windsurf/Kiro: support injection into VS Code chain.",
+        "1": "GitHub Copilot/Devin/Kiro: support injection into VS Code chain.",
         "2": "Each platform supports independent filtering, grouping, import, and export."
       },
       "steps": {
@@ -4613,7 +4643,7 @@
         "2": "Execute \"Switch/Inject\" and verify in client that it takes effect."
       },
       "summary": "The four platform pages share the same structure: account overview + multi-instance, with OAuth, Token/JSON import and switching.",
-      "title": "Codex / GitHub Copilot / Windsurf / Kiro Platforms"
+      "title": "Codex / GitHub Copilot / Devin / Kiro Platforms"
     },
     "quickStart": {
       "cautions": {

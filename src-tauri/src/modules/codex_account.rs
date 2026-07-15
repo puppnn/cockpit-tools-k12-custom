@@ -45,6 +45,10 @@ const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
 const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
 const CODEX_IMAGEGEN_ACTOR_HEADER: &str = "x-openai-actor-authorization";
 const CODEX_IMAGEGEN_ACTOR_HEADER_VALUE: &str = "cockpit-tools";
+const CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER: &str = "x-agtools-disable-image-generation";
+const CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE: &str = "chat";
+/// 本地 API 服务多开实例标识：Codex 请求会带上此 header，便于请求日志区分来源实例。
+pub(crate) const CODEX_CLIENT_INSTANCE_ID_HEADER: &str = "x-cockpit-instance-id";
 const CODEX_DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const CODEX_COCKPIT_API_BASE_URL: &str = "https://chongcodex.cn/v1";
 const CODEX_COCKPIT_API_PROVIDER_ID: &str = "cockpit_api";
@@ -1086,6 +1090,14 @@ fn sync_api_key_model_catalog_to_dir(
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
+    // 模型目录变更后同步生图 header：无 gpt-image-2 时清掉残留 actor，避免客户端误开生图卡住。
+    if let Err(err) = refresh_api_key_provider_projection_in_dir(base_dir, account) {
+        logger::log_warn(&format!(
+            "[Codex切号] 同步模型目录后刷新 provider 生图配置失败: path={}, error={}",
+            base_dir.display(),
+            err
+        ));
+    }
     Ok(true)
 }
 
@@ -1097,6 +1109,14 @@ fn sync_or_cleanup_managed_model_catalog_for_dir(
         let _ = sync_api_key_model_catalog_to_dir(base_dir, account)?;
     } else {
         let _ = cleanup_managed_model_catalog_for_dir(base_dir)?;
+        // 未同步受管目录时仍按账号 catalog 收敛 header（无 image 则清）。
+        if let Err(err) = refresh_api_key_provider_projection_in_dir(base_dir, account) {
+            logger::log_warn(&format!(
+                "[Codex切号] 清理模型目录后刷新 provider 生图配置失败: path={}, error={}",
+                base_dir.display(),
+                err
+            ));
+        }
     }
     Ok(())
 }
@@ -1207,13 +1227,33 @@ fn api_key_account_supports_image_generation(account: &CodexAccount) -> bool {
             .any(|model| model.trim().eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID))
 }
 
-fn remove_imagegen_actor_header(provider_table: &mut toml_edit::Table) {
+/// 是否应写入 Codex 生图兼容 header（actor 等）。
+/// - 本地 API 服务 loopback：始终 true（网关自带 image 能力）
+/// - 第三方：仅当账号模型目录显式包含 gpt-image-2（无则清 header，避免卡 Confirming）
+fn api_key_provider_should_enable_imagegen(
+    account: &CodexAccount,
+    provider_config: &ApiProviderConfig,
+) -> bool {
+    let base_url = provider_config
+        .base_url
+        .as_deref()
+        .unwrap_or(CODEX_DEFAULT_OPENAI_BASE_URL);
+    let is_local_access_loopback = provider_config.provider_id.as_deref()
+        == Some(CODEX_RUNTIME_MODEL_PROVIDER_ID)
+        && is_loopback_http_base_url(Some(base_url));
+    if is_local_access_loopback {
+        return true;
+    }
+    api_key_account_supports_image_generation(account)
+}
+
+fn remove_provider_static_header(provider_table: &mut toml_edit::Table, header_name: &str) {
     let mut remove_http_headers = false;
     if let Some(headers) = provider_table.get_mut(CODEX_CONFIG_HTTP_HEADERS_KEY) {
         if let Some(inline) = headers.as_inline_table_mut() {
             let matching_keys: Vec<String> = inline
                 .iter()
-                .filter(|(key, _)| key.eq_ignore_ascii_case(CODEX_IMAGEGEN_ACTOR_HEADER))
+                .filter(|(key, _)| key.eq_ignore_ascii_case(header_name))
                 .map(|(key, _)| key.to_string())
                 .collect();
             for key in matching_keys {
@@ -1223,7 +1263,7 @@ fn remove_imagegen_actor_header(provider_table: &mut toml_edit::Table) {
         } else if let Some(table) = headers.as_table_mut() {
             let matching_keys: Vec<String> = table
                 .iter()
-                .filter(|(key, _)| key.eq_ignore_ascii_case(CODEX_IMAGEGEN_ACTOR_HEADER))
+                .filter(|(key, _)| key.eq_ignore_ascii_case(header_name))
                 .map(|(key, _)| key.to_string())
                 .collect();
             for key in matching_keys {
@@ -1237,8 +1277,12 @@ fn remove_imagegen_actor_header(provider_table: &mut toml_edit::Table) {
     }
 }
 
-fn set_imagegen_actor_header(provider_table: &mut toml_edit::Table) {
-    remove_imagegen_actor_header(provider_table);
+fn set_provider_static_header(
+    provider_table: &mut toml_edit::Table,
+    header_name: &str,
+    header_value: &str,
+) {
+    remove_provider_static_header(provider_table, header_name);
     if provider_table.get(CODEX_CONFIG_HTTP_HEADERS_KEY).is_none() {
         provider_table[CODEX_CONFIG_HTTP_HEADERS_KEY] =
             toml_edit::Item::Value(toml_edit::Value::InlineTable(toml_edit::InlineTable::new()));
@@ -1248,19 +1292,34 @@ fn set_imagegen_actor_header(provider_table: &mut toml_edit::Table) {
         .get_mut(CODEX_CONFIG_HTTP_HEADERS_KEY)
         .expect("http_headers should exist after initialization");
     if let Some(inline) = headers.as_inline_table_mut() {
-        inline.insert(
-            CODEX_IMAGEGEN_ACTOR_HEADER,
-            toml_edit::Value::from(CODEX_IMAGEGEN_ACTOR_HEADER_VALUE),
-        );
+        inline.insert(header_name, toml_edit::Value::from(header_value));
     } else if let Some(table) = headers.as_table_mut() {
-        table[CODEX_IMAGEGEN_ACTOR_HEADER] = value(CODEX_IMAGEGEN_ACTOR_HEADER_VALUE);
+        table[header_name] = value(header_value);
     } else {
         let mut inline = toml_edit::InlineTable::new();
-        inline.insert(
-            CODEX_IMAGEGEN_ACTOR_HEADER,
-            toml_edit::Value::from(CODEX_IMAGEGEN_ACTOR_HEADER_VALUE),
-        );
+        inline.insert(header_name, toml_edit::Value::from(header_value));
         *headers = toml_edit::Item::Value(toml_edit::Value::InlineTable(inline));
+    }
+}
+
+fn remove_imagegen_headers(provider_table: &mut toml_edit::Table) {
+    remove_provider_static_header(provider_table, CODEX_IMAGEGEN_ACTOR_HEADER);
+    remove_provider_static_header(provider_table, CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER);
+}
+
+fn set_imagegen_headers(provider_table: &mut toml_edit::Table, images_only_for_chat: bool) {
+    remove_imagegen_headers(provider_table);
+    set_provider_static_header(
+        provider_table,
+        CODEX_IMAGEGEN_ACTOR_HEADER,
+        CODEX_IMAGEGEN_ACTOR_HEADER_VALUE,
+    );
+    if images_only_for_chat {
+        set_provider_static_header(
+            provider_table,
+            CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER,
+            CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE,
+        );
     }
 }
 
@@ -1270,6 +1329,9 @@ fn write_api_key_provider_to_config_toml(
     bearer_token: &str,
     supports_websockets: bool,
     supports_image_generation: bool,
+    // true → Codex 使用 auth.json/Keychain OAuth 登录态（绑定 OAuth）。
+    // false → 纯 API Key，配合 actor 走 bearer 生图。
+    require_openai_auth: bool,
 ) -> Result<(), String> {
     let config_path = get_config_toml_path(base_dir);
     let bearer_token = normalize_api_key(bearer_token)
@@ -1308,13 +1370,30 @@ fn write_api_key_provider_to_config_toml(
     provider_table["name"] = value(provider_name);
     provider_table["base_url"] = value(base_url);
     provider_table["wire_api"] = value(CODEX_PROVIDER_WIRE_API);
-    provider_table["requires_openai_auth"] = value(!supports_image_generation);
+    // require_openai_auth 与生图 headers 解耦：
+    // - 纯 API Key 生图：require=false + actor
+    // - 绑定 OAuth 的本地 API：require=true（显示账号）+ actor + chat disable（生图走本地）
+    provider_table["requires_openai_auth"] = value(require_openai_auth);
     provider_table[CODEX_CONFIG_EXPERIMENTAL_BEARER_TOKEN_KEY] = value(bearer_token);
     provider_table["supports_websockets"] = value(supports_websockets);
+    let is_local_access_loopback = provider_config.provider_id.as_deref()
+        == Some(CODEX_RUNTIME_MODEL_PROVIDER_ID)
+        && is_loopback_http_base_url(Some(base_url));
     if supports_image_generation {
-        set_imagegen_actor_header(provider_table);
+        set_imagegen_headers(provider_table, is_local_access_loopback);
     } else {
-        remove_imagegen_actor_header(provider_table);
+        remove_imagegen_headers(provider_table);
+    }
+    // 本地 API 服务：写入实例 ID，供网关/请求日志区分多开来源。
+    if is_local_access_loopback {
+        let instance_id = client_instance_id_for_profile_dir(base_dir);
+        set_provider_static_header(
+            provider_table,
+            CODEX_CLIENT_INSTANCE_ID_HEADER,
+            &instance_id,
+        );
+    } else {
+        remove_provider_static_header(provider_table, CODEX_CLIENT_INSTANCE_ID_HEADER);
     }
 
     if let Some(parent) = config_path.parent() {
@@ -1323,6 +1402,16 @@ fn write_api_key_provider_to_config_toml(
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))
+}
+
+pub(crate) fn client_instance_id_for_profile_dir(base_dir: &Path) -> String {
+    base_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 /// 旧版数据目录（~/Library/Application Support/com.antigravity.cockpit-tools/）
@@ -2784,18 +2873,13 @@ pub fn load_account(account_id: &str) -> Option<CodexAccount> {
     load_account_with_summary(account_id, None).ok().flatten()
 }
 
-fn migrate_bound_oauth_use_local_gateway_if_missing(
-    account: &mut CodexAccount,
-    raw_value: &serde_json::Value,
-) -> bool {
-    if !account.is_api_key_auth()
-        || normalize_optional_ref(account.bound_oauth_account_id.as_deref()).is_none()
-        || raw_value.get("bound_oauth_use_local_gateway").is_some()
-    {
+/// 绑定 OAuth 的 API Key：不走本地网关生图兼容（保持绑定显示/客户端能力）。
+/// 纯 API Key 生图走 provider 的 gpt-image-2 + actor header，与本开关无关。
+fn clear_bound_oauth_local_gateway_flag(account: &mut CodexAccount) -> bool {
+    if !account.bound_oauth_use_local_gateway {
         return false;
     }
-
-    account.bound_oauth_use_local_gateway = true;
+    account.bound_oauth_use_local_gateway = false;
     true
 }
 
@@ -2842,25 +2926,17 @@ fn load_account_with_summary(
             &path, &content,
         )
     {
-        // When deserialize returned a plaintext legacy file, keep original JSON for field-presence migrations.
-        let raw_value = if needs_rotation {
-            serde_json::from_str::<serde_json::Value>(&content).ok()
-        } else {
-            serde_json::to_value(&account).ok()
-        };
         let migrated_index_summary = summary
             .map(|summary| apply_index_summary_to_account_detail(&mut account, summary))
             .unwrap_or(false);
-        let migrated_bound_oauth = raw_value
-            .as_ref()
-            .map(|value| migrate_bound_oauth_use_local_gateway_if_missing(&mut account, value))
-            .unwrap_or(false);
+        // 绑定 OAuth 时强制关闭本地网关标志，避免误走旧「禁生图 + 本地网关」路径。
+        let cleared_bound_oauth_gateway = clear_bound_oauth_local_gateway_flag(&mut account);
         let migrated_wire_api = migrate_apikey_fun_wire_api(&mut account);
         let migrated_websocket = normalize_api_key_websocket_capability(&mut account);
         if needs_rotation
             || migrated_wire_api
             || migrated_websocket
-            || migrated_bound_oauth
+            || cleared_bound_oauth_gateway
             || migrated_index_summary
         {
             let account_for_rewrite = account.clone();
@@ -2885,7 +2961,7 @@ fn load_account_with_summary(
     let mut account = parse_codex_account_compat(value.clone(), account_id, summary)?
         .ok_or_else(|| format!("账号详情缺少可识别凭据 ({})", path.display()))?;
     let _ = migrate_apikey_fun_wire_api(&mut account);
-    let _ = migrate_bound_oauth_use_local_gateway_if_missing(&mut account, &value);
+    let _ = clear_bound_oauth_local_gateway_flag(&mut account);
 
     let account_for_rewrite = account.clone();
     crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
@@ -2907,8 +2983,7 @@ fn load_account_with_summary(
 /// 保存单个账号详情
 pub fn save_account(account: &CodexAccount) -> Result<(), String> {
     let path = get_accounts_dir().join(format!("{}.json", &account.id));
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("codex", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("codex", account)?;
     write_string_atomic(&path, &content).map_err(|e| format!("写入账号详情失败: {}", e))?;
     Ok(())
 }
@@ -4307,13 +4382,17 @@ pub fn write_auth_file_to_dir(base_dir: &Path, account: &CodexAccount) -> Result
             account.api_provider_id.as_deref(),
             account.api_provider_name.as_deref(),
         );
+        let supports_image =
+            api_key_provider_should_enable_imagegen(account, &provider_config);
         write_api_key_provider_to_config_toml(
             base_dir,
             &provider_config,
             &api_key,
             account.api_provider_mode == CodexApiProviderMode::Custom
                 && account.api_supports_websockets,
-            api_key_account_supports_image_generation(account),
+            supports_image,
+            // 纯 API Key：有生图时关闭 openai auth 门，走 bearer + actor。
+            !supports_image,
         )?;
         provider_config
     } else {
@@ -4414,16 +4493,55 @@ fn write_api_key_provider_override_to_config_toml(
         api_key_account.api_provider_id.as_deref(),
         api_key_account.api_provider_name.as_deref(),
     );
+    // 绑定 OAuth 一律 requires_openai_auth=true（显示/使用 OAuth 登录态）。
+    // 生图：与纯 API Key 同一判定——本地 loopback 始终开；第三方仅目录含 gpt-image-2。
+    let supports_image =
+        api_key_provider_should_enable_imagegen(api_key_account, &provider_config);
     write_api_key_provider_to_config_toml(
         base_dir,
         &provider_config,
         &api_key,
         api_key_account.api_supports_websockets,
-        // 已绑定 OAuth 时必须继续让 Codex 使用 auth.json / Keychain 登录态；
-        // requires_openai_auth=false 与生图 actor header 仅用于未绑定 OAuth 的 API Key 投影。
-        false,
+        supports_image,
+        true,
     )?;
     Ok(provider_config)
+}
+
+/// 按账号当前模型目录刷新 profile 上的 provider 生图 header（有则写、无则清）。
+fn refresh_api_key_provider_projection_in_dir(
+    base_dir: &Path,
+    account: &CodexAccount,
+) -> Result<(), String> {
+    if !account.is_api_key_auth() {
+        return Ok(());
+    }
+    if let Some(oauth) = load_optional_bound_oauth_account_for_api_key(account)? {
+        if !oauth.tokens.id_token.trim().is_empty() {
+            write_api_key_provider_override_to_config_toml(base_dir, account)?;
+            return Ok(());
+        }
+    }
+    let api_key = normalize_api_key(account.openai_api_key.as_deref().unwrap_or_default())
+        .ok_or_else(|| "API Key 账号缺少 OPENAI_API_KEY".to_string())?;
+    let provider_config = infer_api_provider_config(
+        account.api_base_url.as_deref(),
+        Some(account.api_provider_mode.clone()),
+        account.api_provider_id.as_deref(),
+        account.api_provider_name.as_deref(),
+    );
+    let supports_image =
+        api_key_provider_should_enable_imagegen(account, &provider_config);
+    write_api_key_provider_to_config_toml(
+        base_dir,
+        &provider_config,
+        &api_key,
+        account.api_provider_mode == CodexApiProviderMode::Custom
+            && account.api_supports_websockets,
+        supports_image,
+        !supports_image,
+    )?;
+    Ok(())
 }
 
 fn write_api_key_account_bundle_with_oauth_to_dir(
@@ -4529,8 +4647,7 @@ pub(crate) fn build_projection_bundle_for_remote(
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
-    fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("创建远程投影临时目录失败: {}", e))?;
+    fs::create_dir_all(&temp_dir).map_err(|e| format!("创建远程投影临时目录失败: {}", e))?;
 
     let build_result = (|| {
         if let Some(existing_config) = existing_config_toml {
@@ -4548,9 +4665,8 @@ pub(crate) fn build_projection_bundle_for_remote(
         ] {
             let path = temp_dir.join(relative_path);
             let content = if path.exists() {
-                fs::read_to_string(&path).map_err(|e| {
-                    format!("读取 Codex 投影文件失败: {}: {}", relative_path, e)
-                })?
+                fs::read_to_string(&path)
+                    .map_err(|e| format!("读取 Codex 投影文件失败: {}: {}", relative_path, e))?
             } else if relative_path == CODEX_CONFIG_FILE_NAME {
                 String::new()
             } else {
@@ -6981,9 +7097,7 @@ fn get_codex_batch_import_sessions_dir() -> PathBuf {
     let data_dir = account::get_data_dir()
         .or_else(|_| account::resolve_data_dir())
         .unwrap_or_else(|_| PathBuf::from(".antigravity_cockpit"));
-    let dir = data_dir.join(CODEX_BATCH_IMPORT_SESSIONS_DIR);
-    let _ = fs::create_dir_all(&dir);
-    dir
+    data_dir.join(CODEX_BATCH_IMPORT_SESSIONS_DIR)
 }
 
 fn sanitize_codex_batch_import_session_id(session_id: &str) -> Result<String, String> {
@@ -7003,6 +7117,25 @@ fn sanitize_codex_batch_import_session_id(session_id: &str) -> Result<String, St
 fn codex_batch_import_session_snapshot_path(session_id: &str) -> Result<PathBuf, String> {
     let safe_id = sanitize_codex_batch_import_session_id(session_id)?;
     Ok(get_codex_batch_import_sessions_dir().join(format!("{}.json", safe_id)))
+}
+
+fn ensure_codex_batch_import_sessions_dir(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        return Ok(());
+    }
+    if path.exists() {
+        return Err(format!(
+            "创建导入会话目录失败: path={} 不是目录",
+            path.display()
+        ));
+    }
+    fs::create_dir(path).map_err(|error| {
+        format!(
+            "创建导入会话目录失败: path={}, error={}",
+            path.display(),
+            error
+        )
+    })
 }
 
 fn codex_batch_import_snapshot_from_session(
@@ -7045,7 +7178,7 @@ fn save_codex_batch_import_session_snapshot(
 ) -> Result<(), String> {
     let path = codex_batch_import_session_snapshot_path(session_id)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| format!("创建导入会话目录失败: {}", error))?;
+        ensure_codex_batch_import_sessions_dir(parent)?;
     }
     let snapshot = codex_batch_import_snapshot_from_session(session);
     let content = serde_json::to_string_pretty(&snapshot)
@@ -7906,7 +8039,8 @@ pub fn start_codex_batch_import_from_files(
         total: 0,
         items: Vec::new(),
     };
-    save_codex_batch_import_session_snapshot(&session_id, &session)?;
+    // 会话快照用于崩溃恢复，失败时保留当前进程内任务，不能阻断批量导入。
+    save_codex_batch_import_session_snapshot_best_effort(&session_id, &session);
     {
         let mut sessions = CODEX_BATCH_IMPORT_SESSIONS.lock().unwrap();
         sessions.insert(session_id.clone(), session);
@@ -7929,7 +8063,7 @@ pub fn cancel_codex_batch_import(session_id: &str) -> Result<(), String> {
         session.status = "cancelled".to_string();
         session.clone()
     };
-    save_codex_batch_import_session_snapshot(session_id, &session_snapshot)?;
+    save_codex_batch_import_session_snapshot_best_effort(session_id, &session_snapshot);
     Ok(())
 }
 
@@ -7945,12 +8079,12 @@ pub fn resume_codex_batch_import(app: tauri::AppHandle, session_id: &str) -> Res
         }
         if session.next_index >= session.source_items.len() {
             session.status = "ready".to_string();
-            save_codex_batch_import_session_snapshot(session_id, session)?;
+            save_codex_batch_import_session_snapshot_best_effort(session_id, session);
             return Ok(());
         }
         session.cancel.store(false, Ordering::SeqCst);
         session.status = "scanning".to_string();
-        save_codex_batch_import_session_snapshot(session_id, session)?;
+        save_codex_batch_import_session_snapshot_best_effort(session_id, session);
     }
 
     let task_session_id = session_id.to_string();
@@ -7995,7 +8129,7 @@ pub fn confirm_codex_batch_import(
             session.clone(),
         )
     };
-    save_codex_batch_import_session_snapshot(session_id, &session_snapshot)?;
+    save_codex_batch_import_session_snapshot_best_effort(session_id, &session_snapshot);
 
     let mut imported = Vec::new();
     let mut failed = Vec::new();
@@ -8228,12 +8362,12 @@ mod tests {
         extract_codex_import_candidate_from_value, extract_codex_tokens_from_value,
         extract_user_info, force_refresh_managed_account_after_observed,
         format_refresh_error_for_user, get_accounts_dir, get_accounts_storage_path,
-        get_current_account_from_loaded, import_from_json, is_managed_auth_refresh_due,
-        is_pending_oauth_account, list_accounts_checked, load_account, load_account_index,
-        looks_like_sub2api_export, now_timestamp, parse_auth_file_last_refresh,
+        get_current_account_from_loaded, import_from_json, is_loopback_http_base_url,
+        is_managed_auth_refresh_due, is_pending_oauth_account, list_accounts_checked, load_account,
+        load_account_index, looks_like_sub2api_export, now_timestamp, parse_auth_file_last_refresh,
         parse_codex_account_compat, parse_line_delimited_json_values,
         read_api_provider_from_config_toml, read_quick_config_from_config_toml, remove_accounts,
-        is_loopback_http_base_url, resolve_api_provider_config, save_account, save_account_index,
+        resolve_api_provider_config, save_account, save_account_index,
         should_accept_authority_snapshot, sync_account_from_auth_dir,
         sync_api_key_account_from_local_state, sync_managed_projection_from_auth_dir,
         upsert_account, upsert_account_for_reauth, upsert_account_from_access_token,
@@ -8245,7 +8379,9 @@ mod tests {
         CodexAuthTokens, CodexJsonImportCandidate, LocalCodexOAuthSnapshot,
         CODEX_ACCOUNT_DETAIL_SCHEMA_VERSION, CODEX_AUTHORIZATION_STATUS_PENDING,
         CODEX_AUTO_COMPACT_DEFAULT_LIMIT, CODEX_CONTEXT_WINDOW_1M_VALUE,
-        CODEX_IMAGEGEN_ACTOR_HEADER, CODEX_IMAGEGEN_ACTOR_HEADER_VALUE, CODEX_IMAGE_MODEL_ID,
+        CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER,
+        CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE, CODEX_IMAGEGEN_ACTOR_HEADER,
+        CODEX_IMAGEGEN_ACTOR_HEADER_VALUE, CODEX_IMAGE_MODEL_ID,
     };
     use crate::models::codex::{CodexAccount, CodexApiProviderMode, CodexTokens};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -8571,13 +8707,13 @@ mod tests {
     }
 
     #[test]
-    fn load_account_migrates_legacy_bound_oauth_api_key_to_disable_image_generation() {
+    fn load_account_clears_bound_oauth_local_gateway_flag() {
         let _lock = crate::modules::test_support::env_lock()
             .lock()
             .expect("lock test env");
-        let _env = TestEnvGuard::new("codex-legacy-bound-oauth-migration");
+        let _env = TestEnvGuard::new("codex-bound-oauth-clear-gateway");
         let mut account = CodexAccount::new_api_key(
-            "api-legacy-bound-oauth".to_string(),
+            "api-bound-oauth-clear-gateway".to_string(),
             "api-key@example.com".to_string(),
             "sk-test".to_string(),
             CodexApiProviderMode::Custom,
@@ -8587,85 +8723,22 @@ mod tests {
             vec!["gpt-5.5".to_string()],
         );
         account.bound_oauth_account_id = Some("oauth-1".to_string());
-        let accounts_dir = get_accounts_dir();
-        fs::create_dir_all(&accounts_dir).expect("create accounts dir");
-        let mut value = serde_json::to_value(&account).expect("serialize account");
-        value
-            .as_object_mut()
-            .expect("account should be object")
-            .remove("bound_oauth_use_local_gateway");
-        fs::write(
-            accounts_dir.join(format!("{}.json", account.id)),
-            serde_json::to_string_pretty(&value).expect("serialize legacy account"),
-        )
-        .expect("write legacy account");
+        account.bound_oauth_use_local_gateway = true;
+        save_account(&account).expect("save account");
 
         let loaded = load_account(&account.id).expect("load account");
-
-        assert!(loaded.bound_oauth_use_local_gateway);
-        let account_path = accounts_dir.join(format!("{}.json", account.id));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            let persisted = fs::read_to_string(&account_path).expect("read migrated account");
-            if persisted.contains("AES-256-GCM") || persisted.contains("ciphertext") {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "expected background migration to encrypt account detail on disk"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        let reloaded = load_account(&account.id).expect("reload migrated account");
-        assert!(reloaded.bound_oauth_use_local_gateway);
-    }
-
-    #[test]
-    fn load_account_respects_explicit_bound_oauth_image_generation_false() {
-        let _lock = crate::modules::test_support::env_lock()
-            .lock()
-            .expect("lock test env");
-        let _env = TestEnvGuard::new("codex-bound-oauth-explicit-false");
-        let mut account = CodexAccount::new_api_key(
-            "api-bound-oauth-explicit-false".to_string(),
-            "api-key@example.com".to_string(),
-            "sk-test".to_string(),
-            CodexApiProviderMode::Custom,
-            Some("https://relay.example/v1".to_string()),
-            Some("relay".to_string()),
-            Some("Relay".to_string()),
-            vec!["gpt-5.5".to_string()],
-        );
-        account.bound_oauth_account_id = Some("oauth-1".to_string());
-        let accounts_dir = get_accounts_dir();
-        fs::create_dir_all(&accounts_dir).expect("create accounts dir");
-        let mut value = serde_json::to_value(&account).expect("serialize account");
-        value
-            .as_object_mut()
-            .expect("account should be object")
-            .insert(
-                "bound_oauth_use_local_gateway".to_string(),
-                serde_json::json!(false),
-            );
-        fs::write(
-            accounts_dir.join(format!("{}.json", account.id)),
-            serde_json::to_string_pretty(&value).expect("serialize account"),
-        )
-        .expect("write account");
-
-        let loaded = load_account(&account.id).expect("load account");
-
+        assert_eq!(loaded.bound_oauth_account_id.as_deref(), Some("oauth-1"));
         assert!(!loaded.bound_oauth_use_local_gateway);
     }
 
     #[test]
-    fn save_account_persists_bound_oauth_image_generation_false() {
+    fn load_account_keeps_bound_oauth_account_id_when_gateway_false() {
         let _lock = crate::modules::test_support::env_lock()
             .lock()
             .expect("lock test env");
-        let _env = TestEnvGuard::new("codex-bound-oauth-save-false");
+        let _env = TestEnvGuard::new("codex-bound-oauth-keep-id");
         let mut account = CodexAccount::new_api_key(
-            "api-bound-oauth-save-false".to_string(),
+            "api-bound-oauth-keep-id".to_string(),
             "api-key@example.com".to_string(),
             "sk-test".to_string(),
             CodexApiProviderMode::Custom,
@@ -8676,20 +8749,11 @@ mod tests {
         );
         account.bound_oauth_account_id = Some("oauth-1".to_string());
         account.bound_oauth_use_local_gateway = false;
-
         save_account(&account).expect("save account");
 
-        // On-disk file is AES envelope (#1104); assert via load path.
         let loaded = load_account(&account.id).expect("load account");
+        assert_eq!(loaded.bound_oauth_account_id.as_deref(), Some("oauth-1"));
         assert!(!loaded.bound_oauth_use_local_gateway);
-
-        let accounts_dir = get_accounts_dir();
-        let raw = fs::read_to_string(accounts_dir.join(format!("{}.json", account.id)))
-            .expect("read persisted account");
-        assert!(
-            raw.contains("AES-256-GCM") || raw.contains("ciphertext"),
-            "expected encrypted account detail on disk"
-        );
     }
 
     fn write_oauth_auth_file(base_dir: &std::path::Path, tokens: &CodexTokens, account_id: &str) {
@@ -10415,7 +10479,7 @@ multi_agent = true
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false)
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
             .expect("write config");
 
         let config_path = base_dir.join("config.toml");
@@ -10453,7 +10517,7 @@ multi_agent = true
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false)
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
             .expect("write config");
 
         let config_path = base_dir.join("config.toml");
@@ -10506,6 +10570,7 @@ X-Custom = "keep-me"
             "agt_codex_test",
             false,
             true,
+            false,
         )
         .expect("write config");
 
@@ -10534,9 +10599,36 @@ X-Custom = "keep-me"
             Some(CODEX_IMAGEGEN_ACTOR_HEADER_VALUE)
         );
         assert_eq!(
+            headers
+                .get(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER)
+                .and_then(|item| item.as_str()),
+            Some(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE)
+        );
+        assert_eq!(
             headers.get("X-Custom").and_then(|item| item.as_str()),
             Some("keep-me")
         );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn remote_api_key_imagegen_does_not_disable_hosted_chat_tool() {
+        let base_dir = make_temp_dir("codex-remote-api-key-imagegen-test");
+        let provider_config = resolve_api_provider_config(
+            Some("https://api.apikey.fun/v1"),
+            Some(CodexApiProviderMode::Custom),
+            Some("apikey_fun"),
+            Some("APIKey.fun"),
+        )
+        .expect("resolve provider config");
+
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, true, false)
+            .expect("write config");
+
+        let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
+        assert!(content.contains(CODEX_IMAGEGEN_ACTOR_HEADER));
+        assert!(!content.contains(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER));
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }
@@ -10560,7 +10652,7 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false)
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
             .expect("write config");
 
         let content = fs::read_to_string(&config_path).expect("read config");
@@ -10581,9 +10673,9 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
             .get("http_headers")
             .and_then(|item| item.as_inline_table())
             .expect("http_headers inline table");
-        assert!(headers.iter().all(|(name, _)| {
-            !name.eq_ignore_ascii_case(CODEX_IMAGEGEN_ACTOR_HEADER)
-        }));
+        assert!(headers
+            .iter()
+            .all(|(name, _)| { !name.eq_ignore_ascii_case(CODEX_IMAGEGEN_ACTOR_HEADER) }));
         assert_eq!(
             headers.get("X-Custom").and_then(|item| item.as_str()),
             Some("keep-me")
@@ -10617,6 +10709,193 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
     }
 
     #[test]
+    fn pure_third_party_without_image_catalog_clears_stale_actor_headers() {
+        let base_dir = make_temp_dir("codex-third-party-clear-stale-actor");
+        let config_path = base_dir.join("config.toml");
+        fs::write(
+            &config_path,
+            r#"model_provider = "codex_local_access"
+
+[model_providers.codex_local_access]
+name = "Relay"
+base_url = "https://relay.example.com/v1"
+wire_api = "responses"
+requires_openai_auth = false
+experimental_bearer_token = "sk-old"
+http_headers = { "x-openai-actor-authorization" = "cockpit-tools" }
+supports_websockets = false
+"#,
+        )
+        .expect("seed stale imagegen config");
+
+        let account = CodexAccount::new_api_key(
+            "relay-no-image".to_string(),
+            "relay@example.com".to_string(),
+            "sk-new".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example.com/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+            vec!["gpt-5.5".to_string()],
+        );
+
+        write_account_bundle_to_dir(&base_dir, &account).expect("rewrite without image catalog");
+
+        let content = fs::read_to_string(&config_path).expect("read config");
+        assert!(
+            !content.contains(CODEX_IMAGEGEN_ACTOR_HEADER),
+            "stale actor must be cleared when catalog has no gpt-image-2: {content}"
+        );
+        assert!(content.contains("experimental_bearer_token = \"sk-new\""));
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn pure_api_key_local_access_writes_imagegen_takeover_shape() {
+        let base_dir = make_temp_dir("codex-local-access-pure-api-key-takeover-shape");
+        let provider_config = resolve_api_provider_config(
+            Some("http://localhost:12345/v1"),
+            Some(CodexApiProviderMode::Custom),
+            Some("codex_local_access"),
+            Some("Codex API Service"),
+        )
+        .expect("resolve provider config");
+
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "agt_codex_test",
+            false,
+            true,
+            false,
+        )
+        .expect("write config");
+
+        let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
+        assert!(
+            content.contains("requires_openai_auth = false"),
+            "pure API Key local-access must disable openai auth gate: {content}"
+        );
+        assert!(
+            content.contains(CODEX_IMAGEGEN_ACTOR_HEADER),
+            "pure API Key local-access must write actor header: {content}"
+        );
+        assert!(
+            content.contains(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER),
+            "pure API Key local-access should keep chat images-only header: {content}"
+        );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn api_key_bound_oauth_keeps_oauth_login_and_imagegen_when_catalog_has_image() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let _env = TestEnvGuard::new("codex-api-key-bound-oauth-auth-test");
+        let base_dir = make_temp_dir("codex-api-key-bound-oauth-auth-test");
+        let mut oauth = CodexAccount::new(
+            "oauth-bound-auth-test".to_string(),
+            "oauth@example.com".to_string(),
+            CodexTokens {
+                id_token: "id.token.value".to_string(),
+                access_token: "access.token".to_string(),
+                refresh_token: Some("refresh.token".to_string()),
+            },
+        );
+        oauth.auth_mode = crate::models::codex::CodexAuthMode::OAuth;
+        save_account(&oauth).expect("save oauth");
+
+        let mut api_key = CodexAccount::new_api_key(
+            "api-key-bound-auth-test".to_string(),
+            "api@example.com".to_string(),
+            "sk-test-key".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example.com/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+            vec![CODEX_IMAGE_MODEL_ID.to_string(), "gpt-5.5".to_string()],
+        );
+        api_key.bound_oauth_account_id = Some(oauth.id.clone());
+        save_account(&api_key).expect("save api key");
+
+        write_account_bundle_to_dir(&base_dir, &api_key).expect("write bound oauth bundle");
+
+        let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
+        assert!(
+            content.contains("requires_openai_auth = true"),
+            "bound OAuth must enable openai auth gate so Codex uses OAuth login: {content}"
+        );
+        assert!(
+            content.contains(CODEX_IMAGEGEN_ACTOR_HEADER),
+            "third-party bound OAuth with image catalog must write actor for imagegen: {content}"
+        );
+        // 非 loopback 不写 chat disable
+        assert!(
+            !content.contains(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER),
+            "third-party should not set chat-only image disable: {content}"
+        );
+
+        let auth: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(base_dir.join("auth.json")).expect("auth"))
+                .expect("parse auth");
+        assert!(
+            auth.get("tokens").is_some(),
+            "auth should keep oauth tokens"
+        );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+        let _ = remove_accounts(&[oauth.id, api_key.id]);
+    }
+
+    #[test]
+    fn api_key_bound_oauth_without_image_catalog_skips_actor() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let _env = TestEnvGuard::new("codex-api-key-bound-oauth-no-image-test");
+        let base_dir = make_temp_dir("codex-api-key-bound-oauth-no-image-test");
+        let mut oauth = CodexAccount::new(
+            "oauth-bound-no-image-test".to_string(),
+            "oauth-no-image@example.com".to_string(),
+            CodexTokens {
+                id_token: "id.token.value".to_string(),
+                access_token: "access.token".to_string(),
+                refresh_token: Some("refresh.token".to_string()),
+            },
+        );
+        oauth.auth_mode = crate::models::codex::CodexAuthMode::OAuth;
+        save_account(&oauth).expect("save oauth");
+
+        let mut api_key = CodexAccount::new_api_key(
+            "api-key-bound-no-image-test".to_string(),
+            "api-no-image@example.com".to_string(),
+            "sk-test-key".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example.com/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+            vec!["gpt-5.5".to_string()],
+        );
+        api_key.bound_oauth_account_id = Some(oauth.id.clone());
+        save_account(&api_key).expect("save api key");
+
+        write_account_bundle_to_dir(&base_dir, &api_key).expect("write bound oauth bundle");
+
+        let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
+        assert!(content.contains("requires_openai_auth = true"));
+        assert!(
+            !content.contains(CODEX_IMAGEGEN_ACTOR_HEADER),
+            "no image model in catalog → no actor: {content}"
+        );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+        let _ = remove_accounts(&[oauth.id, api_key.id]);
+    }
+
+    #[test]
     fn api_key_config_toml_enables_websockets_when_account_supports_them() {
         let base_dir = make_temp_dir("codex-api-key-config-websocket-test");
         let provider_config = resolve_api_provider_config(
@@ -10627,7 +10906,7 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", true, false)
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", true, false, true)
             .expect("write config");
 
         let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
@@ -10743,7 +11022,68 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
         assert!(config.contains("model_provider = \"codex_local_access\""));
         assert!(config.contains("requires_openai_auth = true"));
         assert!(config.contains("experimental_bearer_token = \"local-service-key\""));
-        assert!(!config.contains(CODEX_IMAGEGEN_ACTOR_HEADER));
+        // local-access loopback + bound OAuth → also write imagegen headers
+        assert!(config.contains(CODEX_IMAGEGEN_ACTOR_HEADER));
+        assert!(config.contains(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER));
+    }
+
+    #[test]
+    fn local_access_runtime_bound_oauth_keeps_oauth_login_and_imagegen() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let env = TestEnvGuard::new("codex-local-access-bound-oauth-takeover-shape");
+        let oauth_account = seed_oauth_account(make_codex_tokens(
+            "bound@example.com",
+            "acc-bound",
+            "org-bound",
+            "bound-oauth",
+            "rt-bound-oauth",
+        ));
+
+        let mut runtime = CodexAccount::new_api_key(
+            "codex_local_access_runtime".to_string(),
+            "api-service-local".to_string(),
+            "agt_codex_takeover".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("http://localhost:12345/v1".to_string()),
+            Some("codex_local_access".to_string()),
+            Some("Codex API Service".to_string()),
+            vec![CODEX_IMAGE_MODEL_ID.to_string()],
+        );
+        runtime.bound_oauth_account_id = Some(oauth_account.id.clone());
+        let profile_dir = env.home_dir.join("api-service-profile");
+
+        write_account_bundle_to_dir(&profile_dir, &runtime).expect("write bound oauth takeover");
+
+        let config = fs::read_to_string(profile_dir.join("config.toml")).expect("read config");
+        assert!(
+            config.contains("requires_openai_auth = true"),
+            "bound OAuth local-access must enable openai auth gate: {config}"
+        );
+        assert!(
+            config.contains(CODEX_IMAGEGEN_ACTOR_HEADER),
+            "bound OAuth local-access must write actor for imagegen: {config}"
+        );
+        assert!(
+            config.contains(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER)
+                && config.contains(CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE),
+            "bound OAuth local-access must disable hosted chat imagegen: {config}"
+        );
+        assert!(config.contains("experimental_bearer_token = \"agt_codex_takeover\""));
+        assert!(config.contains("base_url = \"http://localhost:12345/v1\""));
+
+        let auth_file: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(profile_dir.join("auth.json")).expect("read auth"),
+        )
+        .expect("parse auth");
+        assert!(
+            auth_file.get("tokens").is_some(),
+            "auth.json should keep bound OAuth tokens"
+        );
+        assert!(auth_file.get("auth_mode").is_none());
+
+        let _ = remove_accounts(&[oauth_account.id]);
     }
 
     #[test]
@@ -11205,7 +11545,7 @@ multi_agent = true
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false)
+        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
             .expect("write config");
 
         let content = fs::read_to_string(&config_path).expect("read config");
@@ -11787,7 +12127,6 @@ pub fn update_account_app_speed(
 pub async fn update_api_key_bound_oauth_account(
     account_id: &str,
     bound_oauth_account_id: Option<String>,
-    bound_oauth_use_local_gateway: bool,
 ) -> Result<CodexAccount, String> {
     let mut account =
         load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
@@ -11801,7 +12140,9 @@ pub async fn update_api_key_bound_oauth_account(
         let _ = validate_api_key_bound_oauth_account(&account, bound_id)?;
     }
     account.bound_oauth_account_id = bound_id.clone();
-    account.bound_oauth_use_local_gateway = bound_id.is_some() && bound_oauth_use_local_gateway;
+    // 绑定 OAuth：不走本地网关生图兼容（与改前一致，保证绑定可展示、客户端能力正常）。
+    // 纯 API Key 生图仍走 gpt-image-2 + actor header，不依赖此标志。
+    account.bound_oauth_use_local_gateway = false;
     save_account(&account)?;
 
     let is_current = load_account_index()

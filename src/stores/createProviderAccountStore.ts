@@ -48,6 +48,8 @@ type ProviderStoreOptions = {
   platformId: PlatformId;
   currentAccountIdKey?: string;
   resolveCurrentAccountId?: () => Promise<string | null>;
+  /** 后端可能合法返回 null（如关闭「切号同步官方登录」），允许清空当前账号。 */
+  acceptEmptyCurrentAccountId?: boolean;
   persistCurrentAccountId?: boolean;
   hydrateCurrentAccountId?: boolean;
   preserveSourceQuota?: boolean;
@@ -78,6 +80,7 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
 ) {
   const currentAccountIdKey = options?.currentAccountIdKey ?? null;
   const hasCurrentAccountResolver = typeof options?.resolveCurrentAccountId === 'function';
+  const acceptEmptyCurrentAccountId = options?.acceptEmptyCurrentAccountId === true;
   const shouldPersistCurrentAccountId =
     options?.persistCurrentAccountId ?? !hasCurrentAccountResolver;
   const shouldHydrateCurrentAccountId =
@@ -218,6 +221,7 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
           !resolvedAccountId &&
           get().currentAccountId &&
           accounts.length > 0 &&
+          !acceptEmptyCurrentAccountId &&
           !allowNextEmptyCurrentAccountId
         ) {
           console.warn(
@@ -320,11 +324,18 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
 
     switchAccount: async (accountId: string) => {
       await service.injectAccount(accountId);
-      get().setCurrentAccountId(accountId);
-      await get().fetchAccounts();
+      // acceptEmpty：以后端为准（如 Grok 关闭「切号同步官方登录」时无当前账号）。
+      // 其他平台仍乐观写入当前账号，再拉取列表/状态。
+      if (acceptEmptyCurrentAccountId && hasCurrentAccountResolver) {
+        allowNextEmptyCurrentAccountId = true;
+        await get().fetchAccounts();
+      } else {
+        get().setCurrentAccountId(accountId);
+        await get().fetchAccounts();
+      }
       await emitCurrentAccountChanged({
         platformId: options.platformId,
-        accountId: get().currentAccountId ?? accountId,
+        accountId: get().currentAccountId,
         reason: 'switch',
       });
     },

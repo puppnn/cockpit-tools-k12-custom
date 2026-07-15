@@ -757,7 +757,7 @@ func (s *SessionAffinitySelector) PickBeforeAvailability(ctx context.Context, pr
 	if identity.ID == "" {
 		return nil, false, nil
 	}
-	digest := s.k12.store.digest(identity.ID)
+	digest := s.k12.store.digest(k12SessionKey(opts.Metadata, identity.ID))
 	now := time.Now()
 	binding, ok := s.k12.store.binding(digest, now)
 	if !ok {
@@ -848,7 +848,7 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		return nil, auths, false, nil
 	}
 	now := time.Now()
-	digest := s.k12.store.digest(identity.ID)
+	digest := s.k12.store.digest(k12SessionKey(opts.Metadata, identity.ID))
 	excludedAuthIDs := excludedAuthIDsFromOptions(opts)
 	suspendedAuthID := ""
 	var earliestCooldown time.Duration
@@ -1103,7 +1103,7 @@ func (s *SessionAffinitySelector) OnSelectionResult(ctx context.Context, result 
 		return SelectionResultDirective{}
 	}
 	now := time.Now()
-	digest := s.k12.store.digest(identity.ID)
+	digest := s.k12.store.digest(k12SessionKey(opts.Metadata, identity.ID))
 	status := statusCodeFromResult(result.Error)
 	streamOpenTimeout := isStreamOpenTimeoutResultError(result.Error)
 	attemptKnown, attemptAccepted, attemptIsK12 := s.k12.resolveSelectionAttempt(digest, result.AuthID, opts, result.Success, now)

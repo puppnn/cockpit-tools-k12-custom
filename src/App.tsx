@@ -603,7 +603,7 @@ function getQuotaAlertPlatformLabel(
     case 'github_copilot':
       return t('nav.githubCopilot', 'GitHub Copilot');
     case 'windsurf':
-      return 'Windsurf';
+      return 'Devin';
     case 'kiro':
       return 'Kiro';
     case 'cursor':
@@ -2956,7 +2956,7 @@ function MainApp() {
       },
       {
         command: 'refresh_all_windsurf_tokens',
-        errorMessage: 'Failed to refresh Windsurf quotas:',
+        errorMessage: 'Failed to refresh Devin quotas:',
       },
       {
         command: 'refresh_all_kiro_tokens',
@@ -3525,7 +3525,7 @@ function MainApp() {
       : appPathMissing.app === 'vscode'
         ? 'VS Code'
         : appPathMissing.app === 'windsurf'
-          ? 'Windsurf'
+          ? 'Devin'
           : appPathMissing.app === 'kiro'
             ? 'Kiro'
             : appPathMissing.app === 'cursor'
@@ -3553,7 +3553,7 @@ function MainApp() {
       : appPathMissing.app === 'vscode'
         ? t('quickSettings.githubCopilot.appPath', 'VS Code 路径')
         : appPathMissing.app === 'windsurf'
-          ? t('quickSettings.windsurf.appPath', 'Windsurf 路径')
+          ? t('quickSettings.windsurf.appPath', 'Devin 路径')
           : appPathMissing.app === 'kiro'
             ? t('quickSettings.kiro.appPath', 'Kiro 路径')
             : appPathMissing.app === 'cursor'

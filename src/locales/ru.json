@@ -242,7 +242,7 @@
     "settings": "Настройки",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "Панель",
     "morePlatforms": "Другие платформы",
     "instances": "Мульти-инстанс",
@@ -667,10 +667,10 @@
       "githubCopilotSettingsTitle": "Настройки GitHub Copilot",
       "ghcpAutoRefresh": "Автообновление квоты GitHub Copilot",
       "ghcpAutoRefreshDesc": "Частота фонового обновления",
-      "windsurfSettingsTitle": "Настройки Windsurf",
-      "windsurfAutoRefresh": "Автообновление квоты Windsurf",
+      "windsurfSettingsTitle": "Настройки Devin",
+      "windsurfAutoRefresh": "Автообновление квоты Devin",
       "windsurfAutoRefreshDesc": "Частота фонового обновления",
-      "windsurfAppPath": "Путь к приложению Windsurf",
+      "windsurfAppPath": "Путь к приложению Devin",
       "windsurfAppPathDesc": "Оставьте пустым, чтобы использовать путь по умолчанию",
       "windsurfAppPathPlaceholder": "Путь по умолчанию",
       "windsurfPathSelect": "Выбрать",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "Сначала высокий тариф",
         "planLowFirst": "Сначала низкий тариф",
         "expirySoonFirst": "Скорое истечение сначала",
+        "random": "Случайно",
         "custom": "Настраиваемая"
       },
       "statusUnconfigured": "Не настроено",
@@ -1976,7 +1977,12 @@
         "label": "Период",
         "daily": "День",
         "weekly": "Неделя",
-        "monthly": "Месяц"
+        "monthly": "Месяц",
+        "custom": "Свой",
+        "start": "Начало",
+        "end": "Конец",
+        "apply": "Применить",
+        "invalid": "Время окончания не может быть раньше времени начала"
       },
       "enableBeforeActivateTitle": "Сервис не включен",
       "enableBeforeActivateMessage": "API‑сервис сейчас отключен, его нужно сначала включить. Включить и переключить сейчас?",
@@ -3194,6 +3200,11 @@
         "models": "Модели и возможности",
         "logs": "Статистика и журналы"
       },
+      "statsRange": {
+        "today": "Сегодня",
+        "thisWeek": "Эта неделя",
+        "thisMonth": "Этот месяц"
+      },
       "healthTitle": "Состояние сервиса",
       "compat": {
         "title": "Совм. протоколов",
@@ -3271,6 +3282,24 @@
       "keys": {
         "policyTitle": "Политика моделей",
         "advancedPolicyTitle": "Дополнительно: политика моделей",
+        "accountScope": "Область ротации",
+        "accountScopeInherit": "Автоматически следовать пулу сервиса",
+        "accountScopeFixed": "Этот ключ привязан к аккаунту и не наследует пул сервиса",
+        "accountScopeSelected": "Выбрано аккаунтов: {{count}}",
+        "accountScopeInheritedCount": "Пул: унаследовано {{count}}",
+        "accountScopeUnavailable": "Пул: нет доступных аккаунтов",
+        "accountScopeCount": "Пул: {{selected}}/{{total}}",
+        "accountScopeRequired": "Выберите хотя бы один аккаунт",
+        "accountScopeModeInherit": "Наследовать пул сервиса",
+        "accountScopeModeCustom": "Свой пул аккаунтов",
+        "accountPrioritySet": "Закрепить аккаунт как приоритетный",
+        "accountPriorityPromote": "Сделать аккаунт первым",
+        "accountPriorityClear": "Снять приоритет аккаунта",
+        "accountPrioritySaved": "Приоритетный аккаунт закреплен",
+        "accountPriorityCleared": "Приоритет аккаунта снят",
+        "usageRange": "Период использования API-ключа",
+        "unsaved": "Не сохранено",
+        "resetPolicy": "Отменить изменения",
         "modelPrefix": "Префикс модели",
         "modelPrefixPlaceholder": "Например: codex",
         "allowedModels": "Разрешенные модели",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "Ожидание retry",
         "disableCooling": "Отключить cooldown",
         "saveOptions": "Сохранить параметры",
+        "immediateSseResponse": "Немедленный SSE 200",
         "optionsSaved": "Параметры маршрута сохранены"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "Введите процент",
     "inputCredits": "Введите кредиты",
     "windsurf": {
-      "title": "Настройки Windsurf",
-      "appPath": "Путь к Windsurf"
+      "title": "Настройки Devin",
+      "appPath": "Путь к Devin"
     },
     "windsurfRefreshInterval": "Автообновление квоты",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Управление аккаунтами Windsurf",
+    "title": "Управление аккаунтами Devin",
     "instances": {
       "unsupported": {
-        "desc": "Мульти-инстанс Windsurf в настоящее время доступен только на macOS."
+        "desc": "Мульти-инстанс Devin в настоящее время доступен только на macOS."
       }
     },
     "empty": {
       "description": "Нажмите «Добавить аккаунт», чтобы начать"
     },
     "addModal": {
-      "title": "Добавить аккаунт Windsurf",
+      "title": "Добавить аккаунт Devin",
       "password": "Вход по почте"
     },
     "password": {
-      "desc": "Войдите с почтой и паролем аккаунта Windsurf, чтобы автоматически получить API key и данные аккаунта.",
+      "desc": "Войдите с почтой и паролем аккаунта Devin, чтобы автоматически получить API key и данные аккаунта.",
       "emailPlaceholder": "Адрес почты",
       "passwordPlaceholder": "Пароль",
       "empty": "Введите почту и пароль",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "Еще {{count}} с ошибкой"
     },
     "oauth": {
-      "desc": "Нажмите ниже и завершите авторизацию Windsurf в браузере."
+      "desc": "Нажмите ниже и завершите авторизацию Devin в браузере."
     },
     "token": {
-      "desc": "Вставьте токен доступа Windsurf или экспортированные данные JSON."
+      "desc": "Вставьте токен доступа Devin или экспортированные данные JSON."
     },
     "import": {
-      "localDesc": "Импортировать аккаунты Windsurf из локальных вошедших сессий.",
-      "localClient": "Импорт из локального Windsurf"
+      "localDesc": "Импортировать аккаунты Devin из локальных вошедших сессий.",
+      "localClient": "Импорт из локального Devin"
     },
     "credits": {
       "title": "Тариф",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "Автопополнение",
       "remaining": "Осталось {{value}}"
     },
-    "injectToVSCode": "Переключить в Windsurf",
-    "injectSuccess": "Переключение завершено. Windsurf запускается.",
-    "injectRequireClose": "Пожалуйста, закройте Windsurf перед переключением.",
+    "injectToVSCode": "Переключить в Devin",
+    "injectSuccess": "Переключение завершено. Devin запускается.",
+    "injectRequireClose": "Пожалуйста, закройте Devin перед переключением.",
     "flowNotice": {
-      "title": "Руководство по аккаунтам Windsurf (нажмите, чтобы развернуть/свернуть)",
-      "desc": "Для переключения аккаунта требуется чтение локального хранилища аутентификации Windsurf и использование системной службы учетных данных для расшифровки и обратной записи; данные обрабатываются только локально.",
-      "inject": "Переключение в один клик: инструмент читает локальный криптографический материал Windsurf (DPAPI/Keychain/Secret Service), расшифровывает сессию авторизации в state.vscdb, заменяет токен Windsurf и шифрует обратно — всё локально на вашем устройстве.",
-      "reason": "Объем разрешений: чтение базы аутентификации Windsurf (state.vscdb) и вызов системного шифрования (Windows DPAPI / macOS Keychain / Linux Secret Service) для расшифровки и обратной записи.",
-      "storage": "Область чтения: обрабатываются только данные, связанные с сессией входа Windsurf; все процессы выполняются локально."
+      "title": "Руководство по аккаунтам Devin (нажмите, чтобы развернуть/свернуть)",
+      "desc": "Для переключения аккаунта требуется чтение локального хранилища аутентификации Devin и использование системной службы учетных данных для расшифровки и обратной записи; данные обрабатываются только локально.",
+      "inject": "Переключение в один клик: инструмент читает локальный криптографический материал Devin (DPAPI/Keychain/Secret Service), расшифровывает сессию авторизации в state.vscdb, заменяет токен Devin и шифрует обратно — всё локально на вашем устройстве.",
+      "reason": "Объем разрешений: чтение базы аутентификации Devin (state.vscdb) и вызов системного шифрования (Windows DPAPI / macOS Keychain / Linux Secret Service) для расшифровки и обратной записи.",
+      "storage": "Область чтения: обрабатываются только данные, связанные с сессией входа Devin; все процессы выполняются локально."
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "Перейти в настройки",
       "goVerification": "Перейти к wakeup-проверке",
       "goWakeup": "Перейти к wakeup-задачам",
-      "goWindsurf": "Перейти в Windsurf",
+      "goWindsurf": "Перейти в Devin",
       "openLayout": "Открыть раскладку платформ"
     },
     "antigravity": {
@@ -4286,11 +4316,11 @@
     "navTitle": "Руководство пользователя",
     "providers": {
       "cautions": {
-        "0": "Перед рискованными или массовыми действиями в Codex / GitHub Copilot / Windsurf / Kiro сделайте резервную копию.",
-        "1": "Перед запуском в Codex / GitHub Copilot / Windsurf / Kiro проверьте фильтры и целевой диапазон."
+        "0": "Перед рискованными или массовыми действиями в Codex / GitHub Copilot / Devin / Kiro сделайте резервную копию.",
+        "1": "Перед запуском в Codex / GitHub Copilot / Devin / Kiro проверьте фильтры и целевой диапазон."
       },
       "keywords": {
-        "0": "Платформы Codex / GitHub Copilot / Windsurf / Kiro",
+        "0": "Платформы Codex / GitHub Copilot / Devin / Kiro",
         "1": "гайд",
         "2": "поток",
         "3": "аккаунт",
@@ -4298,17 +4328,17 @@
         "5": "диагностика"
       },
       "outcomes": {
-        "0": "Поймите, какие задачи решает Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "Используйте рекомендованный поток в Codex / GitHub Copilot / Windsurf / Kiro, чтобы снизить ошибки.",
-        "2": "Перед масштабированием подтвердите один успешный запуск в Codex / GitHub Copilot / Windsurf / Kiro."
+        "0": "Поймите, какие задачи решает Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "Используйте рекомендованный поток в Codex / GitHub Copilot / Devin / Kiro, чтобы снизить ошибки.",
+        "2": "Перед масштабированием подтвердите один успешный запуск в Codex / GitHub Copilot / Devin / Kiro."
       },
       "steps": {
-        "0": "Откройте страницу Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "Завершите базовую настройку и необходимые привязки в Codex / GitHub Copilot / Windsurf / Kiro.",
-        "2": "Выполните одно ручное действие в Codex / GitHub Copilot / Windsurf / Kiro и проверьте результат."
+        "0": "Откройте страницу Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "Завершите базовую настройку и необходимые привязки в Codex / GitHub Copilot / Devin / Kiro.",
+        "2": "Выполните одно ручное действие в Codex / GitHub Copilot / Devin / Kiro и проверьте результат."
       },
-      "summary": "Этот раздел объясняет использование Codex / GitHub Copilot / Windsurf / Kiro в повседневном процессе.",
-      "title": "Платформы Codex / GitHub Copilot / Windsurf / Kiro"
+      "summary": "Этот раздел объясняет использование Codex / GitHub Copilot / Devin / Kiro в повседневном процессе.",
+      "title": "Платформы Codex / GitHub Copilot / Devin / Kiro"
     },
     "quickStart": {
       "cautions": {

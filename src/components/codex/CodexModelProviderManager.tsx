@@ -629,8 +629,6 @@ export function CodexModelProviderManager({
   const [providerOauthSaving, setProviderOauthSaving] = useState(false);
   const [providerOauthSelectedAccountId, setProviderOauthSelectedAccountId] =
     useState("");
-  const [providerOauthUseLocalGateway, setProviderOauthUseLocalGateway] =
-    useState(false);
   const [providerOauthSearchQuery, setProviderOauthSearchQuery] = useState("");
   const [providerOauthFilterTypes, setProviderOauthFilterTypes] = useState<
     string[]
@@ -2517,45 +2515,16 @@ export function CodexModelProviderManager({
     defaultPageSize: OAUTH_BINDING_PAGE_SIZE_OPTIONS[0],
   });
 
-  const handleProviderOauthLocalGatewayToggle = useCallback(
-    async (checked: boolean) => {
-      if (!checked) {
-        setProviderOauthUseLocalGateway(false);
-        return;
-      }
-      const confirmed = await confirmDialog(
-        t(
-          "codex.api.oauthBinding.localGatewayConfirm.message",
-          "开启后，该 API Key 账号绑定 OAuth 后的普通文本对话会走本地网关，并在转发前移除 image_generation 工具声明，避免部分供应商报 “Image generation is not enabled”；不会删除 gpt-image 等生图模型。是否继续？",
-        ),
-        {
-          title: t(
-            "codex.api.oauthBinding.localGatewayConfirm.title",
-            "禁用 image_generation 能力",
-          ),
-          okLabel: t("common.confirm", "确认"),
-          cancelLabel: t("common.cancel", "取消"),
-        },
-      );
-      if (confirmed) {
-        setProviderOauthUseLocalGateway(true);
-      }
-    },
-    [t],
-  );
-
   const handleProviderOauthBindingChange = useCallback(
     async (
       provider: CodexModelProvider,
       boundOauthAccountId: string | null,
-      boundOauthUseLocalGateway = false,
     ) => {
       setProviderOauthSaving(true);
       setNotice(null);
       try {
         await updateCodexModelProvider(provider.id, {
           boundOauthAccountId,
-          boundOauthUseLocalGateway,
         });
         await reloadProviders();
         setNotice({
@@ -2588,7 +2557,6 @@ export function CodexModelProviderManager({
   useEffect(() => {
     if (!providerOauthTarget) {
       setProviderOauthSelectedAccountId("");
-      setProviderOauthUseLocalGateway(false);
       setProviderOauthSearchQuery("");
       setProviderOauthFilterTypes([]);
       setProviderOauthTagFilter([]);
@@ -2599,9 +2567,6 @@ export function CodexModelProviderManager({
     const bound = resolveBoundOAuthAccount(providerOauthTarget);
     setProviderOauthSelectedAccountId(
       bound && isOAuthBindingEligibleAccount(bound) ? bound.id : "",
-    );
-    setProviderOauthUseLocalGateway(
-      providerOauthTarget.boundOauthUseLocalGateway === true,
     );
     setProviderOauthSearchQuery("");
     setProviderOauthFilterTypes([]);
@@ -2741,7 +2706,6 @@ export function CodexModelProviderManager({
         await updateCodexApiKeyBoundOAuthAccount(
           account.id,
           provider.boundOauthAccountId?.trim() || null,
-          provider.boundOauthUseLocalGateway === true,
         );
 
         await updateCodexInstance({
@@ -5141,31 +5105,6 @@ export function CodexModelProviderManager({
                     <label>
                       {t("codex.api.oauthBinding.selectLabel", "选择 OAuth 账号")}
                     </label>
-                    <label
-                      className="codex-oauth-binding-gateway-toggle"
-                      title={t(
-                        "codex.api.oauthBinding.localGatewayTooltip",
-                        "开启后，绑定 OAuth 的 API Key 文本对话会走本地网关，并在转发前移除 image_generation 工具声明；不会删除生图模型。",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={providerOauthUseLocalGateway}
-                        onChange={(event) =>
-                          void handleProviderOauthLocalGatewayToggle(
-                            event.target.checked,
-                          )
-                        }
-                        disabled={providerOauthSaving}
-                      />
-                      <span>
-                        {t(
-                          "codex.api.oauthBinding.useLocalGateway",
-                          "禁用 image_generation",
-                        )}
-                      </span>
-                      <HelpCircle size={14} />
-                    </label>
                   </div>
                   {providerOauthAccounts.length === 0 ? (
                     <div className="add-status error">
@@ -5381,7 +5320,6 @@ export function CodexModelProviderManager({
                         void handleProviderOauthBindingChange(
                           providerOauthTarget,
                           null,
-                          false,
                         )
                       }
                       disabled={providerOauthSaving}
@@ -5403,7 +5341,6 @@ export function CodexModelProviderManager({
                       void handleProviderOauthBindingChange(
                         providerOauthTarget,
                         selectedProviderOauthAccount.id,
-                        providerOauthUseLocalGateway,
                       )
                     }
                     disabled={

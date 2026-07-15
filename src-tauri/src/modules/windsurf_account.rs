@@ -1089,73 +1089,118 @@ pub fn export_accounts(account_ids: &[String]) -> Result<String, String> {
     serde_json::to_string_pretty(&accounts).map_err(|e| format!("序列化失败: {}", e))
 }
 
+fn windsurf_state_db_candidates() -> Result<Vec<PathBuf>, String> {
+    // Devin 为当前官网默认用户数据目录；Windsurf 保留兼容旧安装。
+    crate::modules::windsurf_instance::windsurf_user_data_dir_candidates().map(|dirs| {
+        dirs.into_iter()
+            .map(|dir| {
+                dir.join("User")
+                    .join("globalStorage")
+                    .join("state.vscdb")
+            })
+            .collect()
+    })
+}
+
 pub fn get_default_state_db_path() -> Result<PathBuf, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-        return Ok(home.join("Library/Application Support/Windsurf/User/globalStorage/state.vscdb"));
+    let candidates = windsurf_state_db_candidates()?;
+    for path in &candidates {
+        if path.is_file() {
+            return Ok(path.clone());
+        }
     }
-
-    #[cfg(target_os = "windows")]
-    {
-        let appdata =
-            std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 环境变量".to_string())?;
-        return Ok(PathBuf::from(appdata).join("Windsurf\\User\\globalStorage\\state.vscdb"));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-        return Ok(home.join(".config/Windsurf/User/globalStorage/state.vscdb"));
-    }
-
-    #[allow(unreachable_code)]
-    Err("Windsurf 账号导入仅支持 macOS、Windows 和 Linux".to_string())
+    candidates
+        .into_iter()
+        .next()
+        .ok_or_else(|| "未找到 Devin/Windsurf 本地 state.vscdb 候选路径".to_string())
 }
 
 pub fn read_local_auth_status() -> Result<Option<Value>, String> {
-    let db_path = get_default_state_db_path()?;
-    if !db_path.exists() {
-        return Ok(None);
-    }
-    let conn =
-        Connection::open(&db_path).map_err(|e| format!("打开 Windsurf 本地数据库失败: {}", e))?;
-    let value = conn
-        .query_row(
-            "SELECT value FROM ItemTable WHERE key = ?1",
-            ["windsurfAuthStatus"],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|e| format!("读取 windsurfAuthStatus 失败: {}", e))?;
+    let candidates = windsurf_state_db_candidates()?;
+    let mut last_err: Option<String> = None;
+    for db_path in candidates {
+        if !db_path.exists() {
+            continue;
+        }
+        let conn = match Connection::open(&db_path) {
+            Ok(conn) => conn,
+            Err(e) => {
+                last_err = Some(format!("打开 Devin/Windsurf 本地数据库失败: {}", e));
+                continue;
+            }
+        };
+        let value = match conn
+            .query_row(
+                "SELECT value FROM ItemTable WHERE key = ?1",
+                ["windsurfAuthStatus"],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+        {
+            Ok(value) => value,
+            Err(e) => {
+                last_err = Some(format!("读取 windsurfAuthStatus 失败: {}", e));
+                continue;
+            }
+        };
 
-    match value {
-        Some(content) => {
+        if let Some(content) = value {
             let parsed: Value = serde_json::from_str(&content)
                 .map_err(|e| format!("解析 windsurfAuthStatus 失败: {}", e))?;
-            Ok(Some(parsed))
+            return Ok(Some(parsed));
         }
-        None => Ok(None),
     }
+
+    if let Some(err) = last_err {
+        return Err(err);
+    }
+    Ok(None)
 }
 
 pub fn read_local_login_hint() -> Option<String> {
-    let db_path = get_default_state_db_path().ok()?;
-    if !db_path.exists() {
-        return None;
+    let candidates = windsurf_state_db_candidates().ok()?;
+    for db_path in candidates {
+        if !db_path.exists() {
+            continue;
+        }
+        let conn = Connection::open(&db_path).ok()?;
+
+        // 优先读当前选中账号（codeium.windsurf-windsurf_auth）
+        if let Ok(Some(selected)) = conn
+            .query_row(
+                "SELECT value FROM ItemTable WHERE key = ?1",
+                ["codeium.windsurf-windsurf_auth"],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+        {
+            let selected = selected.trim();
+            if !selected.is_empty() {
+                return Some(selected.to_string());
+            }
+        }
+
+        // 回退：取非 usages 的 windsurf_auth-* 键
+        let mut stmt = conn
+            .prepare(
+                "SELECT key FROM ItemTable WHERE key LIKE 'windsurf_auth-%' AND key NOT LIKE '%-usages'",
+            )
+            .ok()?;
+        let keys = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .ok()?
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        for key in keys {
+            if let Some(hint) = key.strip_prefix("windsurf_auth-") {
+                let hint = hint.trim();
+                if !hint.is_empty() && !hint.ends_with("-usages") {
+                    return Some(hint.to_string());
+                }
+            }
+        }
     }
-    let conn = Connection::open(&db_path).ok()?;
-    let key = conn
-        .query_row(
-            "SELECT key FROM ItemTable WHERE key LIKE 'windsurf_auth-%' LIMIT 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .ok()
-        .flatten()?;
-    key.strip_prefix("windsurf_auth-")
-        .map(|value| value.to_string())
+    None
 }
 
 fn normalize_quota_alert_threshold(raw: i32) -> i32 {

@@ -242,7 +242,7 @@
     "settings": "設定",
     "codex": "Codex",
     "githubCopilot": "GitHub Copilot",
-    "windsurf": "Windsurf",
+    "windsurf": "Devin",
     "dashboard": "儀表板",
     "morePlatforms": "更多平台",
     "instances": "應用多開",
@@ -664,10 +664,10 @@
       "githubCopilotSettingsTitle": "GitHub Copilot 設定",
       "ghcpAutoRefresh": "GitHub Copilot 自動重新整理配額",
       "ghcpAutoRefreshDesc": "背景更新頻率",
-      "windsurfSettingsTitle": "Windsurf 設定",
-      "windsurfAutoRefresh": "Windsurf 自動刷新配額",
+      "windsurfSettingsTitle": "Devin 設定",
+      "windsurfAutoRefresh": "Devin 自動刷新配額",
       "windsurfAutoRefreshDesc": "背景自動更新頻率",
-      "windsurfAppPath": "Windsurf 啟動路徑",
+      "windsurfAppPath": "Devin 啟動路徑",
       "windsurfAppPathDesc": "留空則使用預設路徑",
       "windsurfAppPathPlaceholder": "預設路徑",
       "windsurfPathSelect": "選擇",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "優先高訂閱",
         "planLowFirst": "優先低訂閱",
         "expirySoonFirst": "優先近到期",
+        "random": "隨機分散",
         "custom": "自訂"
       },
       "statusUnconfigured": "未設定",
@@ -1976,7 +1977,12 @@
         "label": "統計範圍",
         "daily": "日",
         "weekly": "週",
-        "monthly": "月"
+        "monthly": "月",
+        "custom": "自訂",
+        "start": "開始",
+        "end": "結束",
+        "apply": "套用",
+        "invalid": "結束時間不得早於開始時間"
       },
       "enableBeforeActivateTitle": "服務未啟用",
       "enableBeforeActivateMessage": "API 服務目前未啟用，需要先啟用服務。是否啟用並切號？",
@@ -3194,6 +3200,11 @@
         "models": "模型與能力",
         "logs": "統計與日誌"
       },
+      "statsRange": {
+        "today": "今日",
+        "thisWeek": "本週",
+        "thisMonth": "本月"
+      },
       "healthTitle": "服務健康",
       "compat": {
         "title": "協議相容",
@@ -3269,8 +3280,26 @@
         "pricingRepriceSaveBlocked": "歷史估算價值更新中，完成後再儲存"
       },
       "keys": {
-        "policyTitle": "模型策略",
-        "advancedPolicyTitle": "進階功能：模型策略",
+        "policyTitle": "帳號池與模型策略",
+        "advancedPolicyTitle": "帳號池與模型策略",
+        "accountScope": "帳號輪轉範圍",
+        "accountScopeInherit": "隨服務帳號池自動更新",
+        "accountScopeFixed": "此 Key 已固定綁定帳號，不能繼承服務池",
+        "accountScopeSelected": "已選擇 {{count}} 個帳號",
+        "accountScopeInheritedCount": "帳號池：繼承 {{count}} 個",
+        "accountScopeUnavailable": "帳號池：無可用帳號",
+        "accountScopeCount": "帳號池：{{selected}}/{{total}}",
+        "accountScopeRequired": "自訂帳號池至少需要選擇 1 個帳號",
+        "accountScopeModeInherit": "繼承服務池",
+        "accountScopeModeCustom": "自訂帳號池",
+        "accountPrioritySet": "置頂帳號優先呼叫",
+        "accountPriorityPromote": "提升為最高優先順序",
+        "accountPriorityClear": "取消置頂帳號",
+        "accountPrioritySaved": "已置頂帳號",
+        "accountPriorityCleared": "已取消置頂帳號",
+        "usageRange": "Key 用量統計週期",
+        "unsaved": "尚未儲存",
+        "resetPolicy": "撤銷修改",
         "modelPrefix": "模型前綴",
         "modelPrefixPlaceholder": "例如 codex",
         "allowedModels": "允許模型",
@@ -3278,7 +3307,7 @@
         "excludedModels": "排除模型",
         "excludedModelsPlaceholder": "每行一個模型或萬用字元",
         "savePolicy": "儲存策略",
-        "policySaved": "Key 模型策略已儲存"
+        "policySaved": "Key 策略已儲存"
       },
       "routing": {
         "optionsTitle": "調度選項",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "重試等待",
         "disableCooling": "停用冷卻",
         "saveOptions": "儲存選項",
+        "immediateSseResponse": "SSE 立即回傳 200",
         "optionsSaved": "調度選項已儲存"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "輸入百分比",
     "inputCredits": "輸入 Credits",
     "windsurf": {
-      "title": "Windsurf 設定",
-      "appPath": "Windsurf 路徑"
+      "title": "Devin 設定",
+      "appPath": "Devin 路徑"
     },
     "windsurfRefreshInterval": "配額自動重新整理",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf 帳號管理",
+    "title": "Devin 帳號管理",
     "instances": {
       "unsupported": {
-        "desc": "Windsurf 應用多開僅支援 macOS，請在 macOS 上使用。"
+        "desc": "Devin 應用多開僅支援 macOS，請在 macOS 上使用。"
       }
     },
     "empty": {
-      "description": "點擊「新增帳號」開始管理您的 Windsurf 帳號"
+      "description": "點擊「新增帳號」開始管理您的 Devin 帳號"
     },
     "addModal": {
-      "title": "新增 Windsurf 帳號",
+      "title": "新增 Devin 帳號",
       "password": "電子郵件密碼"
     },
     "password": {
-      "desc": "使用 Windsurf 帳號的電子郵件與密碼登入，自動取得 API Key 與帳號資訊。",
+      "desc": "使用 Devin 帳號的電子郵件與密碼登入，自動取得 API Key 與帳號資訊。",
       "emailPlaceholder": "電子郵件地址",
       "passwordPlaceholder": "密碼",
       "empty": "請輸入電子郵件與密碼",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "還有 {{count}} 項失敗"
     },
     "oauth": {
-      "desc": "點擊下方按鈕，在瀏覽器中完成 Windsurf 授權。"
+      "desc": "點擊下方按鈕，在瀏覽器中完成 Devin 授權。"
     },
     "token": {
-      "desc": "貼上 Windsurf 存取權杖或匯出的 JSON 資料。"
+      "desc": "貼上 Devin 存取權杖或匯出的 JSON 資料。"
     },
     "import": {
-      "localDesc": "從本機已登入的會話匯入 Windsurf 帳號。",
-      "localClient": "從本機 Windsurf 匯入"
+      "localDesc": "從本機已登入的會話匯入 Devin 帳號。",
+      "localClient": "從本機 Devin 匯入"
     },
     "credits": {
       "title": "方案",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "自動儲值",
       "remaining": "剩餘 {{value}}"
     },
-    "injectToVSCode": "切換到 Windsurf",
-    "injectSuccess": "已完成切換，Windsurf 正在啟動。",
-    "injectRequireClose": "請先關閉 Windsurf 再進行切換。",
+    "injectToVSCode": "切換到 Devin",
+    "injectSuccess": "已完成切換，Devin 正在啟動。",
+    "injectRequireClose": "請先關閉 Devin 再進行切換。",
     "flowNotice": {
-      "title": "Windsurf 帳號指南（點擊展開/收合）",
-      "desc": "切換帳號時需要讀取 Windsurf 本機認證儲存，並呼叫系統憑證服務完成解密與回寫；資料僅在本機處理。",
-      "inject": "一鍵切換：本工具會讀取本機 Windsurf 加密材料（DPAPI/Keychain/Secret Service），解密 state.vscdb 中的驗證工作階段，替換 Windsurf 權杖後再加密，全部流程都在本機完成。",
-      "reason": "權限需求：讀取 Windsurf 認證資料庫（state.vscdb），並呼叫系統加密能力（Windows DPAPI / macOS Keychain / Linux Secret Service）進行解密與寫回。",
-      "storage": "讀取範圍：僅處理 Windsurf 登入工作階段相關資料，所有流程均在本機執行。"
+      "title": "Devin 帳號指南（點擊展開/收合）",
+      "desc": "切換帳號時需要讀取 Devin 本機認證儲存，並呼叫系統憑證服務完成解密與回寫；資料僅在本機處理。",
+      "inject": "一鍵切換：本工具會讀取本機 Devin 加密材料（DPAPI/Keychain/Secret Service），解密 state.vscdb 中的驗證工作階段，替換 Devin 權杖後再加密，全部流程都在本機完成。",
+      "reason": "權限需求：讀取 Devin 認證資料庫（state.vscdb），並呼叫系統加密能力（Windows DPAPI / macOS Keychain / Linux Secret Service）進行解密與寫回。",
+      "storage": "讀取範圍：僅處理 Devin 登入工作階段相關資料，所有流程均在本機執行。"
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "前往設定",
       "goVerification": "前往喚醒驗證",
       "goWakeup": "前往喚醒任務",
-      "goWindsurf": "前往 Windsurf",
+      "goWindsurf": "前往 Devin",
       "openLayout": "打開平台佈局"
     },
     "antigravity": {
@@ -4290,16 +4320,16 @@
         "1": "部分平台或能力受系統限制，請按頁面提示處理。"
       },
       "keywords": {
-        "0": "Codex / GitHub Copilot / Windsurf / Kiro 平台",
+        "0": "Codex / GitHub Copilot / Devin / Kiro 平台",
         "1": "GitHub Copilot 平台",
-        "2": "Windsurf 平台",
+        "2": "Devin 平台",
         "3": "Kiro 平台",
         "4": "注入",
         "5": "切號"
       },
       "outcomes": {
         "0": "Codex：帳號切換 + 配額刷新。",
-        "1": "GitHub Copilot/Windsurf/Kiro：支援注入到 VS Code 鏈路。",
+        "1": "GitHub Copilot/Devin/Kiro：支援注入到 VS Code 鏈路。",
         "2": "每個平台都可獨立做篩選、分組、匯入匯出。"
       },
       "steps": {
@@ -4308,7 +4338,7 @@
         "2": "執行「切換/注入」並在客戶端驗證生效。"
       },
       "summary": "四個平台頁結構一致：帳號總覽 + 應用多開，支援 OAuth、Token/JSON 匯入與切換。",
-      "title": "Codex / GitHub Copilot / Windsurf / Kiro 平台"
+      "title": "Codex / GitHub Copilot / Devin / Kiro 平台"
     },
     "quickStart": {
       "cautions": {

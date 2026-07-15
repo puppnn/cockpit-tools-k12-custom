@@ -109,11 +109,15 @@ export function SingleSelectDropdown({
     };
 
     updateMenuPosition();
-    document.addEventListener("mousedown", handlePointerDown);
+    // 延迟绑定，避免与打开触发器同一次 pointer/click 立刻关掉菜单。
+    const timer = window.setTimeout(() => {
+      document.addEventListener("mousedown", handlePointerDown);
+    }, 0);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
 
     return () => {
+      window.clearTimeout(timer);
       document.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);

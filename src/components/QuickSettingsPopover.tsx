@@ -1109,7 +1109,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         case 'github_copilot':
           return 'GitHub Copilot';
         case 'windsurf':
-          return 'Windsurf';
+          return 'Devin';
         case 'kiro':
           return 'Kiro';
         case 'cursor':
@@ -1319,7 +1319,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       case 'github_copilot':
         return t('quickSettings.githubCopilot.appPath', 'VS Code 路径');
       case 'windsurf':
-        return t('quickSettings.windsurf.appPath', 'Windsurf 路径');
+        return t('quickSettings.windsurf.appPath', 'Devin 路径');
       case 'kiro':
         return t('quickSettings.kiro.appPath', 'Kiro 路径');
       case 'cursor':

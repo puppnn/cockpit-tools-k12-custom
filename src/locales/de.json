@@ -242,7 +242,7 @@
     "settings": "Einstellungen",
     "codex": "Codex​",
     "githubCopilot": "GitHub Copilot​",
-    "windsurf": "Windsurf​",
+    "windsurf": "Devin​",
     "dashboard": "Armaturenbrett",
     "morePlatforms": "Weitere Plattformen",
     "instances": "Multi-Instanz",
@@ -667,10 +667,10 @@
       "githubCopilotSettingsTitle": "GitHub Copilot-Einstellungen",
       "ghcpAutoRefresh": "GitHub Copilot-Kontingent automatisch aktualisieren",
       "ghcpAutoRefreshDesc": "Aktualisierungsintervall im Hintergrund",
-      "windsurfSettingsTitle": "Windsurf-Einstellungen",
-      "windsurfAutoRefresh": "Windsurf-Quote automatisch aktualisieren",
+      "windsurfSettingsTitle": "Devin-Einstellungen",
+      "windsurfAutoRefresh": "Devin-Quote automatisch aktualisieren",
       "windsurfAutoRefreshDesc": "Hintergrundaktualisierungsfrequenz",
-      "windsurfAppPath": "Windsurf-App-Pfad",
+      "windsurfAppPath": "Devin-App-Pfad",
       "windsurfAppPathDesc": "Leer lassen, um den Standardpfad zu verwenden",
       "windsurfAppPathPlaceholder": "Standardpfad",
       "windsurfPathSelect": "Auswählen",
@@ -1954,6 +1954,7 @@
         "planHighFirst": "Hohes Abo zuerst",
         "planLowFirst": "Niedriges Abo zuerst",
         "expirySoonFirst": "Bald ablaufend zuerst",
+        "random": "Zufällig",
         "custom": "Benutzerdefiniert"
       },
       "statusUnconfigured": "Nicht konfiguriert",
@@ -1976,7 +1977,12 @@
         "label": "Zeitraum",
         "daily": "Tag",
         "weekly": "Woche",
-        "monthly": "Monat"
+        "monthly": "Monat",
+        "custom": "Benutzerdefiniert",
+        "start": "Start",
+        "end": "Ende",
+        "apply": "Anwenden",
+        "invalid": "Die Endzeit darf nicht vor der Startzeit liegen"
       },
       "enableBeforeActivateTitle": "Dienst nicht aktiviert",
       "enableBeforeActivateMessage": "Der API-Dienst ist derzeit deaktiviert und muss zuerst aktiviert werden. Jetzt aktivieren und wechseln?",
@@ -3194,6 +3200,11 @@
         "models": "Modelle & Fähigkeiten",
         "logs": "Statistik & Protokolle"
       },
+      "statsRange": {
+        "today": "Heute",
+        "thisWeek": "Diese Woche",
+        "thisMonth": "Dieser Monat"
+      },
       "healthTitle": "Dienstzustand",
       "compat": {
         "title": "Protokollkompat.",
@@ -3271,6 +3282,24 @@
       "keys": {
         "policyTitle": "Modellrichtlinie",
         "advancedPolicyTitle": "Erweitert: Modellrichtlinie",
+        "accountScope": "Umfang der Kontorotation",
+        "accountScopeInherit": "Automatisch dem Dienst-Kontopool folgen",
+        "accountScopeFixed": "Dieser Key ist fest an sein Konto gebunden und kann den Dienstpool nicht übernehmen",
+        "accountScopeSelected": "{{count}} Konten ausgewählt",
+        "accountScopeInheritedCount": "Kontopool: {{count}} übernommen",
+        "accountScopeUnavailable": "Kontopool: keine verfügbaren Konten",
+        "accountScopeCount": "Kontopool: {{selected}}/{{total}}",
+        "accountScopeRequired": "Für einen eigenen Pool mindestens ein Konto auswählen",
+        "accountScopeModeInherit": "Dienstpool übernehmen",
+        "accountScopeModeCustom": "Eigener Kontopool",
+        "accountPrioritySet": "Konto für bevorzugtes Routing anheften",
+        "accountPriorityPromote": "Konto auf höchste Priorität setzen",
+        "accountPriorityClear": "Prioritätskonto lösen",
+        "accountPrioritySaved": "Prioritätskonto angeheftet",
+        "accountPriorityCleared": "Prioritätskonto gelöst",
+        "usageRange": "Nutzungszeitraum des API-Keys",
+        "unsaved": "Ungespeichert",
+        "resetPolicy": "Änderungen verwerfen",
         "modelPrefix": "Modellpräfix",
         "modelPrefixPlaceholder": "Beispiel: codex",
         "allowedModels": "Erlaubte Modelle",
@@ -3297,6 +3326,7 @@
         "maxRetryInterval": "Retry-Wartezeit",
         "disableCooling": "Cooldown deaktivieren",
         "saveOptions": "Optionen speichern",
+        "immediateSseResponse": "Sofortiges SSE 200",
         "optionsSaved": "Routingoptionen gespeichert"
       },
       "validation": {
@@ -3786,8 +3816,8 @@
     "inputPercent": "Prozentsatz eingeben",
     "inputCredits": "Credits eingeben",
     "windsurf": {
-      "title": "Windsurf-Einstellungen",
-      "appPath": "Windsurf-Pfad"
+      "title": "Devin-Einstellungen",
+      "appPath": "Devin-Pfad"
     },
     "windsurfRefreshInterval": "Kontingent automatisch aktualisieren",
     "kiro": {
@@ -3891,21 +3921,21 @@
     }
   },
   "windsurf": {
-    "title": "Windsurf-Konten verwalten",
+    "title": "Devin-Konten verwalten",
     "instances": {
       "unsupported": {
-        "desc": "Windsurf Multi-Instanz ist derzeit nur auf macOS verfügbar."
+        "desc": "Devin Multi-Instanz ist derzeit nur auf macOS verfügbar."
       }
     },
     "empty": {
       "description": "Klicke auf \"Konto hinzufügen\", um zu starten"
     },
     "addModal": {
-      "title": "Windsurf-Konto hinzufügen",
+      "title": "Devin-Konto hinzufügen",
       "password": "E-Mail-Anmeldung"
     },
     "password": {
-      "desc": "Melden Sie sich mit der E-Mail-Adresse und dem Passwort Ihres Windsurf-Kontos an, um API-Key und Kontodaten automatisch zu laden.",
+      "desc": "Melden Sie sich mit der E-Mail-Adresse und dem Passwort Ihres Devin-Kontos an, um API-Key und Kontodaten automatisch zu laden.",
       "emailPlaceholder": "E-Mail-Adresse",
       "passwordPlaceholder": "Passwort",
       "empty": "E-Mail-Adresse und Passwort eingeben",
@@ -3952,14 +3982,14 @@
       "batchFailureMore": "{{count}} weitere fehlgeschlagen"
     },
     "oauth": {
-      "desc": "Klicke unten und schließe die Windsurf-Windsurf-Autorisierung im Browser ab."
+      "desc": "Klicke unten und schließe die Devin-Devin-Autorisierung im Browser ab."
     },
     "token": {
-      "desc": "Fügen Sie Ihr Windsurf-Windsurf-Access-Token oder exportierte JSON-Daten ein."
+      "desc": "Fügen Sie Ihr Devin-Devin-Access-Token oder exportierte JSON-Daten ein."
     },
     "import": {
-      "localDesc": "Windsurf-Konten aus lokal angemeldeten Sitzungen importieren.",
-      "localClient": "Aus lokalem Windsurf importieren"
+      "localDesc": "Devin-Konten aus lokal angemeldeten Sitzungen importieren.",
+      "localClient": "Aus lokalem Devin importieren"
     },
     "credits": {
       "title": "Tarif",
@@ -3983,15 +4013,15 @@
       "autoRecharge": "Automatische Aufladung",
       "remaining": "{{value}} verbleibend"
     },
-    "injectToVSCode": "Zu Windsurf wechseln",
-    "injectSuccess": "Wechsel abgeschlossen. Windsurf wird gestartet.",
-    "injectRequireClose": "Bitte schließen Sie Windsurf vor dem Wechsel.",
+    "injectToVSCode": "Zu Devin wechseln",
+    "injectSuccess": "Wechsel abgeschlossen. Devin wird gestartet.",
+    "injectRequireClose": "Bitte schließen Sie Devin vor dem Wechsel.",
     "flowNotice": {
-      "title": "Windsurf-Windsurf-Kontoleitfaden (zum Auf-/Zuklappen klicken)",
+      "title": "Devin-Devin-Kontoleitfaden (zum Auf-/Zuklappen klicken)",
       "desc": "Für den Kontowechsel muss der lokale VS-Code-Auth-Speicher gelesen und der System-Anmeldedienst zum Entschlüsseln und Zurückschreiben verwendet werden; die Datenverarbeitung erfolgt nur lokal.",
-      "inject": "Ein-Klick-Wechsel: Dieses Tool liest das lokale Verschlüsselungsmaterial von Windsurf (DPAPI/Keychain/Secret Service), entschlüsselt die Auth-Sitzung in state.vscdb, ersetzt das Windsurf-Windsurf-Token und verschlüsselt sie erneut – alles lokal auf deinem Gerät.",
+      "inject": "Ein-Klick-Wechsel: Dieses Tool liest das lokale Verschlüsselungsmaterial von Devin (DPAPI/Keychain/Secret Service), entschlüsselt die Auth-Sitzung in state.vscdb, ersetzt das Devin-Devin-Token und verschlüsselt sie erneut – alles lokal auf deinem Gerät.",
       "reason": "Berechtigungsumfang: Lesen der VS-Code-Auth-Datenbank (state.vscdb) und Aufruf der System-Verschlüsselung (Windows DPAPI / macOS Keychain / Linux Secret Service) zum Entschlüsseln und Zurückschreiben.",
-      "storage": "Lesebereich: Es werden nur Windsurf-Login-Sitzungsdaten verarbeitet; alle Prozesse werden lokal ausgeführt."
+      "storage": "Lesebereich: Es werden nur Devin-Login-Sitzungsdaten verarbeitet; alle Prozesse werden lokal ausgeführt."
     }
   },
   "kiro": {
@@ -4169,7 +4199,7 @@
       "goSettings": "Zu Einstellungen",
       "goVerification": "Zu Wakeup-Verifikation",
       "goWakeup": "Zu Wakeup-Aufgaben",
-      "goWindsurf": "Zu Windsurf",
+      "goWindsurf": "Zu Devin",
       "openLayout": "Plattformlayout öffnen"
     },
     "antigravity": {
@@ -4286,11 +4316,11 @@
     "navTitle": "Benutzerhandbuch",
     "providers": {
       "cautions": {
-        "0": "Vor riskanten oder Batch-Aktionen in Codex / GitHub Copilot / Windsurf / Kiro Daten sichern.",
-        "1": "Vor Ausführung in Codex / GitHub Copilot / Windsurf / Kiro Filter und Zielbereich prüfen."
+        "0": "Vor riskanten oder Batch-Aktionen in Codex / GitHub Copilot / Devin / Kiro Daten sichern.",
+        "1": "Vor Ausführung in Codex / GitHub Copilot / Devin / Kiro Filter und Zielbereich prüfen."
       },
       "keywords": {
-        "0": "Plattformen Codex / GitHub Copilot / Windsurf / Kiro",
+        "0": "Plattformen Codex / GitHub Copilot / Devin / Kiro",
         "1": "Leitfaden",
         "2": "Workflow",
         "3": "Konto",
@@ -4298,17 +4328,17 @@
         "5": "Fehleranalyse"
       },
       "outcomes": {
-        "0": "Verstehe, was dir Codex / GitHub Copilot / Windsurf / Kiro bringt.",
-        "1": "Nutze den empfohlenen Ablauf in Codex / GitHub Copilot / Windsurf / Kiro, um Fehler zu vermeiden.",
-        "2": "Bestätige erst einen erfolgreichen Lauf in Codex / GitHub Copilot / Windsurf / Kiro, bevor du skalierst."
+        "0": "Verstehe, was dir Codex / GitHub Copilot / Devin / Kiro bringt.",
+        "1": "Nutze den empfohlenen Ablauf in Codex / GitHub Copilot / Devin / Kiro, um Fehler zu vermeiden.",
+        "2": "Bestätige erst einen erfolgreichen Lauf in Codex / GitHub Copilot / Devin / Kiro, bevor du skalierst."
       },
       "steps": {
-        "0": "Öffne die Seite für Codex / GitHub Copilot / Windsurf / Kiro.",
-        "1": "Schließe Grundkonfiguration und erforderliche Bindungen für Codex / GitHub Copilot / Windsurf / Kiro ab.",
-        "2": "Führe eine manuelle Aktion in Codex / GitHub Copilot / Windsurf / Kiro aus und prüfe das Ergebnis."
+        "0": "Öffne die Seite für Codex / GitHub Copilot / Devin / Kiro.",
+        "1": "Schließe Grundkonfiguration und erforderliche Bindungen für Codex / GitHub Copilot / Devin / Kiro ab.",
+        "2": "Führe eine manuelle Aktion in Codex / GitHub Copilot / Devin / Kiro aus und prüfe das Ergebnis."
       },
-      "summary": "Dieser Abschnitt erklärt die Nutzung von Codex / GitHub Copilot / Windsurf / Kiro im täglichen Workflow.",
-      "title": "Plattformen Codex / GitHub Copilot / Windsurf / Kiro"
+      "summary": "Dieser Abschnitt erklärt die Nutzung von Codex / GitHub Copilot / Devin / Kiro im täglichen Workflow.",
+      "title": "Plattformen Codex / GitHub Copilot / Devin / Kiro"
     },
     "quickStart": {
       "cautions": {

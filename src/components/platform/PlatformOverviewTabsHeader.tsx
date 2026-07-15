@@ -85,7 +85,7 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
     overviewIcon: <Github className="tab-icon" />,
   },
   windsurf: {
-    platformLabel: 'Windsurf',
+    platformLabel: 'Devin',
     overviewIcon: <WindsurfIcon className="tab-icon" />,
   },
   kiro: {

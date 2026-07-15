@@ -393,6 +393,57 @@ func TestK12BindingConfirmsOnlyAfterSuccessAndPersistsDigest(t *testing.T) {
 	}
 }
 
+func TestK12BindingsAreIsolatedBySessionAffinityNamespace(t *testing.T) {
+	t.Parallel()
+	statePath := filepath.Join(t.TempDir(), "k12-sessions.json")
+	remaining := map[string]*int{"k12-a": intPtr(100), "k12-b": intPtr(100)}
+	selector := newTestK12Selector(t, statePath, remaining)
+	authA := testK12Auth("k12-a")
+	authB := testK12Auth("k12-b")
+	request := []byte(`{"prompt_cache_key":"shared-session"}`)
+	optsA := cliproxyexecutor.Options{
+		OriginalRequest: request,
+		Metadata: map[string]any{
+			cliproxyexecutor.SessionAffinityNamespaceMetadataKey: "client-key-a",
+		},
+	}
+	optsB := cliproxyexecutor.Options{
+		OriginalRequest: request,
+		Metadata: map[string]any{
+			cliproxyexecutor.SessionAffinityNamespaceMetadataKey: "client-key-b",
+		},
+	}
+
+	selected, err := selector.Pick(context.Background(), "codex", "gpt-5", optsA, []*Auth{authA})
+	if err != nil || selected == nil || selected.ID != authA.ID {
+		t.Fatalf("namespace A Pick() = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: authA.ID, Success: true}, optsA)
+
+	if selected, handled, errPre := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5", optsB, []*Auth{authB}); handled || errPre != nil || selected != nil {
+		t.Fatalf("namespace B inherited namespace A binding: auth=%#v handled=%t err=%v", selected, handled, errPre)
+	}
+	selected, err = selector.Pick(context.Background(), "codex", "gpt-5", optsB, []*Auth{authB})
+	if err != nil || selected == nil || selected.ID != authB.ID {
+		t.Fatalf("namespace B Pick() = %#v, %v", selected, err)
+	}
+	selector.OnSelectionResult(context.Background(), Result{AuthID: authB.ID, Success: true}, optsB)
+
+	for _, testCase := range []struct {
+		name string
+		opts cliproxyexecutor.Options
+		auth *Auth
+	}{
+		{name: "A", opts: optsA, auth: authA},
+		{name: "B", opts: optsB, auth: authB},
+	} {
+		confirmed, handled, errPre := selector.PickBeforeAvailability(context.Background(), "codex", "gpt-5-mini", testCase.opts, []*Auth{testCase.auth})
+		if errPre != nil || !handled || confirmed == nil || confirmed.ID != testCase.auth.ID {
+			t.Fatalf("namespace %s binding = %#v handled=%t err=%v", testCase.name, confirmed, handled, errPre)
+		}
+	}
+}
+
 func TestK12PrecedesPreferredPlusAndConfirmedSessionRemainsBound(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "k12-sessions.json")

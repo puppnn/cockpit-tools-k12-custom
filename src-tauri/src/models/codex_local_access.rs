@@ -179,7 +179,7 @@ fn default_session_affinity_ttl_ms() -> i64 {
 }
 
 fn default_max_retry_interval_ms() -> u64 {
-    3 * 1000
+    30 * 1000
 }
 
 fn default_legacy_request_read_timeout_ms() -> u64 {

@@ -1030,13 +1030,26 @@ func (s *SessionAffinitySelector) handleK12CredentialHardFailure(
 	status int,
 ) SelectionResultDirective {
 	entry := selectorLogEntry(ctx)
+	persistRetryNeeded := false
 	if err := s.k12.store.removeAuth(result.AuthID); err != nil {
 		entry.Warnf("k12-session-affinity: hard auth binding cleanup failed | source=%s session=%s auth=%s status=%d error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, status, err)
+		persistRetryNeeded = true
+	}
+	now := time.Now()
+	quarantineUntil := now.Add(s.k12.newSessionQuarantine)
+	if err := s.k12.store.quarantineNewSessions(result.AuthID, "", false, quarantineUntil, now, false); err != nil {
+		entry.Warnf("k12-session-affinity: hard auth new-session quarantine failed | source=%s session=%s auth=%s status=%d error=%v", identity.Source, shortSessionDigest(digest), result.AuthID, status, err)
+		persistRetryNeeded = true
+	}
+	if persistRetryNeeded {
 		go retryPersistK12SessionState(s.k12.store, identity.Source, digest, result.AuthID)
 	}
 	s.k12.clearTentativeAuth(result.AuthID)
 	s.k12.clearSpilloverPreference(digest)
-	entry.Warnf("k12-session-affinity: hard auth failure cleared bindings | source=%s session=%s auth=%s status=%d", identity.Source, shortSessionDigest(digest), result.AuthID, status)
+	entry.Warnf(
+		"k12-session-affinity: hard auth failure cleared bindings and quarantined new sessions | source=%s session=%s auth=%s status=%d quarantine=%s",
+		identity.Source, shortSessionDigest(digest), result.AuthID, status, s.k12.newSessionQuarantine,
+	)
 	return SelectionResultDirective{StopAuthAttempt: true}
 }
 

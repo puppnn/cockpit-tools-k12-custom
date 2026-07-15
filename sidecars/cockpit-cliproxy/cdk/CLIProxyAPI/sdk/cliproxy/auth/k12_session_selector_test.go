@@ -987,6 +987,10 @@ func TestK12SessionScopedFailureDirectives(t *testing.T) {
 	if handled || err != nil {
 		t.Fatalf("hard failure left confirmed binding: handled=%v err=%v", handled, err)
 	}
+	quarantine, ok := testK12NewSessionQuarantine(t, selector, retry.ID)
+	if !ok || quarantine.Hard {
+		t.Fatalf("hard credential failure quarantine = %#v, ok=%v; want recoverable quarantine", quarantine, ok)
+	}
 }
 
 func TestK12Tentative402QuarantinesOnlyRejectedAuthAndPrefersPlus(t *testing.T) {

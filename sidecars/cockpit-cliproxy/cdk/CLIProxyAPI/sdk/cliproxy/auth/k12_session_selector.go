@@ -925,7 +925,7 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 			if len(nonK12) > 0 {
 				return nil, nonK12, false, nil
 			}
-			return nil, nil, true, &Error{Code: "auth_unavailable", Message: "no K12 auth available for a new session"}
+			return nil, nil, true, &Error{Code: "auth_unavailable", Message: "no eligible auth available for a new session"}
 		}
 		if reservation.reused {
 			return reservation.auth, nil, true, nil
@@ -962,7 +962,7 @@ func (s *SessionAffinitySelector) pickK12(ctx context.Context, provider, model s
 		if earliestCooldown > 0 {
 			return nil, nil, true, newK12SessionCooldownError(earliestCooldown)
 		}
-		return nil, nil, true, &Error{Code: "auth_unavailable", Message: "no auth available for a new K12 session"}
+		return nil, nil, true, &Error{Code: "auth_unavailable", Message: "no eligible auth available for a new session"}
 	}
 	return nil, nonK12, false, nil
 }

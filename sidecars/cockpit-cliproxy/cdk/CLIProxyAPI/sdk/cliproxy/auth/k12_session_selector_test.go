@@ -146,6 +146,59 @@ func TestK12NewSessionRejectsKnownExhaustedWeeklyQuota(t *testing.T) {
 	}
 }
 
+func TestManagerK12ExhaustionFallsBackAcrossPriorities(t *testing.T) {
+	tests := []struct {
+		name  string
+		mixed bool
+	}{
+		{name: "single provider"},
+		{name: "mixed provider", mixed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selector := newTestK12Selector(
+				t,
+				filepath.Join(t.TempDir(), "state.json"),
+				map[string]*int{"k12-high": intPtr(0)},
+			)
+			manager := NewManager(nil, selector, nil)
+			manager.RegisterExecutor(&k12BootstrapExecutor{})
+
+			k12 := testK12Auth("k12-high")
+			k12.Attributes["priority"] = "10"
+			plus := testPlusAuth("plus-low")
+			plus.Attributes["priority"] = "0"
+			auths := []*Auth{k12, plus}
+			modelRegistry := registry.GetGlobalRegistry()
+			for _, auth := range auths {
+				if _, err := manager.Register(context.Background(), auth); err != nil {
+					t.Fatal(err)
+				}
+				modelRegistry.RegisterClient(auth.ID, "codex", []*registry.ModelInfo{{ID: "gpt-5"}})
+				authID := auth.ID
+				t.Cleanup(func() { modelRegistry.UnregisterClient(authID) })
+			}
+
+			opts := promptCacheOptions("cross-priority-" + tt.name)
+			var selected *Auth
+			var err error
+			if tt.mixed {
+				selected, _, _, err = manager.pickNextMixedLegacy(
+					context.Background(), []string{"codex"}, "gpt-5", opts, nil,
+				)
+			} else {
+				selected, _, err = manager.pickNextLegacy(
+					context.Background(), "codex", "gpt-5", opts, nil,
+				)
+			}
+			if err != nil || selected == nil || selected.ID != plus.ID {
+				t.Fatalf("fallback selection = %#v, %v; want lower-priority %s", selected, err, plus.ID)
+			}
+		})
+	}
+}
+
 func TestK12TentativeSessionStopsUsingNewlyExhaustedWeeklyQuota(t *testing.T) {
 	t.Parallel()
 

@@ -492,6 +492,10 @@ func NewSessionAffinitySelectorWithConfig(cfg SessionAffinityConfig) *SessionAff
 	return selector
 }
 
+func (s *SessionAffinitySelector) needsCrossPriorityCandidates() bool {
+	return s != nil && s.k12 != nil
+}
+
 func (s *SessionAffinitySelector) preferredNewSessionAuths(auths []*Auth) []*Auth {
 	if s == nil || s.preferNewSession == nil {
 		return nil

@@ -136,6 +136,13 @@ type PreAvailabilitySelector interface {
 	PickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, bool, error)
 }
 
+// crossPrioritySelector opts into receiving every ready, model-compatible auth
+// instead of only the highest-priority group. Implementations must preserve
+// priority ordering when they delegate to their fallback selector.
+type crossPrioritySelector interface {
+	needsCrossPriorityCandidates() bool
+}
+
 // SelectionResultDirective controls retry and cooldown behavior for one selected auth.
 type SelectionResultDirective struct {
 	SuppressAvailabilityUpdate bool
@@ -809,6 +816,23 @@ func (m *Manager) availableAuthsForRouteModel(auths []*Auth, provider, routeMode
 		sort.Slice(available, func(i, j int) bool { return available[i].ID < available[j].ID })
 	}
 	return available, nil
+}
+
+func (m *Manager) authsForSelector(auths, available []*Auth, routeModel string, now time.Time) []*Auth {
+	selector, ok := m.selector.(crossPrioritySelector)
+	if !ok || selector == nil || !selector.needsCrossPriorityCandidates() {
+		return available
+	}
+
+	ready := make([]*Auth, 0, len(auths))
+	for _, candidate := range auths {
+		checkModel := m.selectionModelForAuth(candidate, routeModel)
+		blocked, _, _ := isAuthBlockedForModel(candidate, checkModel, now)
+		if !blocked {
+			ready = append(ready, candidate)
+		}
+	}
+	return ready
 }
 
 func selectionArgForSelector(selector Selector, routeModel string) string {
@@ -3709,12 +3733,14 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		m.mu.RUnlock()
 		return nil, nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, errAvailable := m.availableAuthsForRouteModel(candidates, provider, model, time.Now())
+	now := time.Now()
+	available, errAvailable := m.availableAuthsForRouteModel(candidates, provider, model, now)
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		return nil, nil, errAvailable
 	}
-	selected, errPick := m.selector.Pick(ctx, provider, selectionArgForSelector(m.selector, model), opts, available)
+	selectorAuths := m.authsForSelector(candidates, available, model, now)
+	selected, errPick := m.selector.Pick(ctx, provider, selectionArgForSelector(m.selector, model), opts, selectorAuths)
 	if errPick != nil {
 		m.mu.RUnlock()
 		return nil, nil, errPick
@@ -3901,12 +3927,14 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		m.mu.RUnlock()
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, errAvailable := m.availableAuthsForRouteModel(candidates, "mixed", model, time.Now())
+	now := time.Now()
+	available, errAvailable := m.availableAuthsForRouteModel(candidates, "mixed", model, now)
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		return nil, nil, "", errAvailable
 	}
-	selected, errPick := m.selector.Pick(ctx, "mixed", selectionArgForSelector(m.selector, model), opts, available)
+	selectorAuths := m.authsForSelector(candidates, available, model, now)
+	selected, errPick := m.selector.Pick(ctx, "mixed", selectionArgForSelector(m.selector, model), opts, selectorAuths)
 	if errPick != nil {
 		m.mu.RUnlock()
 		return nil, nil, "", errPick

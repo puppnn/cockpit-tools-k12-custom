@@ -53,6 +53,18 @@ func activeRoutingPick(t *testing.T, selector coreauth.Selector, requestID, sess
 	return selected
 }
 
+func reserveActiveRoutingSessions(t *testing.T, tracker *activeSessionTracker, authID, prefix string, count int) {
+	t.Helper()
+	for i := 0; i < count; i++ {
+		headers := make(http.Header)
+		headers.Set("X-Session-ID", prefix+"-session-"+string(rune('a'+i)))
+		ctx := internallogging.WithRequestID(context.Background(), prefix+"-request-"+string(rune('a'+i)))
+		if err := tracker.reserveSelection(ctx, cliproxyexecutor.Options{Headers: headers}, authID); err != nil {
+			t.Fatalf("reserve %s session %d: %v", authID, i, err)
+		}
+	}
+}
+
 func TestActiveSessionTrackerCountsDistinctSessionsAndReferenceReleases(t *testing.T) {
 	m, auths := activeRoutingFixture(map[string]int{"high": 10, "low": 0})
 	tracker := newActiveSessionTracker()
@@ -481,6 +493,55 @@ func TestCustomRoutingConcurrentAdmissionDoesNotExceedFourPerAccount(t *testing.
 	selected, err := selector.Pick(ctx, "codex", "gpt-5.4", cliproxyexecutor.Options{Headers: headers}, auths)
 	if err == nil || selected != nil {
 		t.Fatalf("all-full Pick() = %#v, %v; want a capacity error", selected, err)
+	}
+}
+
+func TestCustomRoutingEmergencyOverflowUsesLeastLoadedMappedAPIKeyAccount(t *testing.T) {
+	m, auths := activeRoutingFixture(map[string]int{"plus": 10})
+	apiA := &accountSpec{ID: "api-a", PlanType: "API_KEY", UpstreamAPIKey: "api-key-a"}
+	apiB := &accountSpec{ID: "api-b", PlanType: "API_KEY", UpstreamAPIKey: "api-key-b"}
+	for _, account := range []*accountSpec{apiA, apiB} {
+		m.Accounts = append(m.Accounts, *account)
+		m.accountByID[account.ID] = account
+		m.accountByAPIKey[account.UpstreamAPIKey] = account
+		m.CustomRoutingRules = append(m.CustomRoutingRules, customRoutingRule{AccountID: account.ID, Priority: -100, Weight: 1})
+	}
+	apiAuthA := &coreauth.Auth{ID: "api-a-runtime", Provider: "codex", Status: coreauth.StatusActive, Attributes: map[string]string{"api_key": apiA.UpstreamAPIKey}}
+	apiAuthB := &coreauth.Auth{ID: "api-b-runtime", Provider: "codex", Status: coreauth.StatusActive, Attributes: map[string]string{"api_key": apiB.UpstreamAPIKey}}
+	auths = append(auths, apiAuthA, apiAuthB)
+
+	tracker := newActiveSessionTracker()
+	reserveActiveRoutingSessions(t, tracker, "plus.json", "plus-full", nonK12MaxConcurrentSessions)
+	reserveActiveRoutingSessions(t, tracker, apiAuthA.ID, "api-a-full", nonK12MaxConcurrentSessions+1)
+	reserveActiveRoutingSessions(t, tracker, apiAuthB.ID, "api-b-full", nonK12MaxConcurrentSessions)
+	selector := &cockpitSelector{manifest: m, sessions: tracker}
+
+	selected := activeRoutingPick(t, selector, "overflow-request", "overflow-session", auths)
+	if selected.ID != apiAuthB.ID {
+		t.Fatalf("emergency overflow selected %s, want least-loaded API auth %s", selected.ID, apiAuthB.ID)
+	}
+	if got := tracker.activeLoad(apiAuthB.ID); got != nonK12MaxConcurrentSessions+1 {
+		t.Fatalf("API overflow load = %d, want %d", got, nonK12MaxConcurrentSessions+1)
+	}
+}
+
+func TestCustomRoutingEmergencyOverflowRejectsUnmappedAPIKeyAuth(t *testing.T) {
+	m, auths := activeRoutingFixture(map[string]int{"plus": 10})
+	unmapped := &coreauth.Auth{ID: "unmapped-api-runtime", Provider: "codex", Status: coreauth.StatusActive, Attributes: map[string]string{"api_key": "unmapped-key"}}
+	auths = append(auths, unmapped)
+
+	tracker := newActiveSessionTracker()
+	reserveActiveRoutingSessions(t, tracker, "plus.json", "plus-full", nonK12MaxConcurrentSessions)
+	reserveActiveRoutingSessions(t, tracker, unmapped.ID, "unmapped-full", nonK12MaxConcurrentSessions)
+	selector := &cockpitSelector{manifest: m, sessions: tracker}
+
+	headers := make(http.Header)
+	headers.Set("X-Session-ID", "unmapped-overflow-session")
+	ctx := internallogging.WithRequestID(context.Background(), "unmapped-overflow-request")
+	selected, err := selector.Pick(ctx, "codex", "gpt-5.4", cliproxyexecutor.Options{Headers: headers}, auths)
+	var capacityErr *activeSessionCapacityError
+	if selected != nil || !errors.As(err, &capacityErr) {
+		t.Fatalf("unmapped API overflow = %#v, %v; want capacity error", selected, err)
 	}
 }
 

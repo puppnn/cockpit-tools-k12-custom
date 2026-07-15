@@ -2362,7 +2362,10 @@ func (s *cockpitSelector) pickCustomWithSessionCapacity(ctx context.Context, aut
 	if selected := s.pickCustomPriorityTier(regular, activeLoads, start); selected != nil {
 		return selected
 	}
-	return s.pickCustomPriorityTier(bound, activeLoads, start)
+	if selected := s.pickCustomPriorityTier(bound, activeLoads, start); selected != nil {
+		return selected
+	}
+	return s.pickEmergencyAPIKeyOverflow(ctx, auths, activeLoads, start)
 }
 
 func (s *cockpitSelector) pickCustomPriorityTier(auths []*coreauth.Auth, activeLoads map[string]int, start int) *coreauth.Auth {
@@ -2408,6 +2411,37 @@ func (s *cockpitSelector) pickCustomPriorityTier(auths []*coreauth.Auth, activeL
 		}
 	}
 	return nil
+}
+
+func (s *cockpitSelector) pickEmergencyAPIKeyOverflow(ctx context.Context, auths []*coreauth.Auth, activeLoads map[string]int, start int) *coreauth.Auth {
+	if s == nil || s.manifest == nil || len(auths) == 0 {
+		return nil
+	}
+
+	minLoad := -1
+	candidates := make([]*coreauth.Auth, 0)
+	for _, auth := range auths {
+		if auth == nil || auth.Attributes == nil {
+			continue
+		}
+		key := strings.TrimSpace(auth.Attributes["api_key"])
+		if key == "" || s.manifest.accountByAPIKey[key] == nil {
+			continue
+		}
+		load := activeLoads[auth.ID]
+		if minLoad == -1 || load < minLoad {
+			minLoad = load
+			candidates = candidates[:0]
+		}
+		if load == minLoad {
+			candidates = append(candidates, auth)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	ordered := s.prioritizeAuthsForAPIKey(ctx, s.orderCustom(candidates, start))
+	return ordered[0]
 }
 
 func (s *cockpitSelector) pickAPIKeyPriorityWithSessionCapacity(ctx context.Context, auths []*coreauth.Auth, activeLoads map[string]int) *coreauth.Auth {

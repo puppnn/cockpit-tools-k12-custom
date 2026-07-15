@@ -760,6 +760,7 @@ type requestPolicy struct {
 	manifest *manifest
 	emitter  *eventEmitter
 	tracker  *requestUsageTracker
+	sessions *activeSessionTracker
 }
 
 func (p *requestPolicy) middleware() gin.HandlerFunc {
@@ -771,6 +772,9 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 
 		startedAt := time.Now()
 		requestID := ensureRequestID(c)
+		if p.sessions != nil {
+			defer p.sessions.releaseRequest(requestID)
+		}
 		spec := p.lookupAPIKey(c.Request)
 		requestKind := requestKindFromPath(c.Request.URL.Path)
 		model := ""
@@ -1615,6 +1619,7 @@ type cockpitSelector struct {
 	manifest *manifest
 	emitter  *eventEmitter
 	quota    *quotaReserveStateStore
+	sessions *activeSessionTracker
 	mu       sync.Mutex
 	cursor   int
 }
@@ -1623,24 +1628,41 @@ type recordingSelector struct {
 	inner    coreauth.Selector
 	manifest *manifest
 	tracker  *requestUsageTracker
+	sessions *activeSessionTracker
 }
 
 func (s *recordingSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, error) {
 	if s == nil || s.inner == nil {
 		return nil, fmt.Errorf("recording selector is not initialized")
 	}
-	return s.inner.Pick(ctx, provider, model, opts, auths)
+	if s.sessions != nil {
+		s.sessions.selectionMu.Lock()
+		defer s.sessions.selectionMu.Unlock()
+	}
+	selected, err := s.inner.Pick(ctx, provider, model, opts, auths)
+	if err == nil && selected != nil && s.sessions != nil {
+		s.sessions.reserveSelection(ctx, opts, selected.ID)
+	}
+	return selected, err
 }
 
 func (s *recordingSelector) PickBeforeAvailability(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, bool, error) {
 	if s == nil || s.inner == nil {
 		return nil, false, nil
 	}
+	if s.sessions != nil {
+		s.sessions.selectionMu.Lock()
+		defer s.sessions.selectionMu.Unlock()
+	}
 	preSelector, ok := s.inner.(coreauth.PreAvailabilitySelector)
 	if !ok || preSelector == nil {
 		return nil, false, nil
 	}
-	return preSelector.PickBeforeAvailability(ctx, provider, model, opts, auths)
+	selected, handled, err := preSelector.PickBeforeAvailability(ctx, provider, model, opts, auths)
+	if err == nil && handled && selected != nil && s.sessions != nil {
+		s.sessions.reserveSelection(ctx, opts, selected.ID)
+	}
+	return selected, handled, err
 }
 
 func (s *recordingSelector) OnSelectionResult(ctx context.Context, result coreauth.Result, opts cliproxyexecutor.Options) coreauth.SelectionResultDirective {
@@ -1959,7 +1981,12 @@ func (s *backupAccountSelector) Pick(ctx context.Context, provider, model string
 	}
 
 	if regularAvailable || len(backup) == 0 {
-		return s.fallback.Pick(ctx, provider, model, opts, regular)
+		selected, err := s.fallback.Pick(ctx, provider, model, opts, regular)
+		var capacityErr *activeSessionCapacityError
+		if err != nil && len(backup) > 0 && errors.As(err, &capacityErr) {
+			return s.fallback.Pick(ctx, provider, model, opts, backup)
+		}
+		return selected, err
 	}
 	return s.fallback.Pick(ctx, provider, model, opts, backup)
 }
@@ -2018,8 +2045,6 @@ func (s *backupAccountSelector) Stop() {
 }
 
 func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*coreauth.Auth) (*coreauth.Auth, error) {
-	_ = provider
-	_ = opts
 	now := time.Now()
 	available := make([]*coreauth.Auth, 0, len(auths))
 	quotaReserveReasons := make([]string, 0)
@@ -2042,13 +2067,125 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 	s.cursor++
 	s.mu.Unlock()
 
-	ordered := s.orderAuths(available, start)
-	if len(ordered) == 0 {
+	pick := func(activeLoads map[string]int, activeAuthID string) (*coreauth.Auth, error) {
+		if activeAuthID != "" {
+			for _, auth := range available {
+				if auth != nil && auth.ID == activeAuthID {
+					return auth, nil
+				}
+			}
+		}
+		if s != nil && s.manifest != nil && strings.EqualFold(strings.TrimSpace(s.manifest.RoutingStrategy), "custom") && s.sessions != nil {
+			selected := s.pickCustomWithSessionCapacity(available, activeLoads, start)
+			if selected == nil {
+				return nil, &activeSessionCapacityError{limit: nonK12MaxConcurrentSessions}
+			}
+			return selected, nil
+		}
+		ordered := s.orderAuths(available, start)
+		if len(ordered) == 0 {
+			return nil, noAuthAvailableError(quotaReserveReasons)
+		}
+		return ordered[0], nil
+	}
+
+	selected, err := s.sessions.selectAndReserve(ctx, opts, pick)
+	if err != nil {
+		return nil, err
+	}
+	if selected == nil {
 		return nil, noAuthAvailableError(quotaReserveReasons)
 	}
-	selected := ordered[0]
 	s.emitAuthSelected(ctx, selected, provider, model, len(auths), len(available))
 	return selected, nil
+}
+
+func (s *cockpitSelector) pickCustomWithSessionCapacity(auths []*coreauth.Auth, activeLoads map[string]int, start int) *coreauth.Auth {
+	if len(auths) == 0 {
+		return nil
+	}
+
+	// The K12 policy already applies its own two-start admission rule and quota
+	// checks before delegating here. Keep K12 ahead of every paid priority tier.
+	k12 := make([]*coreauth.Auth, 0, len(auths))
+	for _, auth := range auths {
+		if isK12Auth(s.manifest, auth) {
+			k12 = append(k12, auth)
+		}
+	}
+	if len(k12) > 0 {
+		ordered := s.orderCustom(k12, start)
+		if len(ordered) > 0 {
+			return ordered[0]
+		}
+	}
+
+	boundAccountID := ""
+	if s != nil && s.manifest != nil {
+		boundAccountID = strings.TrimSpace(s.manifest.BoundOAuthAccountID)
+	}
+	regular := make([]*coreauth.Auth, 0, len(auths))
+	bound := make([]*coreauth.Auth, 0, 1)
+	for _, auth := range auths {
+		if auth == nil || isK12Auth(s.manifest, auth) {
+			continue
+		}
+		account := s.accountForAuth(auth)
+		if boundAccountID != "" && account != nil && account.ID == boundAccountID {
+			bound = append(bound, auth)
+			continue
+		}
+		regular = append(regular, auth)
+	}
+	if selected := s.pickCustomPriorityTier(regular, activeLoads, start); selected != nil {
+		return selected
+	}
+	return s.pickCustomPriorityTier(bound, activeLoads, start)
+}
+
+func (s *cockpitSelector) pickCustomPriorityTier(auths []*coreauth.Auth, activeLoads map[string]int, start int) *coreauth.Auth {
+	if len(auths) == 0 {
+		return nil
+	}
+	rules := s.customRoutingRules()
+	groups := make(map[int][]*coreauth.Auth)
+	priorities := make([]int, 0)
+	seenPriority := make(map[int]struct{})
+	for _, auth := range auths {
+		account := s.accountForAuth(auth)
+		priority := 0
+		if account != nil {
+			priority = rules[account.ID].Priority
+		}
+		groups[priority] = append(groups[priority], auth)
+		if _, ok := seenPriority[priority]; !ok {
+			seenPriority[priority] = struct{}{}
+			priorities = append(priorities, priority)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(priorities)))
+	for _, priority := range priorities {
+		minLoad := nonK12MaxConcurrentSessions
+		underCapacity := make([]*coreauth.Auth, 0, len(groups[priority]))
+		for _, auth := range groups[priority] {
+			load := activeLoads[auth.ID]
+			if load >= nonK12MaxConcurrentSessions {
+				continue
+			}
+			if load < minLoad {
+				minLoad = load
+				underCapacity = underCapacity[:0]
+			}
+			if load == minLoad {
+				underCapacity = append(underCapacity, auth)
+			}
+		}
+		if len(underCapacity) > 0 {
+			ordered := weightedOrder(underCapacity, rules, s, start)
+			return ordered[0]
+		}
+	}
+	return nil
 }
 
 func quotaReserveBlockReason(account *accountSpec, now time.Time) string {
@@ -2383,16 +2520,7 @@ func compareInt64PtrAsc(left, right *int64) int {
 }
 
 func (s *cockpitSelector) orderCustom(auths []*coreauth.Auth, start int) []*coreauth.Auth {
-	rules := make(map[string]customRoutingRule)
-	for _, rule := range s.manifest.CustomRoutingRules {
-		if strings.TrimSpace(rule.AccountID) == "" {
-			continue
-		}
-		if rule.Weight <= 0 {
-			rule.Weight = 1
-		}
-		rules[rule.AccountID] = rule
-	}
+	rules := s.customRoutingRules()
 	groups := make(map[int][]*coreauth.Auth)
 	priorities := make([]int, 0)
 	seenPriority := make(map[int]struct{})
@@ -2415,6 +2543,23 @@ func (s *cockpitSelector) orderCustom(auths []*coreauth.Auth, start int) []*core
 		out = append(out, weightedOrder(group, rules, s, start)...)
 	}
 	return out
+}
+
+func (s *cockpitSelector) customRoutingRules() map[string]customRoutingRule {
+	rules := make(map[string]customRoutingRule)
+	if s == nil || s.manifest == nil {
+		return rules
+	}
+	for _, rule := range s.manifest.CustomRoutingRules {
+		if strings.TrimSpace(rule.AccountID) == "" {
+			continue
+		}
+		if rule.Weight <= 0 {
+			rule.Weight = 1
+		}
+		rules[rule.AccountID] = rule
+	}
+	return rules
 }
 
 func weightedOrder(group []*coreauth.Auth, rules map[string]customRoutingRule, selector *cockpitSelector, start int) []*coreauth.Auth {
@@ -2884,6 +3029,10 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 	if selector == nil {
 		selector = &coreauth.RoundRobinSelector{}
 	}
+	var activeSessions *activeSessionTracker
+	if cockpit, ok := selector.(*cockpitSelector); ok && cockpit != nil {
+		activeSessions = cockpit.sessions
+	}
 	// Backup membership is a new-selection policy. Keep it inside session
 	// affinity so an established generic or K12 binding is never displaced when
 	// a regular account recovers, while fallback picks still prefer regulars.
@@ -2916,6 +3065,12 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 				},
 				QuotaSnapshot: func(auth *coreauth.Auth) coreauth.K12QuotaSnapshot {
 					return k12QuotaSnapshotForAuth(m, quota, auth, time.Now())
+				},
+				ActiveSessionLoad: func(auth *coreauth.Auth) int {
+					if auth == nil {
+						return 0
+					}
+					return activeSessions.activeLoad(auth.ID)
 				},
 			}
 		}
@@ -2955,14 +3110,14 @@ func buildCoreAuthSelector(cfg *config.Config, selector coreauth.Selector, m *ma
 	return selector
 }
 
-func buildCoreAuthManager(cfg *config.Config, selector coreauth.Selector, hook coreauth.Hook, m *manifest, quota *quotaReserveStateStore, tracker *requestUsageTracker) *coreauth.Manager {
+func buildCoreAuthManager(cfg *config.Config, selector coreauth.Selector, hook coreauth.Hook, m *manifest, quota *quotaReserveStateStore, tracker *requestUsageTracker, sessions *activeSessionTracker) *coreauth.Manager {
 	tokenStore := sdkauth.GetTokenStore()
 	if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok && cfg != nil {
 		dirSetter.SetBaseDir(cfg.AuthDir)
 	}
 	selector = buildCoreAuthSelector(cfg, selector, m, quota)
-	if tracker != nil {
-		selector = &recordingSelector{inner: selector, manifest: m, tracker: tracker}
+	if tracker != nil || sessions != nil {
+		selector = &recordingSelector{inner: selector, manifest: m, tracker: tracker, sessions: sessions}
 	}
 	return coreauth.NewManager(tokenStore, selector, hook)
 }
@@ -7154,10 +7309,11 @@ func main() {
 	}
 
 	usageTracker := newRequestUsageTracker()
-	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: usageTracker}
+	activeSessions := newActiveSessionTracker()
+	policy := &requestPolicy{manifest: m, emitter: emitter, tracker: usageTracker, sessions: activeSessions}
 	hook := &authHook{manifest: m, emitter: emitter}
-	selector := &cockpitSelector{manifest: m, emitter: emitter, quota: quotaState}
-	coreManager := buildCoreAuthManager(cfg, selector, hook, m, quotaState, usageTracker)
+	selector := &cockpitSelector{manifest: m, emitter: emitter, quota: quotaState, sessions: activeSessions}
+	coreManager := buildCoreAuthManager(cfg, selector, hook, m, quotaState, usageTracker, activeSessions)
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

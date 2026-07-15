@@ -3,11 +3,11 @@
 [English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
 [![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
-[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.1-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.1)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.2-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.2)
 [![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
 > [!IMPORTANT]
-> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.1**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
+> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.2**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
 
 一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Grok CLI**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN**、**Zed** 和 **ZCode**，并支持多账号多实例并行运行。
 
@@ -24,9 +24,9 @@
 
 ---
 
-## 上游 v1.3.1 集成
+## 上游 v1.3.2 集成
 
-- **完整平台能力**：保留上游 v1.3.1 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
+- **完整平台能力**：保留上游 v1.3.2 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
 - **新版 Codex 账号体验**：采用动态套餐筛选和额度摘要、模型专属附加额度显隐、清空筛选、改进后的账号展示名与导入流程。
 - **API 服务增强**：保留上游备用账号、导入后同步加入 API 服务账号池、请求日志账号展示和代理连接优化；本 Fork 的 K12 会话策略叠加在这些能力之上。
 - **配置兼容**：继续支持本 Fork 的 `weeklyPercent: null`、新会话优先账号池和 K12 持久会话状态，不会用上游默认值覆盖这些定制配置。
@@ -41,15 +41,15 @@
 - **稳定识别会话**：会话身份依次参考 `execution_session_id`、`prompt_cache_key`、Codex turn/window metadata、Session/Conversation headers 等原生标识，并保留 Claude 会话字段和消息哈希作为兼容回退。
 - **已建立会话继续运行**：只要上游仍接受请求，已确认会话会继续使用原 K12，即使 Cockpit 中显示该账号的 5h 或周额度已经为 0。
 - **新会话受配额约束**：新鲜配额快照中 5h 剩余为 0 的 K12 不再承接新会话，但不会因此阻断该账号上已经成功建立的会话；快照缺失或过期时允许一次真实请求验证。
-- **并发会话分流**：多个新会话优先分配给已确认会话数较少的 K12，再比较 5h 剩余额度和原有自定义路由顺序。临时选择也计入负载，减少并发请求同时挤到同一个账号的情况。
-- **持久亲和不占新会话容量**：K12 的 7 天成功绑定只用于旧会话优先回到原账号，不再被视为持续占用。容量只统计当前正在选择或建立首包的会话；空闲 K12 即使保存着历史绑定也可以立即承接新会话。绑定的 OAuth / Plus 可用时，每个 K12 同时最多建立 2 个新会话，超过后才临时分流到 Plus；旧会话命中亲和时仍优先使用原 K12。
+- **并发会话分流**：能承接新会话的 K12 始终先于 Plus、API Key 和“新会话优先”非 K12 池；K12 之间先比较完整活跃会话负载，再比较 5h 剩余额度和原有自定义路由顺序。
+- **持久亲和不占空闲容量**：K12 的 7 天成功绑定只用于旧会话优先回到原账号，空闲历史绑定不算负载。容量统计贯穿完整 HTTP、SSE 或 WebSocket 请求；付费分流账号可用时，每个 K12 最多承载 2 个活跃新会话，超过后才临时分流到 Plus。旧会话命中亲和时仍回原 K12，因此不会为了满足上限而中断或迁移。
 - **跨模型保持亲和**：K12 会话绑定不包含模型 ID，同一个 Codex 会话切换模型别名时仍优先使用原账号；模型本身被禁用或不受支持时仍正常返回模型错误。
-- **非 K12 行为不变**：其他账号继续使用原有的内存会话亲和与自定义负载策略，持久化的跨模型会话策略只作用于 K12。
+- **非 K12 优先级与并发均衡**：已有内存会话亲和保持原账号；新会话先进入最高自定义优先级层，每个账号最多接收 4 个活跃新会话，同优先级按当前活跃会话数均匀分配。整层满载后才进入下一优先级或 backup 账号；旧亲和会话不会因容量上限被迁移。
 
 ### 新会话优先账号池
 
 - 可在 **API 服务 > 调度选项** 中开启“新会话优先”，并选择一个或多个当前服务成员账号。
-- 只有能识别出稳定会话且尚未建立任何亲和绑定的新会话才会优先使用所选账号；已确认 K12、临时/溢出 K12 和普通内存亲和命中始终保持原账号。
+- 只有能识别出稳定会话且尚未建立任何亲和绑定的新会话才会使用所选池；已确认 K12、临时/溢出 K12 和普通内存亲和命中始终保持原账号。仍有 K12 能承接新会话时，K12 也始终先于所选的非 K12 账号。
 - 修改、关闭优先池不会迁移已经建立的会话。所选账号因模型、额度、冷却、禁用或并发容量不可用时，自动回退现有调度策略。
 - 设置通过 sidecar 热状态文件更新，不会仅因调整优先池而重启 API 服务或清空普通内存亲和；账号移出服务或被删除后会自动清理对应选择。
 
@@ -63,7 +63,7 @@
 
 ### OAuth / Plus 额度保留
 
-- 通过 API 服务绑定的 OAuth 账号通常作为最终兜底；当所有可承接新会话的 K12 都达到每账号 2 个活跃会话时，会提前接收额外并发。
+- 可用的 Plus / Team 在所有可承接新会话的 K12 都达到每账号 2 个活跃会话后接收额外并发；通过 API 服务绑定的 OAuth 账号仍通常作为最终兜底。
 - 默认保留绑定账号最后 **10% 的 5h 额度**：剩余恰好 10% 时即停止路由到该账号。
 - 周额度阈值可留空，表示不对绑定账号设置本地周额度限制；此规则只作用于被绑定的 OAuth 账号，其他账号不受影响。
 - 绑定账号的配额快照缺失或过期时采用保守策略，避免在无法确认剩余额度时误用保留额度。

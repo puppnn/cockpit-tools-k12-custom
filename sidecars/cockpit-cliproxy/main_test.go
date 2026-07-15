@@ -1375,7 +1375,7 @@ func TestSidecarRuntimeRegistersConfigCodexAPIKeyAuths(t *testing.T) {
 		accountByAPIKey: map[string]*accountSpec{"sk-upstream": account},
 		ModelIDs:        []string{"gpt-5.4"},
 	}
-	manager := buildCoreAuthManager(cfg, &cockpitSelector{manifest: m}, &authHook{manifest: m}, m, nil, newRequestUsageTracker())
+	manager := buildCoreAuthManager(cfg, &cockpitSelector{manifest: m}, &authHook{manifest: m}, m, nil, newRequestUsageTracker(), nil)
 
 	runtime, err := newSidecarRuntime(context.Background(), configPath, cfg, m, manager)
 	if err != nil {
@@ -1443,7 +1443,7 @@ func TestSidecarRuntimeRegistersManifestCodexAccessTokenAuths(t *testing.T) {
 		accountByEmail:   map[string]*accountSpec{"token@example.com": account},
 		ModelIDs:         []string{"gpt-5.4"},
 	}
-	manager := buildCoreAuthManager(cfg, &cockpitSelector{manifest: m}, &authHook{manifest: m}, m, nil, newRequestUsageTracker())
+	manager := buildCoreAuthManager(cfg, &cockpitSelector{manifest: m}, &authHook{manifest: m}, m, nil, newRequestUsageTracker(), nil)
 
 	runtime, err := newSidecarRuntime(context.Background(), configPath, cfg, m, manager)
 	if err != nil {
@@ -1545,7 +1545,7 @@ func TestManifestRegisteredModelsPreserveReasoningEffortThroughThinkingPipeline(
 		Provider: "codex",
 		Status:   coreauth.StatusActive,
 	}
-	manager := buildCoreAuthManager(&config.Config{}, &cockpitSelector{}, nil, nil, nil, nil)
+	manager := buildCoreAuthManager(&config.Config{}, &cockpitSelector{}, nil, nil, nil, nil, nil)
 	registered, err := manager.Register(context.Background(), auth)
 	if err != nil {
 		t.Fatalf("register auth: %v", err)

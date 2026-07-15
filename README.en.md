@@ -3,11 +3,11 @@
 English · [Portuguese (BR)](README.pt-br.md) · [简体中文](README.md)
 
 [![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
-[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.1-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.1)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.2-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.2)
 [![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
 > [!IMPORTANT]
-> This is a custom fork of [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools). It now fully integrates the upstream **v1.3.1** release while adding K12 session routing, long-running task failover, and OAuth quota reserves to the local Codex API service. Upstream features and the custom routing policy are retained together; the custom behavior is not part of official upstream releases.
+> This is a custom fork of [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools). It now fully integrates the upstream **v1.3.2** release while adding K12 session routing, long-running task failover, and OAuth quota reserves to the local Codex API service. Upstream features and the custom routing policy are retained together; the custom behavior is not part of official upstream releases.
 
 A **universal AI IDE account management tool**, currently supporting **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Grok CLI**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TRAE SOLO**, **Trae CN**, **TRAE SOLO CN**, **Zed**, and **ZCode**, with multi-instance parallel workflows.
 
@@ -23,9 +23,9 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 ---
 
-## Upstream v1.3.1 Integration
+## Upstream v1.3.2 Integration
 
-- **Full platform set**: Retains the upstream v1.3.1 Grok CLI and ZCode integrations, multi-instance management, and 18-language UI.
+- **Full platform set**: Retains the upstream v1.3.2 Grok CLI and ZCode integrations, multi-instance management, and 18-language UI.
 - **Updated Codex account experience**: Uses dynamic plan filters and quota summaries, optional model-specific quota display, clear-filter actions, improved account names, and the newer import flows.
 - **API service improvements**: Keeps upstream backup accounts, import-to-API-pool support, request-log account names, and proxy connection improvements, with the custom K12 policy layered on top.
 - **Custom configuration compatibility**: Preserves nullable `weeklyPercent`, the preferred pool for new sessions, and persistent K12 session state instead of replacing them with upstream defaults.
@@ -40,15 +40,15 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 - **Stable session identity**: Identity sources prioritize `execution_session_id`, `prompt_cache_key`, Codex turn/window metadata, and Session/Conversation headers, with Claude session fields and a message hash retained as compatibility fallbacks.
 - **Established sessions keep running**: A confirmed session stays on its original K12 for as long as the upstream accepts requests, even when Cockpit displays zero remaining 5h or weekly quota for that account.
 - **Quota-aware admission for new sessions**: A fresh quota snapshot showing zero 5h quota prevents only new sessions from using that K12. Existing confirmed sessions remain eligible. A missing or stale snapshot permits one real request to verify availability.
-- **Parallel session distribution**: New sessions prefer K12 accounts with fewer confirmed sessions, then compare remaining 5h quota and the existing custom route order. Tentative selections also reserve load so concurrent requests are less likely to land on the same account.
-- **Persistent affinity does not consume new-session capacity**: A successful K12 binding is retained for seven days only so the old session can return to its original account; it no longer counts as continuous usage. Capacity counts only sessions that are currently being selected or opening their first payload, so an idle K12 may immediately accept a new session even when historical bindings remain. While paid spillover is available, each K12 starts at most two new sessions concurrently before excess starts spill to Plus; an old session that hits affinity still keeps priority on its original K12.
+- **Parallel session distribution**: Any K12 that can accept a new session stays ahead of Plus, API-key accounts, and a preferred non-K12 pool. K12 candidates are balanced by full active-session load before remaining 5h quota and the existing custom route order are considered.
+- **Persistent affinity does not consume idle capacity**: A successful K12 binding is retained for seven days only so the old session can return to its original account; an idle historical binding does not count as load. Capacity is held for the full HTTP, SSE, or WebSocket request. While paid spillover is available, each K12 carries at most two active new sessions before excess work spills to Plus. Existing affinity is never migrated merely to enforce the limit.
 - **Affinity across model aliases**: A K12 binding does not include the model ID, so switching model aliases within the same Codex session keeps the original account when possible. Disabled or unsupported models still return their normal model error.
-- **Unchanged non-K12 behavior**: Other account types retain their existing in-memory session affinity and custom load-balancing behavior. Persistent cross-model affinity applies only to K12 accounts.
+- **Non-K12 priority and concurrency balancing**: Existing in-memory affinity stays on its current account. New sessions enter the highest custom-priority tier first, with at most four active new sessions per account and least-load distribution inside an equal-priority tier. Routing falls through only when the whole tier is full, then uses lower tiers or backup accounts; an existing affinity hit is never migrated to enforce the cap.
 
 ### Preferred Account Pool for New Sessions
 
 - Enable **Prefer New Sessions** under **API Service > Routing Options** and select one or more accounts that currently belong to the service.
-- The selected pool is consulted only when a stable session identity is available and no affinity binding exists. Confirmed K12 bindings, tentative or spillover K12 bindings, and ordinary in-memory affinity hits always keep their current account.
+- The selected pool is consulted only when a stable session identity is available and no affinity binding exists. Confirmed K12 bindings, tentative or spillover K12 bindings, and ordinary in-memory affinity hits always keep their current account. An eligible K12 also remains ahead of every selected non-K12 account.
 - Changing or disabling the pool never migrates an established session. If every selected account is unavailable because of model support, quota, cooldown, disabled state, or concurrency capacity, routing falls back to the existing policy.
 - The setting is hot-loaded through the sidecar state file, so changing only this pool does not restart the API service or erase ordinary in-memory affinity. Removed accounts are pruned automatically.
 
@@ -62,7 +62,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 ### OAuth / Plus Quota Reserve
 
-- The OAuth account bound to the API service normally remains the final fallback. It takes additional concurrency early once every K12 eligible for new sessions has reached its two-session capacity.
+- Eligible Plus or Team accounts take additional concurrency once every K12 available for new sessions has reached its two-session capacity. The OAuth account bound to the API service normally remains the final fallback.
 - By default, the final **10% of its 5h quota** is reserved. The account stops receiving requests at exactly 10% remaining.
 - The weekly reserve can be left empty, meaning no local weekly cap. This rule applies only to the bound OAuth account; other accounts are unchanged.
 - A missing or stale quota snapshot fails closed for the bound account so its reserve is not consumed when the remaining quota cannot be verified.

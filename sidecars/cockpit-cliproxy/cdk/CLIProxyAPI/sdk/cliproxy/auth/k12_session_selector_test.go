@@ -393,7 +393,7 @@ func TestK12BindingConfirmsOnlyAfterSuccessAndPersistsDigest(t *testing.T) {
 	}
 }
 
-func TestPreferredPlusAppliesToNewSessionWithoutMovingConfirmedK12Session(t *testing.T) {
+func TestK12PrecedesPreferredPlusAndConfirmedSessionRemainsBound(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "k12-sessions.json")
 	remaining := map[string]*int{"k12-a": intPtr(100)}
@@ -436,16 +436,84 @@ func TestPreferredPlusAppliesToNewSessionWithoutMovingConfirmedK12Session(t *tes
 		t.Fatalf("confirmed K12 session moved after preference enabled: %#v, %v", sticky, err)
 	}
 
+	newK12, err := selector.Pick(context.Background(), "codex", "gpt-5.4", promptCacheOptions("new-k12-session"), auths)
+	if err != nil || newK12 == nil || newK12.ID != k12.ID {
+		t.Fatalf("new session with eligible K12 Pick() = %#v, %v; want %s", newK12, err, k12.ID)
+	}
+
+	remaining[k12.ID] = intPtr(0)
 	preferred, err := selector.Pick(context.Background(), "codex", "gpt-5.4", promptCacheOptions("new-plus-session"), auths)
 	if err != nil || preferred == nil || preferred.ID != plus.ID {
-		t.Fatalf("new session Pick() = %#v, %v; want %s", preferred, err, plus.ID)
+		t.Fatalf("new session after K12 depletion Pick() = %#v, %v; want %s", preferred, err, plus.ID)
+	}
+}
+
+func TestPreferredPlusSpilloverWaitsForK12StartCapacity(t *testing.T) {
+	t.Parallel()
+	remaining := map[string]*int{"k12-a": intPtr(100)}
+	activeLoads := map[string]int{}
+	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
+		Fallback: &FillFirstSelector{},
+		TTL:      time.Hour,
+		PreferNewSession: func(auth *Auth) bool {
+			return auth != nil && auth.ID == "plus-preferred"
+		},
+		K12: &K12SessionPolicyConfig{
+			StatePath: filepath.Join(t.TempDir(), "k12-sessions.json"),
+			HMACKey:   []byte("test-local-api-key"),
+			IsK12: func(auth *Auth) bool {
+				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "k12")
+			},
+			IsSpillover: func(auth *Auth) bool {
+				return auth != nil && strings.EqualFold(auth.Attributes["test_plan"], "plus")
+			},
+			QuotaSnapshot: func(auth *Auth) K12QuotaSnapshot {
+				return K12QuotaSnapshot{Fresh: true, HourlyRemainingPercent: remaining[auth.ID]}
+			},
+			ActiveSessionLoad: func(auth *Auth) int {
+				return activeLoads[auth.ID]
+			},
+		},
+	})
+	t.Cleanup(selector.Stop)
+	auths := []*Auth{testK12Auth("k12-a"), testPlusAuth("plus-other"), testPlusAuth("plus-preferred")}
+
+	want := []string{"k12-a", "k12-a", "plus-preferred"}
+	for index, wantAuthID := range want {
+		opts := promptCacheOptions(fmt.Sprintf("preferred-spillover-%d", index))
+		selected, err := selector.Pick(
+			context.Background(),
+			"codex",
+			"gpt-5.4",
+			opts,
+			auths,
+		)
+		if err != nil || selected == nil || selected.ID != wantAuthID {
+			t.Fatalf("selection %d = %#v, %v; want %s", index, selected, err, wantAuthID)
+		}
+		if selected.ID == "k12-a" {
+			selector.OnSelectionResult(context.Background(), Result{AuthID: selected.ID, Success: true}, opts)
+			activeLoads[selected.ID]++
+		}
+	}
+
+	activeLoads["k12-a"] = 1
+	selected, err := selector.Pick(
+		context.Background(),
+		"codex",
+		"gpt-5.4",
+		promptCacheOptions("preferred-spillover-after-release"),
+		auths,
+	)
+	if err != nil || selected == nil || selected.ID != "k12-a" {
+		t.Fatalf("selection after one K12 stream released = %#v, %v; want k12-a", selected, err)
 	}
 }
 
 func TestChangingPreferredPoolDoesNotMoveExistingGenericSessionAheadOfK12(t *testing.T) {
 	t.Parallel()
 	statePath := filepath.Join(t.TempDir(), "k12-sessions.json")
-	remaining := map[string]*int{"k12-a": intPtr(100)}
+	remaining := map[string]*int{"k12-a": intPtr(0)}
 	preferredID := "plus-a"
 	selector := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
 		Fallback: &FillFirstSelector{},
@@ -480,15 +548,16 @@ func TestChangingPreferredPoolDoesNotMoveExistingGenericSessionAheadOfK12(t *tes
 		t.Fatalf("initial preferred Pick() = %#v, %v; want %s", selected, err, plusA.ID)
 	}
 
+	remaining[k12.ID] = intPtr(100)
 	preferredID = plusB.ID
 	sticky, err := selector.Pick(context.Background(), "codex", "gpt-5.4", existingOpts, auths)
 	if err != nil || sticky == nil || sticky.ID != plusA.ID {
 		t.Fatalf("existing generic session moved after preferred pool changed: %#v, %v", sticky, err)
 	}
 
-	newSession, err := selector.Pick(context.Background(), "codex", "gpt-5.4", promptCacheOptions("new-generic-session"), auths)
-	if err != nil || newSession == nil || newSession.ID != plusB.ID {
-		t.Fatalf("new session Pick() = %#v, %v; want %s", newSession, err, plusB.ID)
+	newSession, err := selector.Pick(context.Background(), "codex", "gpt-5.4", promptCacheOptions("new-k12-session"), auths)
+	if err != nil || newSession == nil || newSession.ID != k12.ID {
+		t.Fatalf("new session Pick() = %#v, %v; want K12 %s", newSession, err, k12.ID)
 	}
 }
 

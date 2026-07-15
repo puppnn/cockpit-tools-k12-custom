@@ -52,10 +52,22 @@ pub fn load_account(account_id: &str) -> Option<WindsurfAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<WindsurfAccount>(&account_path, &content) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
-                let _ = save_account_file(&account);
+                let account_for_rewrite = account.clone();
+                crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                    "windsurf",
+                    account_for_rewrite.id.clone(),
+                    account_path.clone(),
+                    content.as_bytes(),
+                    move || {
+                        crate::modules::secure_account_storage::serialize_account_file(
+                            "windsurf",
+                            &account_for_rewrite,
+                        )
+                    },
+                );
             }
             Some(account)
         }
@@ -74,7 +86,8 @@ fn save_account_file(account: &WindsurfAccount) -> Result<(), String> {
 fn delete_account_file(account_id: &str) -> Result<(), String> {
     let path = get_accounts_dir()?.join(format!("{}.json", account_id));
     if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("删除账号文件失败: {}", e))?;
+        crate::modules::atomic_write::remove_file_locked(&path)
+            .map_err(|e| format!("删除账号文件失败: {}", e))?;
     }
     Ok(())
 }

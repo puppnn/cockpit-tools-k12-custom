@@ -3805,7 +3805,9 @@
       "appPath": "Caminho do Grok CLI",
       "cliPath": "Caminho da CLI",
       "cliDetected": "Detectado: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI não encontrado. Informe um caminho."
+      "cliMissing": "Grok CLI não encontrado. Informe um caminho.",
+      "syncOfficialAuthOnSwitch": "Sincronizar login oficial ao trocar",
+      "syncOfficialAuthOnSwitchDesc": "Quando ativado, trocar a instância padrão para uma conta OAuth grava o arquivo oficial ~/.grok/auth.json. Quando desativado, usa um GROK_HOME separado. Chaves de API e instâncias adicionais não substituem o login oficial."
     },
     "grokRefreshInterval": "Atualização automática de cota",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Buscar contas do Grok CLI...",
     "flowNotice": {
       "title": "Gerenciamento de contas do Grok CLI",
-      "desc": "O Cockpit gerencia contas no formato oficial de credenciais do Grok CLI para alternar de fato a conta padrão e vincular instâncias isoladas.",
-      "permission": "Escopo local: lê o ~/.grok/auth.json padrão e gerencia diretórios separados de contas Grok e GROK_HOME nos dados locais do Cockpit.",
+      "desc": "Por padrão, são usados GROK_HOME separados. Com a sincronização ativa, uma troca OAuth da instância padrão grava em ~/.grok/auth.json; as instâncias adicionais continuam isoladas.",
+      "permission": "Escopo local: ~/.grok/auth.json pode ser lido para importação e só é gravado com a sincronização ativa em uma troca OAuth da instância padrão. Chaves de API nunca substituem o login oficial.",
       "network": "Escopo de rede: autorização OAuth, renovação de credenciais e consulta de uso. As credenciais não são enviadas aos serviços do Cockpit."
     },
     "empty": "Nenhuma conta do Grok CLI",

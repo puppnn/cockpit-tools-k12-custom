@@ -153,10 +153,22 @@ fn save_index(index: &ZcodeAccountIndex) -> Result<(), String> {
 pub fn load_account(account_id: &str) -> Option<ZcodeAccount> {
     let path = account_path(account_id).ok()?;
     let content = fs::read_to_string(&path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file(&path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<ZcodeAccount>(&path, &content) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
-                let _ = save_account_file(&account);
+                let account_for_rewrite = account.clone();
+                crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                    "zcode",
+                    account_for_rewrite.id.clone(),
+                    path.clone(),
+                    content.as_bytes(),
+                    move || {
+                        crate::modules::secure_account_storage::serialize_account_file(
+                            "zcode",
+                            &account_for_rewrite,
+                        )
+                    },
+                );
             }
             Some(account)
         }
@@ -281,7 +293,8 @@ pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
     for id in account_ids {
         let path = account_path(id)?;
         if path.exists() {
-            fs::remove_file(path).map_err(|error| format!("删除 ZCode 账号失败: {}", error))?;
+            crate::modules::atomic_write::remove_file_locked(&path)
+                .map_err(|error| format!("删除 ZCode 账号失败: {}", error))?;
         }
     }
     Ok(())

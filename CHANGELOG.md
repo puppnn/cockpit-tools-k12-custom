@@ -7,6 +7,30 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.2] - 2026-07-15
+
+### Highlights
+
+- **Fixed Codex API Service accounts not appearing and account additions hanging after an upgrade**: pricing and statistics migrations now run in background batches so accounts and existing statistics appear first; maintenance is single-flight and merges safely instead of overwriting newer configuration with a stale snapshot.
+- **Fixed disabling `image_generation` not taking effect for OAuth-bound accounts**
+- **Windows app-path detection now checks running processes**: app discovery no longer performs broad disk scans, and detection tasks have bounded timeouts with clearer guidance to start the target app first.
+
+### Added
+
+- **Grok CLI can optionally sync the official login on account switch**: the setting defaults off and keeps using a separate `GROK_HOME`; when enabled, OAuth switches for the default instance update the official `~/.grok/auth.json`. API keys launch through `XAI_API_KEY`, while additional instances always stay isolated.
+
+### Changed
+
+- **Startup and account-maintenance work now runs without blocking the UI**: wakeup restoration, Deep Link initialization, account-encryption migration, local-account auto-import, and background token-keeper scans no longer block the main window or account reads; slow work has timeouts, deduplication, and failure fallback.
+- **Account-detail migrations now use safe background rewrites**: upgrades return usable accounts before rewriting legacy encryption or formats; if an account is updated or deleted meanwhile, the stale migration result is discarded instead of restoring old data.
+
+### Fixed
+
+- **Fixed Codex session-type filtering being inconsistent with bulk actions**: visible groups, selected sessions, and stale selections now follow the active conversation / external / subagent filter.
+- **Fixed older asynchronous account requests overwriting newer add, delete, or switch results**: account lists and current-account state now accept only the latest response, avoiding regressions to an empty list or stale account.
+- **Fixed deactivated Codex workspaces still appearing healthy**: `deactivated_workspace` now surfaces as an abnormal account state.
+
+---
 ## [1.3.1] - 2026-07-14
 
 ### Highlights

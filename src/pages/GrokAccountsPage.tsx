@@ -773,10 +773,10 @@ export function GrokAccountsPage() {
       titleDefault: "Grok CLI 账号管理说明",
       descKey: "grok.flowNotice.desc",
       descDefault:
-        "每个 Grok 账号使用独立 GROK_HOME 目录并行运行，互不覆盖；可从本机 ~/.grok/auth.json 导入，启动时不再写回官方默认目录。",
+        "默认使用独立 GROK_HOME；开启“切号同步官方登录”后，默认实例切换 OAuth 账号会写入官方 ~/.grok/auth.json，多开实例仍保持隔离。",
       permissionKey: "grok.flowNotice.permission",
       permissionDefault:
-        "本地范围：可读取默认 ~/.grok/auth.json 用于导入；运行时使用 Cockpit 内每账号独立目录。",
+        "本地范围：可读取默认 ~/.grok/auth.json 用于导入；仅在开关开启且默认实例切换 OAuth 账号时写入该文件，API Key 不会覆盖官方登录。",
       networkKey: "grok.flowNotice.network",
       networkDefault:
         "网络范围：OAuth 授权、凭据刷新及账号用量查询；不会上传凭据到 Cockpit 服务。",

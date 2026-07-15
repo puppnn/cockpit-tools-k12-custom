@@ -22,6 +22,9 @@ use crate::modules::instance_store;
 static CLAUDE_INSTANCE_STORE_LOCK: std::sync::LazyLock<Mutex<()>> =
     std::sync::LazyLock::new(|| Mutex::new(()));
 
+#[cfg(target_os = "windows")]
+const WINDOWS_CLAUDE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 const CLAUDE_INSTANCES_FILE: &str = "claude_instances.json";
 const CLAUDE_GLOBAL_CONFIG_FILE: &str = ".claude.json";
 const CLAUDE_CODE_CONFIG_FILE: &str = ".config.json";
@@ -1083,7 +1086,8 @@ fn scan_windows_start_apps_for_claude(
 ) {
     use std::os::windows::process::CommandExt;
 
-    let output = Command::new("powershell.exe")
+    let mut command = Command::new("powershell.exe");
+    command
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -1093,8 +1097,11 @@ fn scan_windows_start_apps_for_claude(
             "Get-StartApps | Where-Object { $_.Name -like '*Claude*' -or $_.AppID -like 'Claude_*' } | ForEach-Object { \"$($_.Name)`t$($_.AppID)\" }",
         ])
         .creation_flags(0x08000000)
-        .stdin(Stdio::null())
-        .output();
+        .stdin(Stdio::null());
+    let output = modules::process_timeout::output_with_timeout(
+        &mut command,
+        WINDOWS_CLAUDE_PROBE_TIMEOUT,
+    );
     let Ok(output) = output else {
         return;
     };
@@ -1139,7 +1146,8 @@ fn scan_windows_appx_packages_for_claude(
         .filter(|root| !root.is_empty())
         .collect::<Vec<_>>();
 
-    let output = Command::new("powershell.exe")
+    let mut command = Command::new("powershell.exe");
+    command
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -1149,8 +1157,11 @@ fn scan_windows_appx_packages_for_claude(
             "Get-AppxPackage | Where-Object { $_.Name -like '*Claude*' -or $_.PackageFamilyName -like '*Claude*' -or $_.PackageFullName -like '*Claude*' } | ForEach-Object { $_.InstallLocation }",
         ])
         .creation_flags(0x08000000)
-        .stdin(Stdio::null())
-        .output();
+        .stdin(Stdio::null());
+    let output = modules::process_timeout::output_with_timeout(
+        &mut command,
+        WINDOWS_CLAUDE_PROBE_TIMEOUT,
+    );
     let Ok(output) = output else {
         return false;
     };

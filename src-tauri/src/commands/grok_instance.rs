@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::models::grok::GrokAccount;
 use crate::models::{InstanceProfile, InstanceProfileView};
-use crate::modules::{self, grok_account, grok_instance, logger};
+use crate::modules::{self, config, grok_account, grok_instance, logger};
 
 const DEFAULT_INSTANCE_ID: &str = "__default__";
 
@@ -109,6 +109,10 @@ fn normalize_working_dir_override(working_dir: Option<String>) -> Option<String>
         .map(|value| value.to_string())
 }
 
+fn should_use_managed_home(instance_id: &str, sync_official_auth: bool) -> bool {
+    instance_id != DEFAULT_INSTANCE_ID || !sync_official_auth
+}
+
 fn resolve_context(
     instance_id: &str,
     working_dir_override: Option<Option<String>>,
@@ -117,19 +121,28 @@ fn resolve_context(
     let launch_account_id = resolve_launch_account_id(instance_id, account_id_override)?;
     let xai_api_key = resolve_xai_api_key_for_account(launch_account_id.as_deref())?;
 
-    // 有绑定/指定账号时：一律用账号独立 GROK_HOME（managed profile）。
     if let Some(account_id) = launch_account_id.as_deref() {
         let home = grok_account::managed_profile_dir(account_id)?;
         if instance_id == DEFAULT_INSTANCE_ID {
             let settings = grok_instance::load_default_settings()?;
+            let managed = should_use_managed_home(
+                instance_id,
+                config::get_user_config().grok_sync_official_auth_on_switch,
+            );
             return Ok(GrokLaunchContext {
-                user_data_dir: home.to_string_lossy().to_string(),
+                user_data_dir: if managed {
+                    home.to_string_lossy().to_string()
+                } else {
+                    grok_instance::get_default_grok_home()?
+                        .to_string_lossy()
+                        .to_string()
+                },
                 working_dir: match working_dir_override {
                     Some(value) => normalize_working_dir_override(value),
                     None => settings.working_dir,
                 },
                 extra_args: settings.extra_args,
-                managed: true,
+                managed,
                 xai_api_key,
             });
         }
@@ -309,6 +322,13 @@ fn write_account_launch_profiles(
     instance_id: &str,
     account: &GrokAccount,
 ) -> Result<std::path::PathBuf, String> {
+    if instance_id == DEFAULT_INSTANCE_ID
+        && config::get_user_config().grok_sync_official_auth_on_switch
+    {
+        grok_account::inject_to_default(&account.id)?;
+        return grok_account::default_grok_home();
+    }
+
     let home = grok_account::managed_profile_dir(&account.id)?;
     grok_account::write_account_to_profile(account, &home)?;
 
@@ -327,7 +347,8 @@ fn write_account_launch_profiles(
     Ok(home)
 }
 
-/// 准备绑定账号的独立 GROK_HOME。
+/// 准备绑定账号的启动凭据。默认实例按开关选择官方 auth.json 或独立 GROK_HOME；
+/// 非默认实例始终使用独立 GROK_HOME。
 /// - Ok(None)：凭据就绪
 /// - Ok(Some(warning))：需重新授权等非致命问题，已尽量落盘最后已知凭据，启动命令仍可生成
 /// - Err：致命错误（账号不存在、CLI 路径等）
@@ -339,7 +360,6 @@ async fn prepare_bound_account(
     let Some(account_id) = launch_account_id else {
         return Ok(None);
     };
-    // 刷新 token 并写入该账号独立 GROK_HOME（不再写官方默认 ~/.grok）。
     match grok_account::prepare_account_for_injection(&account_id).await {
         Ok(account) => {
             write_account_launch_profiles(instance_id, &account)?;
@@ -353,11 +373,17 @@ async fn prepare_bound_account(
                 account_id, error
             ));
             if let Some(account) = grok_account::load_account(&account_id) {
-                if let Err(write_error) = write_account_launch_profiles(instance_id, &account) {
-                    logger::log_warn(&format!(
-                        "[Grok Launch] reauth 状态下写入 profile 失败: account_id={}, error={}",
-                        account_id, write_error
-                    ));
+                let should_write_fallback = instance_id != DEFAULT_INSTANCE_ID
+                    || !config::get_user_config().grok_sync_official_auth_on_switch;
+                if should_write_fallback {
+                    if let Err(write_error) =
+                        write_account_launch_profiles(instance_id, &account)
+                    {
+                        logger::log_warn(&format!(
+                            "[Grok Launch] reauth 状态下写入 profile 失败: account_id={}, error={}",
+                            account_id, write_error
+                        ));
+                    }
                 }
             }
             Ok(None)
@@ -555,7 +581,7 @@ pub async fn grok_execute_instance_launch_command(
 mod tests {
     use super::{
         build_launch_command_with_binary, is_grok_cli_missing_error, is_grok_reauth_prepare_error,
-        GrokLaunchContext,
+        should_use_managed_home, GrokLaunchContext, DEFAULT_INSTANCE_ID,
     };
     use std::path::Path;
 
@@ -631,5 +657,17 @@ mod tests {
             .expect("build api key command");
         assert!(command.contains("XAI_API_KEY"));
         assert!(command.contains("xai-test-key"));
+    }
+
+    #[test]
+    fn default_instance_home_follows_official_sync_setting() {
+        assert!(should_use_managed_home(DEFAULT_INSTANCE_ID, false));
+        assert!(!should_use_managed_home(DEFAULT_INSTANCE_ID, true));
+    }
+
+    #[test]
+    fn non_default_instances_always_use_managed_home() {
+        assert!(should_use_managed_home("team-instance", false));
+        assert!(should_use_managed_home("team-instance", true));
     }
 }

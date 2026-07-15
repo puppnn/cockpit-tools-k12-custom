@@ -438,10 +438,22 @@ pub fn load_account(account_id: &str) -> Option<TraeAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<TraeAccount>(&account_path, &content) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
-                let _ = save_account_file(&account);
+                let account_for_rewrite = account.clone();
+                crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                    "trae",
+                    account_for_rewrite.id.clone(),
+                    account_path.clone(),
+                    content.as_bytes(),
+                    move || {
+                        crate::modules::secure_account_storage::serialize_account_file(
+                            "trae",
+                            &account_for_rewrite,
+                        )
+                    },
+                );
             }
             Some(account)
         }
@@ -460,7 +472,8 @@ fn save_account_file(account: &TraeAccount) -> Result<(), String> {
 fn delete_account_file(account_id: &str) -> Result<(), String> {
     let path = resolve_account_file_path(account_id)?;
     if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("删除 Trae 账号文件失败: {}", e))?;
+        crate::modules::atomic_write::remove_file_locked(&path)
+            .map_err(|e| format!("删除 Trae 账号文件失败: {}", e))?;
     }
     Ok(())
 }
@@ -2057,13 +2070,25 @@ fn trae_product_exe_names(platform: TraePlatformKind) -> &'static [&'static str]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[cfg(target_os = "windows")]
+const WINDOWS_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
+#[cfg(target_os = "windows")]
 fn windows_cmd_output_utf16(args: &[&str]) -> Option<std::process::Output> {
     use std::os::windows::process::CommandExt;
 
     let mut command = std::process::Command::new("cmd");
     command.args(args);
     command.creation_flags(CREATE_NO_WINDOW);
-    command.output().ok()
+    match crate::modules::process_timeout::output_with_timeout(&mut command, WINDOWS_CMD_TIMEOUT) {
+        Ok(output) => Some(output),
+        Err(err) => {
+            logger::log_warn(&format!(
+                "[Trae] Windows cmd 执行失败或超时({:?}): args={:?}, error={}",
+                WINDOWS_CMD_TIMEOUT, args, err
+            ));
+            None
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

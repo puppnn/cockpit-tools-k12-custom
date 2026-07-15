@@ -3805,7 +3805,9 @@
       "appPath": "Grok CLI 路徑",
       "cliPath": "CLI 路徑",
       "cliDetected": "已偵測 {{version}} · {{path}}",
-      "cliMissing": "未偵測到 Grok CLI，可填寫自訂路徑"
+      "cliMissing": "未偵測到 Grok CLI，可填寫自訂路徑",
+      "syncOfficialAuthOnSwitch": "切換帳號時同步官方登入",
+      "syncOfficialAuthOnSwitchDesc": "開啟後，預設執行個體切換 OAuth 帳號會寫入官方 ~/.grok/auth.json；關閉時使用獨立 GROK_HOME。API Key 與多開執行個體不會覆寫官方登入。"
     },
     "grokRefreshInterval": "配額自動重新整理",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "搜尋 Grok CLI 帳號...",
     "flowNotice": {
       "title": "Grok CLI 帳號管理說明",
-      "desc": "Cockpit 依 Grok CLI 官方憑證格式管理帳號，用於預設用戶端實際切號與獨立執行個體綁定。",
-      "permission": "本機範圍：讀取預設 ~/.grok/auth.json，並管理 Cockpit 本機資料中的獨立 Grok 帳號與 GROK_HOME 目錄。",
+      "desc": "預設使用獨立 GROK_HOME；開啟「切換帳號時同步官方登入」後，預設執行個體切換 OAuth 帳號會寫入官方 ~/.grok/auth.json，多開執行個體仍維持隔離。",
+      "permission": "本機範圍：可讀取預設 ~/.grok/auth.json 以匯入；只有開關開啟且預設執行個體切換 OAuth 帳號時才會寫入，API Key 不會覆寫官方登入。",
       "network": "網路範圍：OAuth 授權、憑證重新整理與帳號用量查詢；不會將憑證上傳至 Cockpit 服務。"
     },
     "empty": "尚無 Grok CLI 帳號",

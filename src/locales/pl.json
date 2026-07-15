@@ -3805,7 +3805,9 @@
       "appPath": "Ścieżka Grok CLI",
       "cliPath": "Ścieżka CLI",
       "cliDetected": "Wykryto: {{version}} · {{path}}",
-      "cliMissing": "Nie wykryto Grok CLI. Podaj własną ścieżkę."
+      "cliMissing": "Nie wykryto Grok CLI. Podaj własną ścieżkę.",
+      "syncOfficialAuthOnSwitch": "Synchronizuj oficjalne logowanie",
+      "syncOfficialAuthOnSwitchDesc": "Po włączeniu zmiana konta OAuth w instancji domyślnej zapisuje oficjalny plik ~/.grok/auth.json. Po wyłączeniu używany jest osobny GROK_HOME. Klucze API i dodatkowe instancje nie nadpisują oficjalnego logowania."
     },
     "grokRefreshInterval": "Automatyczne odświeżanie limitu",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Szukaj kont Grok CLI...",
     "flowNotice": {
       "title": "Zarządzanie kontami Grok CLI",
-      "desc": "Cockpit zarządza kontami w oficjalnym formacie poświadczeń Grok CLI, aby rzeczywiście przełączać konto domyślne i wiązać odizolowane instancje.",
-      "permission": "Zakres lokalny: odczytuje domyślny plik ~/.grok/auth.json i zarządza oddzielnymi katalogami kont Grok oraz GROK_HOME w lokalnych danych Cockpit.",
+      "desc": "Domyślnie używane są oddzielne katalogi GROK_HOME. Przy włączonej synchronizacji zmiana konta OAuth w instancji domyślnej zapisuje ~/.grok/auth.json; dodatkowe instancje pozostają odizolowane.",
+      "permission": "Zakres lokalny: ~/.grok/auth.json może być odczytany podczas importu i jest zapisywany tylko przy włączonej synchronizacji podczas zmiany OAuth instancji domyślnej. Klucze API nie nadpisują oficjalnego logowania.",
       "network": "Zakres sieciowy: autoryzacja OAuth, odnawianie poświadczeń i sprawdzanie użycia konta. Poświadczenia nie są wysyłane do usług Cockpit."
     },
     "empty": "Brak kont Grok CLI",

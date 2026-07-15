@@ -2863,12 +2863,19 @@ fn load_account_with_summary(
             || migrated_bound_oauth
             || migrated_index_summary
         {
-            if let Err(error) = save_account(&account) {
-                logger::log_warn(&format!(
-                    "[Codex Account][Migration] 账号详情迁移写回失败: account_id={}, error={}",
-                    account.id, error
-                ));
-            }
+            let account_for_rewrite = account.clone();
+            crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                "codex",
+                account_for_rewrite.id.clone(),
+                path.clone(),
+                content.as_bytes(),
+                move || {
+                    crate::modules::secure_account_storage::serialize_account_file(
+                        "codex",
+                        &account_for_rewrite,
+                    )
+                },
+            );
         }
         return Ok(Some(account));
     }
@@ -2880,12 +2887,19 @@ fn load_account_with_summary(
     let _ = migrate_apikey_fun_wire_api(&mut account);
     let _ = migrate_bound_oauth_use_local_gateway_if_missing(&mut account, &value);
 
-    if let Err(error) = save_account(&account) {
-        logger::log_warn(&format!(
-            "[Codex Account][Compat] 账号详情兼容读取成功但标准化写回失败: account_id={}, error={}",
-            account.id, error
-        ));
-    }
+    let account_for_rewrite = account.clone();
+    crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+        "codex",
+        account_for_rewrite.id.clone(),
+        path.clone(),
+        content.as_bytes(),
+        move || {
+            crate::modules::secure_account_storage::serialize_account_file(
+                "codex",
+                &account_for_rewrite,
+            )
+        },
+    );
 
     Ok(Some(account))
 }
@@ -2903,7 +2917,8 @@ pub fn save_account(account: &CodexAccount) -> Result<(), String> {
 pub fn delete_account_file(account_id: &str) -> Result<(), String> {
     let path = get_accounts_dir().join(format!("{}.json", account_id));
     if path.exists() {
-        fs::remove_file(&path).map_err(|e| format!("删除文件失败: {}", e))?;
+        crate::modules::atomic_write::remove_file_locked(&path)
+            .map_err(|e| format!("删除文件失败: {}", e))?;
     }
     Ok(())
 }
@@ -4404,7 +4419,9 @@ fn write_api_key_provider_override_to_config_toml(
         &provider_config,
         &api_key,
         api_key_account.api_supports_websockets,
-        api_key_account_supports_image_generation(api_key_account),
+        // 已绑定 OAuth 时必须继续让 Codex 使用 auth.json / Keychain 登录态；
+        // requires_openai_auth=false 与生图 actor header 仅用于未绑定 OAuth 的 API Key 投影。
+        false,
     )?;
     Ok(provider_config)
 }
@@ -8586,12 +8603,19 @@ mod tests {
         let loaded = load_account(&account.id).expect("load account");
 
         assert!(loaded.bound_oauth_use_local_gateway);
-        let persisted = fs::read_to_string(accounts_dir.join(format!("{}.json", account.id)))
-            .expect("read migrated account");
-        assert!(
-            persisted.contains("AES-256-GCM") || persisted.contains("ciphertext"),
-            "expected migrated account detail to be encrypted on disk"
-        );
+        let account_path = accounts_dir.join(format!("{}.json", account.id));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let persisted = fs::read_to_string(&account_path).expect("read migrated account");
+            if persisted.contains("AES-256-GCM") || persisted.contains("ciphertext") {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "expected background migration to encrypt account detail on disk"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         let reloaded = load_account(&account.id).expect("reload migrated account");
         assert!(reloaded.bound_oauth_use_local_gateway);
     }
@@ -9566,7 +9590,15 @@ mod tests {
 
         let accounts = list_accounts_checked().expect("list should repair from details");
         assert_eq!(accounts.len(), 2);
-        assert!(accounts.iter().any(|account| account.id == indexed.id));
+        let listed_indexed = accounts
+            .iter()
+            .find(|account| account.id == indexed.id)
+            .expect("indexed account should remain visible");
+        assert_eq!(listed_indexed.plan_type.as_deref(), Some("team"));
+        assert_eq!(
+            listed_indexed.subscription_active_until.as_deref(),
+            Some("2026-08-01T00:00:00Z")
+        );
         assert!(accounts.iter().any(|account| account.id == hidden.id));
 
         let repaired_index = load_account_index();
@@ -9580,7 +9612,18 @@ mod tests {
             Some(indexed.id.as_str())
         );
 
-        let repaired_detail = load_account(&indexed.id).expect("indexed detail should remain");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let repaired_detail = loop {
+            let account = load_account(&indexed.id).expect("indexed detail should remain");
+            if account.plan_type.as_deref() == Some("team") {
+                break account;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "background summary migration should persist"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
         assert_eq!(repaired_detail.plan_type.as_deref(), Some("team"));
         assert_eq!(
             repaired_detail.subscription_active_until.as_deref(),
@@ -10672,7 +10715,7 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
             Some("http://127.0.0.1:14998/v1".to_string()),
             Some("codex_local_access".to_string()),
             Some("Codex API Service".to_string()),
-            Vec::new(),
+            vec![CODEX_IMAGE_MODEL_ID.to_string()],
         );
         api_key_account.bound_oauth_account_id = Some(oauth_account.id.clone());
         let profile_dir = env.home_dir.join("managed-profile");
@@ -10698,7 +10741,9 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
 
         let config = fs::read_to_string(profile_dir.join("config.toml")).expect("read config");
         assert!(config.contains("model_provider = \"codex_local_access\""));
+        assert!(config.contains("requires_openai_auth = true"));
         assert!(config.contains("experimental_bearer_token = \"local-service-key\""));
+        assert!(!config.contains(CODEX_IMAGEGEN_ACTOR_HEADER));
     }
 
     #[test]

@@ -3805,7 +3805,9 @@
       "appPath": "Chemin de Grok CLI",
       "cliPath": "Chemin de la CLI",
       "cliDetected": "Détecté : {{version}} · {{path}}",
-      "cliMissing": "Grok CLI introuvable. Indiquez un chemin."
+      "cliMissing": "Grok CLI introuvable. Indiquez un chemin.",
+      "syncOfficialAuthOnSwitch": "Synchroniser la connexion officielle",
+      "syncOfficialAuthOnSwitchDesc": "Si cette option est activée, le changement de compte OAuth de l’instance par défaut écrit dans le fichier officiel ~/.grok/auth.json. Sinon, un GROK_HOME distinct est utilisé. Les clés API et les instances supplémentaires ne remplacent jamais la connexion officielle."
     },
     "grokRefreshInterval": "Actualisation auto du quota",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Rechercher des comptes Grok CLI...",
     "flowNotice": {
       "title": "Gestion des comptes Grok CLI",
-      "desc": "Cockpit gère les comptes au format officiel des identifiants Grok CLI afin de changer réellement le compte par défaut et de lier des instances isolées.",
-      "permission": "Périmètre local : lit le fichier ~/.grok/auth.json par défaut et gère des dossiers distincts pour les comptes Grok et GROK_HOME dans les données locales de Cockpit.",
+      "desc": "Des GROK_HOME distincts sont utilisés par défaut. Si la synchronisation est activée, un changement OAuth de l’instance par défaut écrit dans ~/.grok/auth.json ; les instances supplémentaires restent isolées.",
+      "permission": "Périmètre local : le fichier ~/.grok/auth.json peut être lu pour l’import et n’est écrit que si la synchronisation est activée lors d’un changement OAuth de l’instance par défaut. Les clés API ne remplacent jamais la connexion officielle.",
       "network": "Périmètre réseau : autorisation OAuth, renouvellement des identifiants et consultation de l'utilisation. Les identifiants ne sont pas envoyés aux services Cockpit."
     },
     "empty": "Aucun compte Grok CLI",

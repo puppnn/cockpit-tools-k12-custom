@@ -3805,7 +3805,9 @@
       "appPath": "Grok CLI Yolu",
       "cliPath": "CLI Yolu",
       "cliDetected": "Algılandı: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI bulunamadı. Özel bir yol girin."
+      "cliMissing": "Grok CLI bulunamadı. Özel bir yol girin.",
+      "syncOfficialAuthOnSwitch": "Resmî oturumu eşitle",
+      "syncOfficialAuthOnSwitchDesc": "Açıldığında, varsayılan örnekte OAuth hesabı değiştirildiğinde resmî ~/.grok/auth.json dosyasına yazılır. Kapatıldığında ayrı bir GROK_HOME kullanılır. API anahtarları ve ek örnekler resmî oturumun üzerine yazmaz."
     },
     "grokRefreshInterval": "Kotayı Otomatik Yenile",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Grok CLI hesaplarını ara...",
     "flowNotice": {
       "title": "Grok CLI Hesap Yönetimi",
-      "desc": "Cockpit, varsayılan hesabı gerçekten değiştirmek ve yalıtılmış örnekleri bağlamak için hesapları resmi Grok CLI kimlik bilgisi biçiminde yönetir.",
-      "permission": "Yerel kapsam: Varsayılan ~/.grok/auth.json dosyasını okur ve Cockpit'in yerel verilerinde ayrı Grok hesap ve GROK_HOME dizinlerini yönetir.",
+      "desc": "Varsayılan olarak ayrı GROK_HOME dizinleri kullanılır. Eşitleme açıkken varsayılan örnekteki OAuth değişikliği ~/.grok/auth.json dosyasına yazılır; ek örnekler yalıtılmış kalır.",
+      "permission": "Yerel kapsam: ~/.grok/auth.json içe aktarma için okunabilir ve yalnızca eşitleme açıkken varsayılan örnekte OAuth değişiminde yazılır. API anahtarları resmî oturumun üzerine yazmaz.",
       "network": "Ağ kapsamı: OAuth yetkilendirmesi, kimlik bilgisi yenileme ve hesap kullanım sorguları. Kimlik bilgileri Cockpit hizmetlerine yüklenmez."
     },
     "empty": "Henüz Grok CLI hesabı yok",

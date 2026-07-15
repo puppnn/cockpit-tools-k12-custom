@@ -1,5 +1,5 @@
 use crate::models::grok::{GrokAccountView, GrokOAuthStartResponse};
-use crate::modules::{grok_account, grok_oauth, logger};
+use crate::modules::{config, grok_account, grok_oauth, logger};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -420,14 +420,16 @@ pub async fn refresh_all_grok_accounts(app: AppHandle) -> Result<i32, String> {
 
 #[tauri::command]
 pub fn switch_grok_account(app: AppHandle, account_id: String) -> Result<String, String> {
-    // 不再「切全局当前号」：只准备该账号独立 GROK_HOME，供并行启动使用。
-    let (email, home) = grok_account::prepare_account_home(&account_id)?;
+    let sync_official = config::get_user_config().grok_sync_official_auth_on_switch;
+    let message = if sync_official {
+        let email = grok_account::inject_to_default(&account_id)?;
+        format!("已同步官方登录: {}", email)
+    } else {
+        let (email, home) = grok_account::prepare_account_home(&account_id)?;
+        format!("已准备独立目录: {} ({})", email, home.display())
+    };
     let _ = crate::modules::tray::update_tray_menu(&app);
-    Ok(format!(
-        "已准备独立目录: {} ({})",
-        email,
-        home.display()
-    ))
+    Ok(message)
 }
 
 #[tauri::command]

@@ -2,7 +2,7 @@ use crate::models::grok::{
     GrokAccount, GrokAccountIndex, GrokAccountView, GrokAuthMode, GrokOAuthCompletePayload,
     GrokProductUsage, GrokQuota,
 };
-use crate::modules::{account, atomic_write, grok_oauth, logger, provider_current_state};
+use crate::modules::{account, atomic_write, config, grok_oauth, logger, provider_current_state};
 use chrono::{DateTime, Utc};
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde_json::{json, Map, Value};
@@ -316,13 +316,52 @@ fn load_account_from_path(path: &Path, account_id: &str) -> Option<GrokAccount> 
         path, &content,
     ) {
         Ok((account, needs_rotation)) => {
+            // Backup restore may use the shared atomic writer. Tighten secret permissions
+            // immediately; the encryption rewrite remains deferred off the read path.
+            if let Err(error) = set_mode(path, 0o600) {
+                logger::log_warn(&format!(
+                    "[Grok Account] 收紧账号详情权限失败: account_id={}, error={}",
+                    account_id, error
+                ));
+            }
             if needs_rotation {
-                // 若 path 即正式账号文件，同步走全量 save（含 index/profile）
-                if account_path(account_id).ok().as_deref() == Some(path) {
-                    let _ = save_account_file(&account);
-                } else {
-                    let _ = write_account_content_to_path(path, &account);
-                }
+                // Grok secrets use write_secret_atomic (not shared CAS writer). Still
+                // re-check source bytes before rewrite so delayed jobs cannot clobber
+                // a newer token rotation or resurrect a deleted account file.
+                let account_for_rewrite = account.clone();
+                let path_buf = path.to_path_buf();
+                let account_id_owned = account_id.to_string();
+                let expected_content = content.clone();
+                crate::modules::deferred_account_rewrite::schedule_account_rewrite(
+                    "grok",
+                    account_for_rewrite.id.clone(),
+                    move || {
+                        match fs::read_to_string(&path_buf) {
+                            Ok(current) if current == expected_content => {}
+                            Ok(_) => {
+                                logger::log_info(&format!(
+                                    "[Grok Account] 延迟迁移跳过：源文件已变化 account_id={}",
+                                    account_id_owned
+                                ));
+                                return;
+                            }
+                            Err(_) => {
+                                logger::log_info(&format!(
+                                    "[Grok Account] 延迟迁移跳过：源文件不存在 account_id={}",
+                                    account_id_owned
+                                ));
+                                return;
+                            }
+                        }
+                        // 若 path 即正式账号文件，走全量 save（含 index/profile）
+                        if account_path(&account_id_owned).ok().as_deref() == Some(path_buf.as_path())
+                        {
+                            let _ = save_account_file(&account_for_rewrite);
+                        } else {
+                            let _ = write_account_content_to_path(&path_buf, &account_for_rewrite);
+                        }
+                    },
+                );
             }
             Some(account)
         }
@@ -726,6 +765,30 @@ fn write_empty_auth_file(auth_path: &Path) -> Result<(), String> {
     write_secret_atomic(auth_path, "{}")
 }
 
+fn write_account_to_official_auth_path(
+    account: &GrokAccount,
+    auth_path: &Path,
+) -> Result<bool, String> {
+    if account.is_api_key_auth() {
+        if account.resolved_api_key().is_none() {
+            return Err("Grok API Key 账号缺少 api_key".to_string());
+        }
+        // API Key 仅通过启动时的 XAI_API_KEY 生效，绝不清空或覆盖官方 OAuth 登录。
+        return Ok(false);
+    }
+
+    let parent = auth_path
+        .parent()
+        .ok_or_else(|| format!("无法定位 Grok 凭据目录: {}", auth_path.display()))?;
+    ensure_secret_dir(parent)?;
+    let _lock = acquire_secret_lock(auth_path)?;
+    let existing = read_auth_registry(auth_path)?;
+    let content = serde_json::to_string_pretty(&auth_registry_for(account, existing))
+        .map_err(|error| format!("序列化 Grok 默认凭据失败: {}", error))?;
+    write_secret_atomic_locked(auth_path, &content)?;
+    Ok(true)
+}
+
 pub fn write_account_to_profile(account: &GrokAccount, profile_dir: &Path) -> Result<(), String> {
     ensure_secret_dir(profile_dir)?;
     let auth_path = profile_dir.join(AUTH_FILE);
@@ -756,15 +819,32 @@ pub fn prepare_account_home(account_id: &str) -> Result<(String, PathBuf), Strin
     Ok((account.email, home))
 }
 
-/// 兼容旧调用名：仅准备独立 profile，不再注入官方默认 auth.json。
+/// 将默认实例切换到指定账号。OAuth 写入官方 auth.json；API Key 仅记录选择，
+/// 实际凭据由默认实例启动命令通过 XAI_API_KEY 注入。
 pub fn inject_to_default(account_id: &str) -> Result<String, String> {
-    let (email, home) = prepare_account_home(account_id)?;
-    logger::log_info(&format!(
-        "[Grok Account] 已准备独立 GROK_HOME: account_id={}, home={}",
-        account_id,
-        home.display()
-    ));
-    Ok(email)
+    let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
+    let _store_guard = acquire_store_lock()?;
+    let mut account =
+        load_account(account_id).ok_or_else(|| format!("Grok 账号不存在: {}", account_id))?;
+    account.last_used = now_ms();
+    save_account_locked(&account)?;
+
+    let auth_path = default_grok_home()?.join(AUTH_FILE);
+    let wrote_official_auth = write_account_to_official_auth_path(&account, &auth_path)?;
+    provider_current_state::set_current_account_id("grok", Some(account_id))?;
+    if wrote_official_auth {
+        logger::log_info(&format!(
+            "[Grok Account] 已同步官方登录: account_id={}, auth_path={}",
+            account_id,
+            auth_path.display()
+        ));
+    } else {
+        logger::log_info(&format!(
+            "[Grok Account] API Key 账号已选中，官方 auth.json 保持不变: account_id={}",
+            account_id
+        ));
+    }
+    Ok(account.email)
 }
 
 fn account_from_auth_object(value: &Value) -> Result<GrokAccount, String> {
@@ -1721,12 +1801,23 @@ async fn task_usage_for(account: &GrokAccount) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|error| format!("解析 Grok 任务配额失败: {}", error))
 }
 
-/// 从账号独立 GROK_HOME 的 auth.json 吸收 CLI 已轮换的 access/refresh。
+fn live_auth_path_for_account(account: &GrokAccount) -> Result<PathBuf, String> {
+    if config::get_user_config().grok_sync_official_auth_on_switch
+        && provider_current_state::get_current_account_id("grok")?.as_deref()
+            == Some(account.id.as_str())
+        && !account.is_api_key_auth()
+    {
+        return Ok(default_grok_home()?.join(AUTH_FILE));
+    }
+    Ok(managed_profile_dir(&account.id)?.join(AUTH_FILE))
+}
+
+/// 从当前账号实际使用的 auth.json 吸收 CLI 已轮换的 access/refresh。
 fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool, String> {
     if account.is_api_key_auth() {
         return Ok(false);
     }
-    let auth_path = managed_profile_dir(&account.id)?.join(AUTH_FILE);
+    let auth_path = live_auth_path_for_account(account)?;
     let Some(registry) = read_auth_registry(&auth_path)? else {
         return Ok(false);
     };
@@ -1772,8 +1863,10 @@ fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool
         }
         account.auth_raw = Some(Value::Object(merged));
         logger::log_info(&format!(
-            "[Grok Account] 已从账号独立 auth.json 同步 CLI 最新凭据: account_id={}, email={}",
-            account.id, account.email
+            "[Grok Account] 已从运行中 auth.json 同步 CLI 最新凭据: account_id={}, email={}, auth_path={}",
+            account.id,
+            account.email,
+            auth_path.display()
         ));
     }
     Ok(changed)
@@ -1938,12 +2031,31 @@ async fn query_quota(account: &mut GrokAccount) -> Result<(), String> {
 
 fn save_refreshed_account(
     account: &GrokAccount,
-    _expected_default_access_token: &str,
+    expected_default_access_token: &str,
 ) -> Result<(), String> {
-    // 每账号独立 home：刷新只回写 Cockpit 详情 + 该账号 managed profile，不写官方默认 ~/.grok。
-    let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
-    let _store_guard = acquire_store_lock()?;
-    save_account_locked(account)?;
+    {
+        let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
+        let _store_guard = acquire_store_lock()?;
+        save_account_locked(account)?;
+    }
+
+    if config::get_user_config().grok_sync_official_auth_on_switch
+        && !account.is_api_key_auth()
+        && provider_current_state::get_current_account_id("grok")?.as_deref()
+            == Some(account.id.as_str())
+    {
+        let auth_path = default_grok_home()?.join(AUTH_FILE);
+        if !write_account_to_auth_path_if_token_matches(
+            account,
+            &auth_path,
+            expected_default_access_token,
+        )? {
+            logger::log_info(&format!(
+                "[Grok Account] 官方登录已被外部切换，跳过刷新回写: account_id={}",
+                account.id
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -2133,9 +2245,16 @@ pub async fn refresh_all_accounts() -> Result<Vec<(String, Result<GrokAccountVie
     Ok(results)
 }
 
-/// Grok 账号彼此独立（各用自己的 GROK_HOME），不再维护「当前账号」。
 pub fn current_account_id() -> Result<Option<String>, String> {
-    Ok(None)
+    if !config::get_user_config().grok_sync_official_auth_on_switch {
+        return Ok(None);
+    }
+    if let Some(tracked) = provider_current_state::get_current_account_id("grok")? {
+        if load_account(&tracked).is_some_and(|account| account.is_api_key_auth()) {
+            return Ok(Some(tracked));
+        }
+    }
+    reconcile_current_account_id()
 }
 
 pub fn accounts_index_path_string() -> Result<String, String> {
@@ -2303,7 +2422,7 @@ mod tests {
         parse_auth_registry, quota_from_payload, quota_remaining_metrics, remove_account,
         remove_matching_auth_scope, resolve_account_id_from_registry, save_account_locked,
         should_retry_quota_after_unauthorized, string_field,
-        write_account_to_auth_path_if_token_matches, write_account_to_profile,
+        write_account_to_auth_path_if_token_matches, write_account_to_official_auth_path,
     };
     use crate::models::grok::{
         GrokAccount, GrokAccountView, GrokAuthMode, GrokProductUsage, GrokQuota,
@@ -2397,6 +2516,55 @@ mod tests {
         assert_eq!(official["refresh_token"], "original-refresh");
         assert_eq!(official["expires_at"], "2030-03-17T17:46:40.123456Z");
         assert_eq!(official["future_field"], json!({"nested": [1, 2, 3]}));
+    }
+
+    #[test]
+    fn official_sync_preserves_unrelated_registry_scopes() {
+        let temp = TestDir::new();
+        let auth_path = temp.0.join("auth.json");
+        std::fs::write(
+            &auth_path,
+            serde_json::to_string_pretty(&json!({
+                "custom-scope": {"key": "keep", "future": true}
+            }))
+            .expect("serialize seed registry"),
+        )
+        .expect("write seed registry");
+
+        assert!(write_account_to_official_auth_path(&sample_account(), &auth_path)
+            .expect("sync official auth"));
+        let persisted: Value = serde_json::from_str(
+            &std::fs::read_to_string(&auth_path).expect("read official auth"),
+        )
+        .expect("parse official auth");
+        assert_eq!(persisted["custom-scope"]["key"], "keep");
+        assert_eq!(persisted["custom-scope"]["future"], true);
+        assert_eq!(
+            persisted[crate::modules::grok_oauth::AUTH_REGISTRY_KEY]["key"],
+            "secret-access"
+        );
+    }
+
+    #[test]
+    fn api_key_official_sync_does_not_modify_existing_oauth_auth() {
+        let temp = TestDir::new();
+        let auth_path = temp.0.join("auth.json");
+        let original = serde_json::to_string_pretty(&auth_registry_for(&sample_account(), None))
+            .expect("serialize original auth");
+        std::fs::write(&auth_path, &original).expect("write original auth");
+
+        let mut api_key_account = sample_account();
+        api_key_account.auth_mode = GrokAuthMode::ApiKey;
+        api_key_account.access_token.clear();
+        api_key_account.api_key = Some("xai-test-key".to_string());
+        api_key_account.refresh_token = None;
+
+        assert!(!write_account_to_official_auth_path(&api_key_account, &auth_path)
+            .expect("select api key account"));
+        assert_eq!(
+            std::fs::read_to_string(&auth_path).expect("read preserved auth"),
+            original
+        );
     }
 
     #[test]

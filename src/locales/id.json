@@ -3962,7 +3962,9 @@
       "appPath": "Lokasi Grok CLI",
       "cliPath": "Lokasi CLI",
       "cliDetected": "Terdeteksi: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI tidak ditemukan. Masukkan lokasi khusus."
+      "cliMissing": "Grok CLI tidak ditemukan. Masukkan lokasi khusus.",
+      "syncOfficialAuthOnSwitch": "Sinkronkan login resmi saat beralih",
+      "syncOfficialAuthOnSwitchDesc": "Jika aktif, peralihan akun OAuth pada instans default akan menulis ke ~/.grok/auth.json resmi. Jika nonaktif, GROK_HOME terpisah digunakan. API Key dan instans tambahan tidak menimpa login resmi."
     },
     "grokRefreshInterval": "Segarkan kuota otomatis",
     "error": {
@@ -5170,8 +5172,8 @@
     "search": "Cari akun Grok CLI...",
     "flowNotice": {
       "title": "Pengelolaan akun Grok CLI",
-      "desc": "Cockpit mengelola akun dengan format kredensial resmi Grok CLI untuk benar-benar mengganti akun bawaan dan mengikat instans yang terisolasi.",
-      "permission": "Cakupan lokal: membaca ~/.grok/auth.json bawaan serta mengelola direktori akun Grok dan GROK_HOME yang terpisah di data lokal Cockpit.",
+      "desc": "Secara bawaan, GROK_HOME terpisah digunakan. Saat sinkronisasi aktif, peralihan OAuth pada instans default menulis ke ~/.grok/auth.json; instans tambahan tetap terisolasi.",
+      "permission": "Cakupan lokal: ~/.grok/auth.json dapat dibaca untuk impor dan hanya ditulis saat sinkronisasi aktif pada peralihan OAuth instans default. API Key tidak menimpa login resmi.",
       "network": "Cakupan jaringan: otorisasi OAuth, penyegaran kredensial, dan kueri penggunaan akun. Kredensial tidak diunggah ke layanan Cockpit."
     },
     "empty": "Belum ada akun Grok CLI",

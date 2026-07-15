@@ -3805,7 +3805,9 @@
       "appPath": "Grok CLI 경로",
       "cliPath": "CLI 경로",
       "cliDetected": "감지됨: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI를 찾지 못했습니다. 사용자 경로를 입력하세요."
+      "cliMissing": "Grok CLI를 찾지 못했습니다. 사용자 경로를 입력하세요.",
+      "syncOfficialAuthOnSwitch": "전환 시 공식 로그인 동기화",
+      "syncOfficialAuthOnSwitchDesc": "켜면 기본 인스턴스에서 OAuth 계정을 전환할 때 공식 ~/.grok/auth.json에 기록합니다. 끄면 별도 GROK_HOME을 사용합니다. API Key와 추가 인스턴스는 공식 로그인을 덮어쓰지 않습니다."
     },
     "grokRefreshInterval": "할당량 자동 새로고침",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Grok CLI 계정 검색...",
     "flowNotice": {
       "title": "Grok CLI 계정 관리",
-      "desc": "Cockpit은 Grok CLI 공식 자격 증명 형식으로 계정을 관리하여 기본 계정을 실제로 전환하고 격리된 인스턴스에 연결합니다.",
-      "permission": "로컬 범위: 기본 ~/.grok/auth.json을 읽고 Cockpit 로컬 데이터에서 별도의 Grok 계정 및 GROK_HOME 디렉터리를 관리합니다.",
+      "desc": "기본적으로 별도 GROK_HOME을 사용합니다. 공식 로그인 동기화를 켜면 기본 인스턴스의 OAuth 계정 전환 시 공식 ~/.grok/auth.json에 기록하며, 추가 인스턴스는 계속 격리됩니다.",
+      "permission": "로컬 범위: 기본 ~/.grok/auth.json은 가져오기를 위해 읽을 수 있습니다. 쓰기는 동기화를 켠 기본 인스턴스의 OAuth 전환에만 수행되며 API Key는 공식 로그인을 덮어쓰지 않습니다.",
       "network": "네트워크 범위: OAuth 인증, 자격 증명 갱신, 계정 사용량 조회. 자격 증명을 Cockpit 서비스에 업로드하지 않습니다."
     },
     "empty": "Grok CLI 계정이 없습니다",

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -24,6 +24,7 @@ const TOKEN_REFRESH_LEAD_SECONDS: i64 = 15 * 60;
 const TOKEN_REFRESH_LEAD_MILLISECONDS: i64 = TOKEN_REFRESH_LEAD_SECONDS * 1000;
 const REFRESH_FAILURE_BACKOFF_SECONDS: i64 = 15 * 60;
 const TRAE_STRICT_CHECK_INTERVAL_SECONDS: i64 = 10 * 60;
+const TOKEN_KEEPER_LIST_TIMEOUT: Duration = Duration::from_secs(15);
 
 static TOKEN_KEEPER_STARTED: AtomicBool = AtomicBool::new(false);
 static TOKEN_KEEPER_CONFIG_CHANGED: LazyLock<Notify> = LazyLock::new(Notify::new);
@@ -33,6 +34,18 @@ static NEXT_PLATFORM_SCAN_AT: LazyLock<Mutex<HashMap<&'static str, i64>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NEXT_TRAE_STRICT_CHECK_AT: LazyLock<Mutex<HashMap<String, i64>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static ACCOUNT_LIST_IN_FLIGHT: LazyLock<Mutex<HashSet<&'static str>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+struct AccountListInFlightGuard(&'static str);
+
+impl Drop for AccountListInFlightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut in_flight) = ACCOUNT_LIST_IN_FLIGHT.lock() {
+            in_flight.remove(self.0);
+        }
+    }
+}
 
 pub fn ensure_started(app_handle: AppHandle) {
     if TOKEN_KEEPER_STARTED.swap(true, Ordering::SeqCst) {
@@ -64,6 +77,37 @@ pub fn notify_config_changed(app_handle: AppHandle, enabled: bool) {
         if enabled { "启用" } else { "停用" }
     ));
     TOKEN_KEEPER_CONFIG_CHANGED.notify_one();
+}
+
+async fn list_accounts_blocking<T, F>(platform: &'static str, list: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    {
+        let mut in_flight = ACCOUNT_LIST_IN_FLIGHT
+            .lock()
+            .map_err(|_| format!("[TokenKeeper][{platform}] 账号列表单飞锁已损坏"))?;
+        if !in_flight.insert(platform) {
+            return Err(format!(
+                "[TokenKeeper][{platform}] 上一次账号列表读取仍在运行，跳过本轮"
+            ));
+        }
+    }
+
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let _in_flight_guard = AccountListInFlightGuard(platform);
+        list()
+    });
+    tokio::time::timeout(TOKEN_KEEPER_LIST_TIMEOUT, task)
+        .await
+        .map_err(|_| {
+            format!(
+                "[TokenKeeper][{platform}] 账号列表读取超时({:?})，后台任务完成前不再重复启动",
+                TOKEN_KEEPER_LIST_TIMEOUT
+            )
+        })?
+        .map_err(|e| format!("[TokenKeeper][{platform}] 后台读取账号列表失败: {e}"))?
 }
 
 async fn run_refresh_cycle(app_handle: &AppHandle) {
@@ -208,7 +252,7 @@ fn mark_trae_strict_check_done(account_id: &str) {
 }
 
 async fn refresh_due_codex_accounts() -> bool {
-    let accounts = match codex_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("codex", codex_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -262,7 +306,7 @@ async fn refresh_due_codex_accounts() -> bool {
 }
 
 async fn refresh_due_cursor_accounts() -> bool {
-    let accounts = match cursor_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("cursor", cursor_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -322,7 +366,7 @@ async fn refresh_due_cursor_accounts() -> bool {
 }
 
 async fn refresh_due_grok_accounts() -> bool {
-    let accounts = match grok_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("grok", grok_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(error) => {
             logger::log_warn(&format!(
@@ -373,7 +417,7 @@ async fn refresh_due_grok_accounts() -> bool {
 }
 
 async fn refresh_due_github_copilot_accounts() -> bool {
-    let accounts = match github_copilot_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("github_copilot", github_copilot_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -423,7 +467,7 @@ async fn refresh_due_github_copilot_accounts() -> bool {
 }
 
 async fn refresh_due_windsurf_accounts() -> bool {
-    let accounts = match windsurf_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("windsurf", windsurf_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -496,7 +540,7 @@ async fn refresh_due_windsurf_accounts() -> bool {
 }
 
 async fn refresh_due_kiro_accounts() -> bool {
-    let accounts = match kiro_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("kiro", kiro_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -569,7 +613,7 @@ async fn refresh_due_kiro_accounts() -> bool {
 }
 
 async fn refresh_due_codebuddy_accounts() -> bool {
-    let accounts = match codebuddy_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("codebuddy", codebuddy_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -630,7 +674,7 @@ async fn refresh_due_codebuddy_accounts() -> bool {
 }
 
 async fn refresh_due_codebuddy_cn_accounts() -> bool {
-    let accounts = match codebuddy_cn_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("codebuddy_cn", codebuddy_cn_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -692,7 +736,7 @@ async fn refresh_due_codebuddy_cn_accounts() -> bool {
 }
 
 async fn refresh_due_workbuddy_accounts() -> bool {
-    let accounts = match workbuddy_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("workbuddy", workbuddy_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -753,7 +797,7 @@ async fn refresh_due_workbuddy_accounts() -> bool {
 }
 
 async fn refresh_due_trae_accounts() -> bool {
-    let accounts = match trae_account::list_accounts_checked() {
+    let accounts = match list_accounts_blocking("trae", trae_account::list_accounts_checked).await {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(

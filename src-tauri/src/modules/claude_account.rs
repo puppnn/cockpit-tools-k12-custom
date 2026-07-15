@@ -411,10 +411,22 @@ fn load_account_file(account_id: &str) -> Option<ClaudeAccount> {
         return None;
     }
     let content = fs::read_to_string(&path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file(&path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<ClaudeAccount>(&path, &content) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
-                let _ = write_account_file(&account);
+                let account_for_rewrite = account.clone();
+                crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                    "claude",
+                    account_for_rewrite.id.clone(),
+                    path.clone(),
+                    content.as_bytes(),
+                    move || {
+                        crate::modules::secure_account_storage::serialize_account_file(
+                            "claude",
+                            &account_for_rewrite,
+                        )
+                    },
+                );
             }
             Some(account)
         }
@@ -607,7 +619,7 @@ fn remove_desktop_snapshot_if_unused(snapshot: Option<&str>, keep_snapshot: Opti
 fn delete_account_file_silent(account_id: &str) {
     if let Ok(path) = account_file_path(account_id) {
         if path.exists() {
-            if let Err(error) = fs::remove_file(&path) {
+            if let Err(error) = crate::modules::atomic_write::remove_file_locked(&path) {
                 logger::log_warn(&format!(
                     "[Claude] 删除重复账号文件失败: path={}, error={}",
                     path.display(),
@@ -8017,11 +8029,11 @@ pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
             }
         }
         let path = account_file_path(account_id)?;
-        if path.exists() {
-            fs::remove_file(&path).map_err(|e| {
-                format!("删除 Claude 账号失败: path={}, error={}", path.display(), e)
-            })?;
-        }
+        // Must share the atomic_write path lock with deferred CAS rewrites so a
+        // concurrent migration cannot resurrect the deleted account file.
+        crate::modules::atomic_write::remove_file_locked(&path).map_err(|e| {
+            format!("删除 Claude 账号失败: path={}, error={}", path.display(), e)
+        })?;
     }
     index
         .accounts

@@ -3805,7 +3805,9 @@
       "appPath": "Đường dẫn Grok CLI",
       "cliPath": "Đường dẫn CLI",
       "cliDetected": "Đã phát hiện: {{version}} · {{path}}",
-      "cliMissing": "Không tìm thấy Grok CLI. Hãy nhập đường dẫn riêng."
+      "cliMissing": "Không tìm thấy Grok CLI. Hãy nhập đường dẫn riêng.",
+      "syncOfficialAuthOnSwitch": "Đồng bộ đăng nhập chính thức",
+      "syncOfficialAuthOnSwitchDesc": "Khi bật, việc chuyển tài khoản OAuth cho phiên bản mặc định sẽ ghi vào ~/.grok/auth.json chính thức. Khi tắt, một GROK_HOME riêng sẽ được dùng. API Key và các phiên bản bổ sung không ghi đè đăng nhập chính thức."
     },
     "grokRefreshInterval": "Tự động làm mới hạn ngạch",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Tìm tài khoản Grok CLI...",
     "flowNotice": {
       "title": "Quản lý tài khoản Grok CLI",
-      "desc": "Cockpit quản lý tài khoản theo định dạng thông tin xác thực chính thức của Grok CLI để thực sự chuyển tài khoản mặc định và liên kết các phiên bản cách ly.",
-      "permission": "Phạm vi cục bộ: đọc ~/.grok/auth.json mặc định và quản lý các thư mục tài khoản Grok cùng GROK_HOME riêng biệt trong dữ liệu cục bộ của Cockpit.",
+      "desc": "Mặc định dùng các GROK_HOME riêng. Khi bật đồng bộ, việc chuyển OAuth ở phiên bản mặc định sẽ ghi vào ~/.grok/auth.json; các phiên bản bổ sung vẫn được cách ly.",
+      "permission": "Phạm vi cục bộ: có thể đọc ~/.grok/auth.json để nhập và chỉ ghi khi bật đồng bộ trong lúc chuyển OAuth ở phiên bản mặc định. API Key không ghi đè đăng nhập chính thức.",
       "network": "Phạm vi mạng: ủy quyền OAuth, làm mới thông tin xác thực và truy vấn mức sử dụng tài khoản. Thông tin xác thực không được tải lên dịch vụ Cockpit."
     },
     "empty": "Chưa có tài khoản Grok CLI",

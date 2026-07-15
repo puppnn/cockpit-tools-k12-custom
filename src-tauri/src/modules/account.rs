@@ -216,13 +216,14 @@ fn deserialize_account_from_storage(account_path: &PathBuf, content: &str) -> Re
         .map_err(|e| format!("解析账号数据失败: {}", e))?;
 
     if needs_migration || needs_rotation {
-        if let Err(err) = save_account(&account) {
-            modules::logger::log_warn(&format!(
-                "账号 token 加密迁移失败: path={}, error={}",
-                account_path.display(),
-                err
-            ));
-        }
+        let account_for_rewrite = account.clone();
+        modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+            "antigravity",
+            account_for_rewrite.id.clone(),
+            account_path.clone(),
+            content.as_bytes(),
+            move || serialize_account_for_storage(&account_for_rewrite),
+        );
     }
 
     Ok(account)
@@ -696,7 +697,8 @@ pub fn delete_account(account_id: &str) -> Result<(), String> {
     let account_path = accounts_dir.join(format!("{}.json", account_id));
 
     if account_path.exists() {
-        fs::remove_file(&account_path).map_err(|e| format!("删除账号文件失败: {}", e))?;
+        crate::modules::atomic_write::remove_file_locked(&account_path)
+            .map_err(|e| format!("删除账号文件失败: {}", e))?;
     }
 
     Ok(())
@@ -720,7 +722,7 @@ pub fn delete_accounts(account_ids: &[String]) -> Result<(), String> {
 
         let account_path = accounts_dir.join(format!("{}.json", account_id));
         if account_path.exists() {
-            let _ = fs::remove_file(&account_path);
+            let _ = crate::modules::atomic_write::remove_file_locked(&account_path);
         }
     }
 

@@ -84,6 +84,8 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
     options?.hydrateCurrentAccountId ?? shouldPersistCurrentAccountId;
   let allowNextEmptyAccountList = false;
   let allowNextEmptyCurrentAccountId = false;
+  let fetchAccountsSeq = { current: 0 };
+  let fetchCurrentAccountSeq = 0;
 
   const loadCachedAccounts = (): TAccount[] => {
     try {
@@ -191,6 +193,7 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
     error: null,
 
     fetchCurrentAccountId: async () => {
+      const requestId = ++fetchCurrentAccountSeq;
       const accounts = get().accounts;
 
       if (accounts.length === 0) {
@@ -208,6 +211,9 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
 
       try {
         const resolvedAccountId = await options.resolveCurrentAccountId();
+        if (requestId !== fetchCurrentAccountSeq) {
+          return get().currentAccountId;
+        }
         if (
           !resolvedAccountId &&
           get().currentAccountId &&
@@ -225,26 +231,36 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
         persistCurrentAccountId(currentAccountId);
         return currentAccountId;
       } catch (error) {
+        if (requestId !== fetchCurrentAccountSeq) {
+          return get().currentAccountId;
+        }
         console.error(`[Provider Store] Failed to resolve current account for ${cacheKey}:`, error);
         const currentAccountId = normalizeCurrentAccountId(get().currentAccountId, accounts);
         set({ currentAccountId });
         persistCurrentAccountId(currentAccountId);
         return currentAccountId;
       } finally {
-        allowNextEmptyCurrentAccountId = false;
+        if (requestId === fetchCurrentAccountSeq) {
+          allowNextEmptyCurrentAccountId = false;
+        }
       }
     },
 
     setCurrentAccountId: (accountId: string | null) => {
+      fetchCurrentAccountSeq += 1;
       const currentAccountId = normalizeCurrentAccountId(accountId, get().accounts);
       set({ currentAccountId });
       persistCurrentAccountId(currentAccountId);
     },
 
     fetchAccounts: async () => {
+      const requestId = ++fetchAccountsSeq.current;
       set({ loading: true, error: null });
       try {
         const accounts = await service.listAccounts();
+        if (requestId !== fetchAccountsSeq.current) {
+          return;
+        }
         if (accounts.length === 0 && get().accounts.length > 0 && !allowNextEmptyAccountList) {
           console.warn(`[Provider Store] 忽略异常空账号列表，保留本地缓存: ${cacheKey}`);
           set({ loading: false });
@@ -256,9 +272,14 @@ export function createProviderAccountStore<TAccount extends ProviderAccountAugme
         persistAccountsCache(mapped);
         await get().fetchCurrentAccountId();
       } catch (e) {
+        if (requestId !== fetchAccountsSeq.current) {
+          return;
+        }
         set({ error: String(e), loading: false });
       } finally {
-        allowNextEmptyAccountList = false;
+        if (requestId === fetchAccountsSeq.current) {
+          allowNextEmptyAccountList = false;
+        }
       }
     },
 

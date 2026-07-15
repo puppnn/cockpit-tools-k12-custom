@@ -3805,7 +3805,9 @@
       "appPath": "Cesta ke Grok CLI",
       "cliPath": "Cesta k CLI",
       "cliDetected": "Nalezeno: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI nebylo nalezeno. Zadejte vlastní cestu."
+      "cliMissing": "Grok CLI nebylo nalezeno. Zadejte vlastní cestu.",
+      "syncOfficialAuthOnSwitch": "Synchronizovat oficiální přihlášení",
+      "syncOfficialAuthOnSwitchDesc": "Po zapnutí změna účtu OAuth ve výchozí instanci zapíše oficiální soubor ~/.grok/auth.json. Po vypnutí se použije samostatný GROK_HOME. Klíče API ani další instance oficiální přihlášení nepřepisují."
     },
     "grokRefreshInterval": "Automatická obnova kvóty",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Hledat účty Grok CLI...",
     "flowNotice": {
       "title": "Správa účtů Grok CLI",
-      "desc": "Cockpit spravuje účty v oficiálním formátu přihlašovacích údajů Grok CLI, aby skutečně přepínal výchozí účet a vázal izolované instance.",
-      "permission": "Místní rozsah: čte výchozí ~/.grok/auth.json a spravuje oddělené adresáře účtů Grok a GROK_HOME v místních datech Cockpit.",
+      "desc": "Ve výchozím stavu se používají samostatné adresáře GROK_HOME. Při zapnuté synchronizaci změna účtu OAuth ve výchozí instanci zapíše ~/.grok/auth.json; další instance zůstávají izolované.",
+      "permission": "Místní rozsah: ~/.grok/auth.json lze číst při importu a zapisuje se jen při zapnuté synchronizaci během změny OAuth ve výchozí instanci. Klíče API oficiální přihlášení nepřepisují.",
       "network": "Síťový rozsah: autorizace OAuth, obnova přihlašovacích údajů a dotazy na využití účtu. Přihlašovací údaje se do služeb Cockpit neodesílají."
     },
     "empty": "Zatím žádné účty Grok CLI",

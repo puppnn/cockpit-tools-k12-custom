@@ -349,19 +349,32 @@ pub fn run() {
 
             modules::provider_token_keeper::ensure_started(app.handle().clone());
             modules::auto_local_import::ensure_started(app.handle().clone());
-            modules::wakeup_scheduler::restore_state_from_disk();
-            modules::wakeup_scheduler::ensure_started(app.handle().clone());
-            modules::codex_wakeup_scheduler::ensure_started(app.handle().clone());
-            modules::codex_wakeup_scheduler::trigger_startup_tasks_if_needed(app.handle().clone());
+
+            // Wakeup restore/start and Deep Link registration/read can hit disk or OS
+            // APIs — never block setup (window + skeleton tray first).
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    modules::wakeup_scheduler::restore_state_from_disk();
+                    modules::wakeup_scheduler::ensure_started(app_handle.clone());
+                    modules::codex_wakeup_scheduler::ensure_started(app_handle.clone());
+                    modules::codex_wakeup_scheduler::trigger_startup_tasks_if_needed(app_handle);
+                });
+            }
 
             #[cfg(target_os = "macos")]
             apply_macos_activation_policy(&app.handle());
 
             #[cfg(any(windows, target_os = "linux"))]
-            if let Err(err) = app.deep_link().register_all() {
-                logger::log_warn(&format!("[DeepLink] register_all 失败: {}", err));
-            } else {
-                logger::log_info("[DeepLink] register_all 已完成");
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if let Err(err) = app_handle.deep_link().register_all() {
+                        logger::log_warn(&format!("[DeepLink] register_all 失败: {}", err));
+                    } else {
+                        logger::log_info("[DeepLink] register_all 已完成");
+                    }
+                });
             }
 
             {
@@ -388,32 +401,38 @@ pub fn run() {
                 });
             }
 
-            match app.deep_link().get_current() {
-                Ok(Some(urls)) => {
-                    let args: Vec<String> = urls.iter().map(|url| url.to_string()).collect();
-                    logger::log_info(&format!(
-                        "[DeepLink] 启动时 get_current 命中: url_count={}, urls={:?}",
-                        args.len(),
-                        summarize_deep_link_args(&args)
-                    ));
-                    let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
-                    let handled = zcode_oauth_handled
-                        || modules::external_import::handle_external_import_args(
-                            &app.handle(),
-                            &args,
-                            "deep-link-current",
-                        );
-                    logger::log_info(&format!(
-                        "[DeepLink] get_current 外部导入处理结果: handled={}",
-                        handled
-                    ));
-                }
-                Ok(None) => {
-                    logger::log_info("[DeepLink] 启动时 get_current: empty");
-                }
-                Err(err) => {
-                    logger::log_warn(&format!("[DeepLink] get_current 失败: {}", err));
-                }
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    match app_handle.deep_link().get_current() {
+                        Ok(Some(urls)) => {
+                            let args: Vec<String> =
+                                urls.iter().map(|url| url.to_string()).collect();
+                            logger::log_info(&format!(
+                                "[DeepLink] 启动时 get_current 命中: url_count={}, urls={:?}",
+                                args.len(),
+                                summarize_deep_link_args(&args)
+                            ));
+                            let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
+                            let handled = zcode_oauth_handled
+                                || modules::external_import::handle_external_import_args(
+                                    &app_handle,
+                                    &args,
+                                    "deep-link-current",
+                                );
+                            logger::log_info(&format!(
+                                "[DeepLink] get_current 外部导入处理结果: handled={}",
+                                handled
+                            ));
+                        }
+                        Ok(None) => {
+                            logger::log_info("[DeepLink] 启动时 get_current: empty");
+                        }
+                        Err(err) => {
+                            logger::log_warn(&format!("[DeepLink] get_current 失败: {}", err));
+                        }
+                    }
+                });
             }
 
             // 创建骨架托盘（无账号文件 I/O，秒出）

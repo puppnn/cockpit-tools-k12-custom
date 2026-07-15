@@ -29,6 +29,126 @@ func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesToolsEntry(t *
 	}
 }
 
+func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesResponsesLiteImageTools(t *testing.T) {
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll},
+	}
+	payload := []byte(`{
+		"tools":[
+			{"type":"namespace","name":"image_gen"},
+			{"type":"namespace","namespace":"image_gen"},
+			{"type":"function","name":"image_gen.imagegen"},
+			{"type":"function","function":{"name":"image_gen.imagegen"}},
+			{"type":"function","name":"ordinary"},
+			{"type":"namespace","name":"shell"}
+		],
+		"input":[
+			{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AA=="}]},
+			{"type":"image_generation_call","id":"call_1"}
+		]
+	}`)
+
+	out := ApplyPayloadConfigWithRoot(cfg, "gpt-5.4", "openai-response", "", payload, nil, "", "/v1/responses")
+
+	tools := gjson.GetBytes(out, "tools").Array()
+	if len(tools) != 2 {
+		t.Fatalf("expected only ordinary tools to remain, payload=%s", string(out))
+	}
+	if got := tools[0].Get("name").String(); got != "ordinary" {
+		t.Fatalf("expected ordinary function to remain, got %q", got)
+	}
+	if got := tools[1].Get("name").String(); got != "shell" {
+		t.Fatalf("expected non-image namespace to remain, got %q", got)
+	}
+	if got := gjson.GetBytes(out, "input.0.content.0.type").String(); got != "input_image" {
+		t.Fatalf("expected input_image content to remain, got %q", got)
+	}
+	if got := gjson.GetBytes(out, "input.1.type").String(); got != "image_generation_call" {
+		t.Fatalf("expected image_generation_call history to remain, got %q", got)
+	}
+}
+
+func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesAdditionalToolsAndNestedToolChoice(t *testing.T) {
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll},
+	}
+	payload := []byte(`{
+		"tools":[{"type":"function","name":"ordinary"}],
+		"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[
+			{"type":"namespace","name":"image_gen"},
+			{"type":"function","name":"ordinary"}
+		]},
+		"input":[
+			{"type":"additional_tools","tools":[
+				{"type":"namespace","name":"image_gen"},
+				{"type":"function","name":"image_gen.imagegen"},
+				{"type":"function","name":"lookup"}
+			],"tool_choice":{"type":"namespace","namespace":"image_gen"}},
+			{"type":"message","tools":[{"type":"namespace","name":"image_gen"}]}
+		]
+	}`)
+
+	out := ApplyPayloadConfigWithRoot(cfg, "gpt-5.4", "openai-response", "", payload, nil, "", "/v1/responses")
+
+	additionalTools := gjson.GetBytes(out, "input.0.tools").Array()
+	if len(additionalTools) != 1 || additionalTools[0].Get("name").String() != "lookup" {
+		t.Fatalf("expected only non-image additional tool to remain, payload=%s", string(out))
+	}
+	if gjson.GetBytes(out, "input.0.tool_choice").Exists() {
+		t.Fatalf("expected nested image_gen tool_choice to be removed, payload=%s", string(out))
+	}
+	choiceTools := gjson.GetBytes(out, "tool_choice.tools").Array()
+	if len(choiceTools) != 1 || choiceTools[0].Get("name").String() != "ordinary" {
+		t.Fatalf("expected only ordinary nested tool_choice entry to remain, payload=%s", string(out))
+	}
+	if got := gjson.GetBytes(out, "input.1.tools.0.name").String(); got != "image_gen" {
+		t.Fatalf("expected tools outside additional_tools input to remain untouched, got %q", got)
+	}
+}
+
+func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesImageGenFunctionToolChoice(t *testing.T) {
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll},
+	}
+	payload := []byte(`{"tools":[{"type":"function","name":"ordinary"}],"tool_choice":{"type":"function","name":"image_gen.imagegen"}}`)
+
+	out := ApplyPayloadConfigWithRoot(cfg, "gpt-5.4", "openai-response", "", payload, nil, "", "/v1/responses")
+
+	if gjson.GetBytes(out, "tool_choice").Exists() {
+		t.Fatalf("expected image_gen.imagegen tool_choice to be removed, payload=%s", string(out))
+	}
+}
+
+func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesNestedSelectorAndEmptyAdditionalTools(t *testing.T) {
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll},
+	}
+	payload := []byte(`{"tool_choice":{"tool":{"type":"namespace","name":"image_gen"}},"input":[{"type":"additional_tools","tools":[{"type":"function","name":"image_gen.imagegen"}]},{"role":"user","content":"keep"}]}`)
+
+	out := ApplyPayloadConfigWithRoot(cfg, "gpt-5.4", "openai-response", "", payload, nil, "", "/v1/responses")
+
+	if gjson.GetBytes(out, "tool_choice").Exists() {
+		t.Fatalf("expected nested image_gen selector to be removed, payload=%s", string(out))
+	}
+	input := gjson.GetBytes(out, "input").Array()
+	if len(input) != 1 || input[0].Get("role").String() != "user" {
+		t.Fatalf("expected empty additional_tools item to be removed, payload=%s", string(out))
+	}
+}
+
+func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesEmptyAllowedToolChoice(t *testing.T) {
+	cfg := &config.Config{
+		SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll},
+	}
+	payload := []byte(`{"tools":[{"type":"function","name":"ordinary"}],"tool_choice":{"type":"allowed_tools","mode":"required","tools":[{"type":"namespace","name":"image_gen"}]}}`)
+
+	out := ApplyPayloadConfigWithRoot(cfg, "gpt-5.4", "openai-response", "", payload, nil, "", "/v1/responses")
+
+	if gjson.GetBytes(out, "tool_choice").Exists() {
+		t.Fatalf("expected tool_choice to be removed rather than retain an empty tools constraint, payload=%s", string(out))
+	}
+}
+
 func TestApplyPayloadConfigWithRoot_DisableImageGeneration_RemovesToolsEntryWithRoot(t *testing.T) {
 	cfg := &config.Config{
 		SDKConfig: config.SDKConfig{DisableImageGeneration: config.DisableImageGenerationAll},

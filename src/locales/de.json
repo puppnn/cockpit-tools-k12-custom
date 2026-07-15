@@ -3805,7 +3805,9 @@
       "appPath": "Grok CLI-Pfad",
       "cliPath": "CLI-Pfad",
       "cliDetected": "Erkannt: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI nicht gefunden. Eigenen Pfad eingeben."
+      "cliMissing": "Grok CLI nicht gefunden. Eigenen Pfad eingeben.",
+      "syncOfficialAuthOnSwitch": "Offizielle Anmeldung mitsynchronisieren",
+      "syncOfficialAuthOnSwitchDesc": "Wenn aktiviert, schreibt ein OAuth-Kontowechsel der Standardinstanz in die offizielle ~/.grok/auth.json. Wenn deaktiviert, wird ein separates GROK_HOME verwendet. API Keys und weitere Instanzen überschreiben die offizielle Anmeldung nicht."
     },
     "grokRefreshInterval": "Kontingent automatisch aktualisieren",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Grok CLI-Konten durchsuchen...",
     "flowNotice": {
       "title": "Grok CLI-Kontoverwaltung",
-      "desc": "Cockpit verwaltet Konten im offiziellen Grok CLI-Anmeldeformat, um das Standardkonto tatsächlich zu wechseln und isolierte Instanzen zu binden.",
-      "permission": "Lokaler Umfang: Liest die standardmäßige ~/.grok/auth.json und verwaltet getrennte Grok-Konto- und GROK_HOME-Verzeichnisse in den lokalen Cockpit-Daten.",
+      "desc": "Standardmäßig werden getrennte GROK_HOME-Verzeichnisse verwendet. Bei aktivierter Synchronisierung schreibt ein OAuth-Wechsel der Standardinstanz in die offizielle ~/.grok/auth.json; weitere Instanzen bleiben isoliert.",
+      "permission": "Lokaler Umfang: Die standardmäßige ~/.grok/auth.json kann zum Import gelesen werden und wird nur bei aktivierter Synchronisierung für einen OAuth-Wechsel der Standardinstanz geschrieben. API Keys überschreiben die offizielle Anmeldung nie.",
       "network": "Netzwerkumfang: OAuth-Autorisierung, Aktualisierung der Anmeldedaten und Abfrage der Kontonutzung. Anmeldedaten werden nicht an Cockpit-Dienste hochgeladen."
     },
     "empty": "Noch keine Grok CLI-Konten",

@@ -165,7 +165,9 @@ fn legacy_antigravity_state_db_path() -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn list_accounts() -> Result<Vec<models::Account>, String> {
-    modules::list_accounts()
+    tauri::async_runtime::spawn_blocking(modules::list_accounts)
+        .await
+        .map_err(|e| format!("列出账号任务失败: {}", e))?
 }
 
 /// 从 VS Code SecretStorage 同步插件账号

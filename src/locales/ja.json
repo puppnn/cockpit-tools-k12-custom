@@ -3805,7 +3805,9 @@
       "appPath": "Grok CLI のパス",
       "cliPath": "CLI のパス",
       "cliDetected": "検出済み: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI が見つかりません。任意のパスを入力してください。"
+      "cliMissing": "Grok CLI が見つかりません。任意のパスを入力してください。",
+      "syncOfficialAuthOnSwitch": "切替時に公式ログインへ同期",
+      "syncOfficialAuthOnSwitchDesc": "有効にすると、デフォルトインスタンスで OAuth アカウントを切り替えた際に公式の ~/.grok/auth.json へ書き込みます。無効時は個別の GROK_HOME を使用します。API Key と追加インスタンスは公式ログインを上書きしません。"
     },
     "grokRefreshInterval": "クォータ自動更新",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Grok CLI アカウントを検索...",
     "flowNotice": {
       "title": "Grok CLI アカウント管理",
-      "desc": "Cockpit は Grok CLI 公式の認証情報形式でアカウントを管理し、既定アカウントの実切り替えと分離インスタンスへの割り当てに使用します。",
-      "permission": "ローカル範囲: 既定の ~/.grok/auth.json を読み取り、Cockpit のローカルデータ内で個別の Grok アカウントと GROK_HOME ディレクトリを管理します。",
+      "desc": "通常は個別の GROK_HOME を使用します。公式ログイン同期を有効にすると、デフォルトインスタンスの OAuth 切替時に公式の ~/.grok/auth.json へ書き込み、追加インスタンスは分離されたままです。",
+      "permission": "ローカル範囲: 既定の ~/.grok/auth.json はインポート時に読み取れます。書き込みは同期が有効なデフォルトインスタンスの OAuth 切替時のみで、API Key は公式ログインを上書きしません。",
       "network": "ネットワーク範囲: OAuth 認証、認証情報の更新、アカウント使用量の照会。認証情報を Cockpit サービスへアップロードすることはありません。"
     },
     "empty": "Grok CLI アカウントはありません",

@@ -116,6 +116,7 @@ function toPersistedAccountSnapshot(account: Account): Account {
 // 防抖状态（在 store 外部维护，避免触发 re-render）
 let fetchAccountsPromise: Promise<void> | null = null;
 let fetchAccountsLastTime = 0;
+let fetchAccountsSeq = 0;
 const fetchCurrentPromises: Partial<Record<AntigravityRuntimeTarget, Promise<void>>> = {};
 const fetchCurrentLastTimes: Partial<Record<AntigravityRuntimeTarget, number>> = {};
 let allowNextEmptyAccountList = false;
@@ -188,9 +189,13 @@ export const useAccountStore = create<AccountState>()(
           fetchAccountsLastTime = now;
           
           fetchAccountsPromise = (async () => {
+              const requestId = ++fetchAccountsSeq;
               set({ loading: true, error: null });
               try {
                   const accounts = await accountService.listAccounts();
+                  if (requestId !== fetchAccountsSeq) {
+                      return;
+                  }
                   if (accounts.length === 0 && get().accounts.length > 0 && !allowNextEmptyAccountList) {
                       console.warn('[AccountStore] 忽略异常空账号列表，保留本地缓存账号');
                       set({ loading: false });
@@ -199,12 +204,19 @@ export const useAccountStore = create<AccountState>()(
                   allowNextEmptyAccountList = false;
                   set({ accounts, loading: false });
               } catch (e) {
+                  if (requestId !== fetchAccountsSeq) {
+                      return;
+                  }
                   set({ error: String(e), loading: false });
               } finally {
-                  allowNextEmptyAccountList = false;
+                  if (requestId === fetchAccountsSeq) {
+                      allowNextEmptyAccountList = false;
+                  }
                   // 请求完成后延迟清除 Promise，允许短时间内的后续调用也复用结果
                   setTimeout(() => {
-                      fetchAccountsPromise = null;
+                      if (requestId === fetchAccountsSeq) {
+                          fetchAccountsPromise = null;
+                      }
                   }, 100);
               }
           })();

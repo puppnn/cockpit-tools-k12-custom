@@ -1292,7 +1292,7 @@
       "codexLaunchHint": "关闭后仅执行切号与登录覆盖，不再尝试启动 Codex App，也不会再次要求设置启动路径。",
       "action": "立即设置",
       "claudeMultiInstanceRequiresExe": "Claude 应用多开需要真实 Claude.exe 路径；Microsoft Store 启动目标仅适用于默认桌面端。",
-      "scanApps": "扫描应用",
+      "scanApps": "检测运行中应用",
       "scanRoots": "扫描范围",
       "scanRootsPlaceholder": "可选，选择一个目录或盘符；留空时按盘符扫描 WindowsApps 并补充开始菜单应用。",
       "windowsApp": "微软商店",
@@ -4119,7 +4119,9 @@
       "appPath": "Grok CLI 路径",
       "cliPath": "CLI 路径",
       "cliDetected": "已检测 {{version}} · {{path}}",
-      "cliMissing": "未检测到 Grok CLI，可填写自定义路径"
+      "cliMissing": "未检测到 Grok CLI，可填写自定义路径",
+      "syncOfficialAuthOnSwitch": "切号同步官方登录",
+      "syncOfficialAuthOnSwitchDesc": "开启后，默认实例切换 OAuth 账号会写入官方 ~/.grok/auth.json；关闭时使用独立 GROK_HOME。API Key 和多开实例不改写官方登录。"
     },
     "grokRefreshInterval": "配额自动刷新",
     "error": {
@@ -5170,8 +5172,8 @@
     "search": "搜索 Grok CLI 账号...",
     "flowNotice": {
       "title": "Grok CLI 账号管理说明",
-      "desc": "Cockpit 按 Grok CLI 官方凭据格式管理账号，用于默认客户端真实切号和独立实例绑定。",
-      "permission": "本地范围：读取默认 ~/.grok/auth.json，并管理 Cockpit 本地数据中的独立 Grok 账号与 GROK_HOME 目录。",
+      "desc": "默认使用独立 GROK_HOME；开启“切号同步官方登录”后，默认实例切换 OAuth 账号会写入官方 ~/.grok/auth.json，多开实例仍保持隔离。",
+      "permission": "本地范围：可读取默认 ~/.grok/auth.json 用于导入；仅在开关开启且默认实例切换 OAuth 账号时写入该文件，API Key 不会覆盖官方登录。",
       "network": "网络范围：OAuth 授权、凭据刷新及账号用量查询；不会上传凭据到 Cockpit 服务。"
     },
     "empty": "暂无 Grok CLI 账号",

@@ -19,6 +19,10 @@ import type {
 } from '../../types/codex';
 import type { InstanceProfile } from '../../types/instance';
 import { useCodexInstanceStore } from '../../stores/useCodexInstanceStore';
+import {
+  filterCodexSessionsByKind,
+  type CodexSessionKindFilter,
+} from '../../utils/codexSessionFilters';
 import { CodexSessionVisibilityRepairModal } from './CodexSessionVisibilityRepairModal';
 
 type MessageState = { text: string; tone?: 'error' };
@@ -291,9 +295,7 @@ export function CodexSessionManager() {
   const [loadedTokenGroupCwds, setLoadedTokenGroupCwds] = useState<string[]>([]);
   const [titleSearchInput, setTitleSearchInput] = useState('');
   const [appliedTitleSearch, setAppliedTitleSearch] = useState('');
-  const [sessionKindFilter, setSessionKindFilter] = useState<
-    'all' | 'conversation' | 'external' | 'subagent'
-  >('conversation');
+  const [sessionKindFilter, setSessionKindFilter] = useState<CodexSessionKindFilter>('conversation');
   const {
     message: restoreModalError,
     scrollKey: restoreModalErrorScrollKey,
@@ -321,10 +323,14 @@ export function CodexSessionManager() {
   const transferTaskIdRef = useRef<string | null>(null);
   const isZh = i18n.resolvedLanguage?.toLowerCase().startsWith('zh') ?? true;
 
-  const groupedSessions = useMemo(() => buildGroups(sessions), [sessions]);
+  const visibleSessions = useMemo(
+    () => filterCodexSessionsByKind(sessions, sessionKindFilter),
+    [sessionKindFilter, sessions],
+  );
+  const groupedSessions = useMemo(() => buildGroups(visibleSessions), [visibleSessions]);
   const allSessionIds = useMemo(
-    () => Array.from(new Set(sessions.map((session) => session.sessionId))),
-    [sessions],
+    () => Array.from(new Set(visibleSessions.map((session) => session.sessionId))),
+    [visibleSessions],
   );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedTrashIdSet = useMemo(() => new Set(selectedTrashIds), [selectedTrashIds]);
@@ -345,9 +351,16 @@ export function CodexSessionManager() {
     [selectedTrashIdSet, trashedSessions],
   );
   const selectedSessions = useMemo(
-    () => sessions.filter((session) => selectedIdSet.has(session.sessionId)),
-    [selectedIdSet, sessions],
+    () => visibleSessions.filter((session) => selectedIdSet.has(session.sessionId)),
+    [selectedIdSet, visibleSessions],
   );
+  useEffect(() => {
+    const visibleIds = new Set(visibleSessions.map((session) => session.sessionId));
+    setSelectedIds((previous) => {
+      const next = previous.filter((sessionId) => visibleIds.has(sessionId));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [visibleSessions]);
   const orderedInstances = useMemo(() => sortInstancesForDisplay(instances), [instances]);
   const targetInstanceOptions = useMemo<SingleSelectOption[]>(
     () => [
@@ -527,14 +540,9 @@ export function CodexSessionManager() {
     const task = (async () => {
       setLoading(true);
       try {
-        let nextSessions = await listSessionsAcrossInstances({
+        const nextSessions = await listSessionsAcrossInstances({
           titleQuery: appliedTitleSearch || null,
         });
-        if (sessionKindFilter !== 'all') {
-          nextSessions = nextSessions.filter(
-            (s) => (s.sessionKind || 'conversation') === sessionKindFilter,
-          );
-        }
         const nextGroups = buildGroups(nextSessions);
         const hasInitializedExpandedGroups = hasInitializedExpandedGroupsRef.current;
         tokenStatsVersionRef.current += 1;
@@ -568,7 +576,7 @@ export function CodexSessionManager() {
         loadSessionsPromiseRef.current = null;
       }
     }
-  }, [appliedTitleSearch, listSessionsAcrossInstances, sessionKindFilter]);
+  }, [appliedTitleSearch, listSessionsAcrossInstances]);
 
   const loadTokenStatsForGroups = useCallback(
     async (groups: SessionGroup[]) => {
@@ -1536,11 +1544,7 @@ export function CodexSessionManager() {
             value={sessionKindFilter}
             disabled={loading}
             options={sessionKindOptions}
-            onChange={(value) =>
-              setSessionKindFilter(
-                value as 'all' | 'conversation' | 'external' | 'subagent',
-              )
-            }
+            onChange={(value) => setSessionKindFilter(value as CodexSessionKindFilter)}
             ariaLabel={t('codex.sessionManager.kindFilter', '会话类型')}
             menuWidth={160}
             menuMaxHeight={220}

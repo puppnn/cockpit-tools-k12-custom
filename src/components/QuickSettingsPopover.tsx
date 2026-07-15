@@ -70,6 +70,7 @@ interface GeneralConfig {
   kiro_auto_refresh_minutes: number;
   cursor_auto_refresh_minutes: number;
   grok_auto_refresh_minutes: number;
+  grok_sync_official_auth_on_switch: boolean;
   codebuddy_auto_refresh_minutes: number;
   codebuddy_cn_auto_refresh_minutes: number;
   qoder_auto_refresh_minutes: number;
@@ -301,27 +302,6 @@ const getAppPathKeyForTarget = (target: AppPathTarget): keyof GeneralConfig => {
   }
 };
 
-const isTraeQuickSettingsType = (
-  value: QuickSettingsType,
-): value is 'trae' | 'trae_solo' | 'trae_cn' | 'trae_solo_cn' =>
-  value === 'trae' || value === 'trae_solo' || value === 'trae_cn' || value === 'trae_solo_cn';
-
-type TraeQuickSettingsType = 'trae' | 'trae_solo' | 'trae_cn' | 'trae_solo_cn';
-
-const getTraeAppScanRootsKey = (value: TraeQuickSettingsType): keyof GeneralConfig => {
-  switch (value) {
-    case 'trae_solo':
-      return 'trae_solo_app_scan_roots';
-    case 'trae_cn':
-      return 'trae_cn_app_scan_roots';
-    case 'trae_solo_cn':
-      return 'trae_solo_cn_app_scan_roots';
-    case 'trae':
-    default:
-      return 'trae_app_scan_roots';
-  }
-};
-
 interface QuickSettingsPopoverProps {
   type: QuickSettingsType;
 }
@@ -450,7 +430,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [config, setConfig] = useState<GeneralConfig | null>(null);
   const [pathDetecting, setPathDetecting] = useState(false);
-  const [appScanRootsDraft, setAppScanRootsDraft] = useState('');
   const [appLaunchCandidates, setAppLaunchCandidates] = useState<AppLaunchCandidate[]>([]);
   const [openingCodexConfig, setOpeningCodexConfig] = useState(false);
   const [codexQuickConfig, setCodexQuickConfig] = useState<CodexQuickConfig | null>(null);
@@ -946,13 +925,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       setCodexAutoSwitchSecondaryCustomThreshold(String(cfg.codex_auto_switch_secondary_threshold));
       setCodexQuotaAlertPrimaryCustomThreshold(String(cfg.codex_quota_alert_primary_threshold));
       setCodexQuotaAlertSecondaryCustomThreshold(String(cfg.codex_quota_alert_secondary_threshold));
-      setAppScanRootsDraft(
-        type === 'claude'
-          ? cfg.claude_app_scan_roots || ''
-          : isTraeQuickSettingsType(type)
-            ? String(cfg[getTraeAppScanRootsKey(type)] || '')
-            : '',
-      );
       setAppLaunchCandidates([]);
     } catch (err) {
       if (loadVersion !== configLoadVersionRef.current) {
@@ -1044,38 +1016,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     }
   };
 
-  const handlePickAppScanRoot = async () => {
-    try {
-      const selected = await open({ multiple: false, directory: true });
-      const path = Array.isArray(selected) ? selected[0] : selected;
-      if (!path || !config) return;
-      setAppScanRootsDraft(path);
-      setAppLaunchCandidates([]);
-      if (type === 'claude') {
-        saveConfig({ claude_app_scan_roots: path });
-      } else if (isTraeQuickSettingsType(type)) {
-        saveConfig({ [getTraeAppScanRootsKey(type)]: path });
-      }
-    } catch (err) {
-      console.error('Failed to pick app scan root:', err);
-      setError(t('quickSettings.error.pickPathFailed', {
-        error: String(err),
-        defaultValue: '选择路径失败：{{error}}',
-      }));
-    }
-  };
-
-  const handleClearAppScanRoot = () => {
-    if (!config || pathDetecting) return;
-    setAppScanRootsDraft('');
-    setAppLaunchCandidates([]);
-    if (type === 'claude') {
-      saveConfig({ claude_app_scan_roots: '' });
-    } else if (isTraeQuickSettingsType(type)) {
-      saveConfig({ [getTraeAppScanRootsKey(type)]: '' });
-    }
-  };
-
   const handleResetAppPath = async (target: AppPathTarget) => {
     if (pathDetecting) return;
     if (isWindows) {
@@ -1084,16 +1024,13 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       try {
         const candidates = await invoke<AppLaunchCandidate[]>('scan_app_launch_targets', {
           app: target,
-          scanRoots: appScanRootsDraft.trim() || null,
         });
         setAppLaunchCandidates(candidates);
-        if (candidates.length === 0 && target !== 'claude') {
-          setError(t('quickSettings.appPath.scanEmpty', '未扫描到应用，请手动选择路径或调整扫描范围。'));
-        } else if (candidates.length === 0) {
+        if (candidates.length === 0) {
           setError(
             t(
-              'quickSettings.claude.scanEmpty',
-              '未扫描到 Claude Desktop，请手动选择 Claude.exe 或调整扫描范围。',
+              'quickSettings.appPath.scanEmpty',
+              '未检测到正在运行的应用，请先启动后重试，或手动选择路径。',
             ),
           );
         }
@@ -1964,6 +1901,40 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
 
         {config && (
           <div className="qs-body">
+            {type === 'grok' && (
+              <div className="qs-section">
+                <div className="qs-row">
+                  <div className="qs-row-label">
+                    <span>
+                      {t(
+                        'quickSettings.grok.syncOfficialAuthOnSwitch',
+                        '切号同步官方登录',
+                      )}
+                    </span>
+                  </div>
+                  <div className="qs-row-control">
+                    <label className="qs-switch">
+                      <input
+                        type="checkbox"
+                        checked={config.grok_sync_official_auth_on_switch}
+                        onChange={(event) =>
+                          saveConfig({
+                            grok_sync_official_auth_on_switch: event.target.checked,
+                          })
+                        }
+                      />
+                      <span className="qs-switch-slider"></span>
+                    </label>
+                  </div>
+                </div>
+                <div className="qs-hint">
+                  {t(
+                    'quickSettings.grok.syncOfficialAuthOnSwitchDesc',
+                    '开启后，默认实例切换 OAuth 账号会写入官方 ~/.grok/auth.json；关闭时使用独立 GROK_HOME。API Key 和多开实例不改写官方登录。',
+                  )}
+                </div>
+              </div>
+            )}
             {type === 'codex' && (
               <div className="qs-section">
                 <div className="qs-row">
@@ -2229,40 +2200,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                     </div>
                   </>
                 )}
-	                {isWindows && config && (
-	                  <div className="qs-claude-scan-roots">
-                    <label>{t('appPath.missing.scanRoots', '扫描范围')}</label>
-                    <div className="qs-claude-scan-root-row">
-                      <input
-                        type="text"
-                        className="qs-path-input qs-claude-scan-roots-input"
-                        value={appScanRootsDraft}
-                        placeholder={t(
-                          'appPath.missing.scanRootsPlaceholder',
-                          '可选，选择一个目录或盘符；留空时按盘符扫描 WindowsApps 并补充开始菜单应用。',
-                        )}
-                        readOnly
-                        disabled={pathDetecting}
-                      />
-                      <div className="qs-path-actions">
-                        <button
-                          className="qs-btn"
-                          onClick={handlePickAppScanRoot}
-                          disabled={pathDetecting}
-                        >
-                          {t('settings.general.codexPathSelect', '选择')}
-                        </button>
-                        <button
-                          className="qs-btn"
-                          onClick={handleClearAppScanRoot}
-                          disabled={pathDetecting || !appScanRootsDraft.trim()}
-                        >
-                          {t('common.clear', '清除')}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
                 {config && (type !== 'antigravity' || antigravityLaunchOnSwitch) && (
 	                <div className="qs-path-control">
                   <input
@@ -2312,14 +2249,14 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                         pathDetecting
                           ? t('common.loading', '加载中...')
                           : isWindows
-                            ? t('appPath.missing.scanApps', '扫描应用')
+                            ? t('appPath.missing.scanApps', '检测运行中应用')
                             : t('settings.general.codexPathReset', '恢复默认')
                       }
                     >
                       {isWindows ? (
                         pathDetecting
                           ? t('common.loading', '加载中...')
-                          : t('appPath.missing.scanApps', '扫描应用')
+                          : t('appPath.missing.scanApps', '检测运行中应用')
                       ) : (
                         <RefreshCw size={12} className={pathDetecting ? 'spin' : undefined} />
                       )}

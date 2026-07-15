@@ -23,8 +23,14 @@ const CODEX_CURRENT_ACCOUNT_CACHE_KEY = `agtools.codex.accounts.current${STORAGE
 const CODEX_PROFILE_SYNC_IN_FLIGHT = new Set<string>();
 const CODEX_PROFILE_SYNC_LAST_ATTEMPT = new Map<string, number>();
 const CODEX_PROFILE_SYNC_RETRY_INTERVAL_MS = 5 * 60 * 1000;
-let allowNextEmptyCodexAccountList = false;
-let allowNextEmptyCodexCurrentAccount = false;
+let fetchCodexAccountsSeq = 0;
+let fetchCodexCurrentAccountSeq = 0;
+
+/** Invalidate in-flight list/current fetches so mutations cannot be overwritten. */
+function invalidateCodexFetchRequests() {
+  fetchCodexAccountsSeq += 1;
+  fetchCodexCurrentAccountSeq += 1;
+}
 
 const loadCachedCodexAccounts = () => {
   try {
@@ -150,54 +156,60 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   error: null,
   
   fetchAccounts: async (options?: FetchCodexAccountsOptions) => {
-    if (options?.allowEmpty) {
-      allowNextEmptyCodexAccountList = true;
-    }
+    const allowEmpty = options?.allowEmpty === true;
+    const requestId = ++fetchCodexAccountsSeq;
     set({ loading: true, error: null });
     try {
       const accounts = await codexService.listCodexAccounts();
+      if (requestId !== fetchCodexAccountsSeq) {
+        return;
+      }
       if (
         SHOULD_PRESERVE_CACHE_ON_EMPTY_LIST &&
         accounts.length === 0 &&
         get().accounts.length > 0 &&
-        !allowNextEmptyCodexAccountList
+        !allowEmpty
       ) {
         console.warn('[CodexAccountStore] 忽略异常空账号列表，保留本地缓存账号');
         set({ accountsLoaded: true, loading: false });
         return;
       }
-      allowNextEmptyCodexAccountList = false;
       set({ accounts, accountsLoaded: true, loading: false });
       persistCodexAccountsCache(accounts);
       void get().hydrateAccountProfilesIfNeeded(accounts.map((account) => account.id));
     } catch (e) {
+      if (requestId !== fetchCodexAccountsSeq) {
+        return;
+      }
       set({ error: String(e), loading: false });
     }
   },
   
   fetchCurrentAccount: async (options?: FetchCodexCurrentAccountOptions) => {
-    if (options?.allowEmpty) {
-      allowNextEmptyCodexCurrentAccount = true;
-    }
+    const allowEmpty = options?.allowEmpty === true;
+    const requestId = ++fetchCodexCurrentAccountSeq;
     try {
       const currentAccount = await codexService.getCurrentCodexAccount();
+      if (requestId !== fetchCodexCurrentAccountSeq) {
+        return;
+      }
       if (
         SHOULD_PRESERVE_CACHE_ON_EMPTY_LIST &&
         !currentAccount &&
         get().currentAccount &&
         get().accounts.length > 0 &&
-        !allowNextEmptyCodexCurrentAccount
+        !allowEmpty
       ) {
         console.warn('[CodexAccountStore] 忽略异常空当前账号，保留本地缓存当前账号');
         return;
       }
-      allowNextEmptyCodexCurrentAccount = false;
       set({ currentAccount });
       persistCodexCurrentAccountCache(currentAccount);
     } catch (e) {
+      if (requestId !== fetchCodexCurrentAccountSeq) {
+        return;
+      }
       console.error('获取当前 Codex 账号失败:', e);
-    } finally {
-      allowNextEmptyCodexCurrentAccount = false;
     }
   },
   
@@ -211,14 +223,15 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       accountId,
       elapsedMs: Math.round(performance.now() - flowStartedAt),
     });
-    allowNextEmptyCodexAccountList = false;
+    // Drop any in-flight fetch results before applying mutation state.
+    invalidateCodexFetchRequests();
     set({ accounts, accountsLoaded: true, loading: false, error: null });
     persistCodexAccountsCache(accounts);
 
     const targetExists = accounts.some((account) => account.id === accountId);
     if (!targetExists) {
       const currentAccount = await codexService.getCurrentCodexAccount();
-      allowNextEmptyCodexCurrentAccount = false;
+      invalidateCodexFetchRequests();
       set({ currentAccount });
       persistCodexCurrentAccountCache(currentAccount);
       throw new Error(CODEX_STALE_ACCOUNT_ERROR);
@@ -229,6 +242,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
       accountId,
       elapsedMs: Math.round(performance.now() - flowStartedAt),
     });
+    invalidateCodexFetchRequests();
     set((state) => {
       const nextAccounts = mergeCodexAccountIntoList(state.accounts, account);
       persistCodexAccountsCache(nextAccounts);
@@ -263,6 +277,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
   deleteAccount: async (accountId: string) => {
     const previousCurrentAccountId = get().currentAccount?.id ?? null;
     await codexService.deleteCodexAccount(accountId);
+    invalidateCodexFetchRequests();
     set((state) => {
       const nextAccounts = state.accounts.filter((account) => account.id !== accountId);
       const nextCurrentAccount =
@@ -294,6 +309,7 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
     const previousCurrentAccountId = get().currentAccount?.id ?? null;
     const deleteIdSet = new Set(accountIds);
     await codexService.deleteCodexAccounts(accountIds);
+    invalidateCodexFetchRequests();
     set((state) => {
       const nextAccounts = state.accounts.filter((account) => !deleteIdSet.has(account.id));
       const nextCurrentAccount =

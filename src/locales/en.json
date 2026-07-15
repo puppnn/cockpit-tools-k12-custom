@@ -1289,7 +1289,7 @@
       "codexLaunchHint": "When turned off, account switching and login overwrite still run, but Codex App will no longer be launched and this path prompt will not appear again.",
       "action": "Set now",
       "claudeMultiInstanceRequiresExe": "Claude multi-instance profiles require the real Claude.exe path. Microsoft Store targets are only for the default desktop profile.",
-      "scanApps": "Scan apps",
+      "scanApps": "Detect running app",
       "scanRoots": "Scan range",
       "scanRootsPlaceholder": "Optional, choose a folder or drive root; leave blank to scan WindowsApps by drive and include Start menu apps.",
       "windowsApp": "Microsoft Store",
@@ -4119,7 +4119,9 @@
       "appPath": "Grok CLI Path",
       "cliPath": "CLI Path",
       "cliDetected": "Detected {{version}} · {{path}}",
-      "cliMissing": "Grok CLI not found. Enter a custom path."
+      "cliMissing": "Grok CLI not found. Enter a custom path.",
+      "syncOfficialAuthOnSwitch": "Sync official login on switch",
+      "syncOfficialAuthOnSwitchDesc": "When enabled, switching the default instance to an OAuth account writes the official ~/.grok/auth.json. When disabled, a separate GROK_HOME is used. API keys and additional instances never overwrite the official login."
     },
     "grokRefreshInterval": "Quota Auto Refresh",
     "error": {
@@ -5170,8 +5172,8 @@
     "search": "Search Grok CLI accounts...",
     "flowNotice": {
       "title": "Grok CLI account guide",
-      "desc": "Cockpit manages accounts in the official Grok CLI credential format for real default-client switching and isolated instance binding.",
-      "permission": "Local scope: reads the default ~/.grok/auth.json and manages separate Grok account and GROK_HOME directories in Cockpit's local data.",
+      "desc": "Separate GROK_HOME directories are used by default. With official-login sync enabled, OAuth switches for the default instance write the official ~/.grok/auth.json; additional instances stay isolated.",
+      "permission": "Local scope: the default ~/.grok/auth.json can be read for import and is written only when the switch is enabled for a default-instance OAuth switch. API keys never overwrite the official login.",
       "network": "Network scope: OAuth authorization, credential refresh, and account usage queries. Credentials are not uploaded to Cockpit services."
     },
     "empty": "No Grok CLI accounts yet",

@@ -22,11 +22,23 @@ use serde::Serialize;
 
 const POLL_INTERVAL_SECONDS: u64 = 30;
 const STARTUP_DELAY_SECONDS: u64 = 10;
+const IDENTITY_SCAN_TIMEOUT: Duration = Duration::from_secs(15);
 
 static WATCHER_STARTED: AtomicBool = AtomicBool::new(false);
 static CONFIG_CHANGED: LazyLock<Notify> = LazyLock::new(Notify::new);
 static LAST_IDENTITIES: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static WATCH_CYCLE_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+static IDENTITY_SCAN_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+struct IdentityScanInFlightGuard;
+
+impl Drop for IdentityScanInFlightGuard {
+    fn drop(&mut self) {
+        IDENTITY_SCAN_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
 
 type ImportFuture = Pin<Box<dyn Future<Output = Result<bool, String>> + Send>>;
 
@@ -66,7 +78,7 @@ pub fn notify_config_changed(enabled: bool) {
     CONFIG_CHANGED.notify_one();
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoLocalImportScanResult {
     pub scanned: u32,
@@ -637,15 +649,17 @@ async fn run_watch_cycle(app_handle: &AppHandle) {
     let _ = run_watch_cycle_with_mode(app_handle, WatchMode::PollOnChange).await;
 }
 
-async fn run_watch_cycle_with_mode(
-    app_handle: &AppHandle,
-    mode: WatchMode,
-) -> AutoLocalImportScanResult {
+struct PeekDecision {
+    platform: &'static str,
+    identity: String,
+    should_import: bool,
+    import_account: fn() -> ImportFuture,
+}
+
+/// Sync peek + identity baseline updates (SQLite/fs/keychain). Must not run on async workers.
+fn collect_peek_decisions(mode: WatchMode) -> (u32, Vec<PeekDecision>) {
     let mut scanned = 0u32;
-    let mut imported = 0u32;
-    let mut failed = 0u32;
-    let mut platforms = Vec::new();
-    let mut imported_any = false;
+    let mut pending = Vec::new();
 
     for watcher in platform_watchers() {
         let current_identity = (watcher.peek_identity)();
@@ -662,10 +676,7 @@ async fn run_watch_cycle_with_mode(
                 continue;
             };
             match mode {
-                WatchMode::FullScanImport => {
-                    state.insert(watcher.platform.to_string(), current_identity.clone());
-                    true
-                }
+                WatchMode::FullScanImport => true,
                 WatchMode::PollOnChange => match state.get(watcher.platform) {
                     None => {
                         // 首次只建基线，避免应用启动时批量导入。
@@ -673,48 +684,102 @@ async fn run_watch_cycle_with_mode(
                         false
                     }
                     Some(previous) if previous == &current_identity => false,
-                    Some(_) => {
-                        state.insert(watcher.platform.to_string(), current_identity.clone());
-                        true
-                    }
+                    Some(_) => true,
                 },
             }
         };
 
-        if !should_import {
-            continue;
-        }
+        pending.push(PeekDecision {
+            platform: watcher.platform,
+            identity: current_identity,
+            should_import,
+            import_account: watcher.import_account,
+        });
+    }
 
-        match (watcher.import_account)().await {
+    (scanned, pending)
+}
+
+async fn run_watch_cycle_with_mode(
+    app_handle: &AppHandle,
+    mode: WatchMode,
+) -> AutoLocalImportScanResult {
+    let _cycle_guard = match mode {
+        WatchMode::FullScanImport => WATCH_CYCLE_LOCK.lock().await,
+        WatchMode::PollOnChange => match WATCH_CYCLE_LOCK.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => return AutoLocalImportScanResult::default(),
+        },
+    };
+    if IDENTITY_SCAN_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        logger::log_warn("[AutoLocalImport] 上一次本机身份扫描仍在运行，跳过重复扫描");
+        return AutoLocalImportScanResult::default();
+    }
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        let _in_flight_guard = IdentityScanInFlightGuard;
+        collect_peek_decisions(mode)
+    });
+    let (scanned, pending) = match tokio::time::timeout(IDENTITY_SCAN_TIMEOUT, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(err)) => {
+            logger::log_warn(&format!(
+                "[AutoLocalImport] 后台本机身份扫描失败: {}",
+                err
+            ));
+            return AutoLocalImportScanResult::default();
+        }
+        Err(err) => {
+            logger::log_warn(&format!(
+                "[AutoLocalImport] 本机身份扫描超时({:?})，后台任务完成前不再重复启动: {}",
+                IDENTITY_SCAN_TIMEOUT, err
+            ));
+            return AutoLocalImportScanResult::default();
+        }
+    };
+
+    let mut imported = 0u32;
+    let mut failed = 0u32;
+    let mut platforms = Vec::new();
+    let mut imported_any = false;
+
+    for decision in pending.into_iter().filter(|item| item.should_import) {
+        match (decision.import_account)().await {
             Ok(true) => {
+                if let Ok(mut state) = LAST_IDENTITIES.lock() {
+                    state.insert(decision.platform.to_string(), decision.identity.clone());
+                }
                 imported += 1;
                 imported_any = true;
-                platforms.push(watcher.platform.to_string());
+                platforms.push(decision.platform.to_string());
                 logger::log_info(&format!(
                     "[AutoLocalImport] 已自动导入本机账号: platform={}, identity_tag={}",
-                    watcher.platform,
-                    identity_log_tag(&current_identity)
+                    decision.platform,
+                    identity_log_tag(&decision.identity)
                 ));
                 let _ = app_handle.emit(
                     "auto_local_import:completed",
                     serde_json::json!({
-                        "platform": watcher.platform,
+                        "platform": decision.platform,
                     }),
                 );
                 let _ = app_handle.emit(
                     "accounts:changed",
                     serde_json::json!({
-                        "platformId": watcher.platform,
+                        "platformId": decision.platform,
                         "reason": "auto_import_from_local",
                     }),
                 );
             }
-            Ok(false) => {}
+            Ok(false) => {
+                if let Ok(mut state) = LAST_IDENTITIES.lock() {
+                    state.insert(decision.platform.to_string(), decision.identity);
+                }
+            }
             Err(error) => {
                 failed += 1;
                 logger::log_warn(&format!(
                     "[AutoLocalImport] 自动导入失败: platform={}, error={}",
-                    watcher.platform, error
+                    decision.platform, error
                 ));
             }
         }

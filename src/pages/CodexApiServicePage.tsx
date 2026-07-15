@@ -666,7 +666,7 @@ export function CodexApiServicePage() {
   const [newSessionPriorityAccountIdsDraft, setNewSessionPriorityAccountIdsDraft] =
     useState<string[]>([]);
   const [maxRetryCredentialsDraft, setMaxRetryCredentialsDraft] = useState("0");
-  const [maxRetryIntervalDraft, setMaxRetryIntervalDraft] = useState("3");
+  const [maxRetryIntervalDraft, setMaxRetryIntervalDraft] = useState("30");
   const [disableCoolingDraft, setDisableCoolingDraft] = useState(false);
   const [requestLogPage, setRequestLogPage] = useState(1);
   const [requestLogPageSize, setRequestLogPageSize] = useState(() =>
@@ -1312,7 +1312,7 @@ export function CodexApiServicePage() {
     );
     setMaxRetryCredentialsDraft(String(collection?.maxRetryCredentials ?? 0));
     setMaxRetryIntervalDraft(
-      formatSeconds(collection?.maxRetryIntervalMs ?? 3000),
+      formatSeconds(collection?.maxRetryIntervalMs ?? 30000),
     );
     setDisableCoolingDraft(collection?.disableCooling ?? false);
     setTimeoutDrafts(timeoutDraftsFromValue(collection?.timeouts));
@@ -2283,7 +2283,7 @@ export function CodexApiServicePage() {
       );
       return;
     }
-    const memberAccountIdSet = new Set(memberAccounts.map((account) => account.id));
+    const memberAccountIdSet = new Set(memberIds);
     const newSessionPriorityAccountIds = Array.from(
       new Set(newSessionPriorityAccountIdsDraft),
     ).filter((accountId) => memberAccountIdSet.has(accountId));

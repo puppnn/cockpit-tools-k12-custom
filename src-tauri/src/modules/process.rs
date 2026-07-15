@@ -684,11 +684,7 @@ struct WindowsAppLaunchSignature {
 }
 
 #[cfg(target_os = "windows")]
-const WINDOWS_APP_SCAN_MAX_DEPTH: usize = 6;
-#[cfg(target_os = "windows")]
-const WINDOWS_APP_SCAN_DIR_LIMIT: usize = 5000;
-#[cfg(target_os = "windows")]
-const WINDOWS_APP_SCAN_CANDIDATE_LIMIT: usize = 80;
+const WINDOWS_RUNNING_APP_CANDIDATE_LIMIT: usize = 20;
 
 #[cfg(target_os = "windows")]
 fn windows_app_launch_signature(app: &str) -> Option<WindowsAppLaunchSignature> {
@@ -726,6 +722,15 @@ fn windows_app_launch_signature(app: &str) -> Option<WindowsAppLaunchSignature> 
                 "Codex\\Codex.exe",
                 "OpenAI Codex\\Codex.exe",
             ],
+            supports_multi_instance: true,
+        }),
+        "claude" => Some(WindowsAppLaunchSignature {
+            label: "Claude Desktop",
+            exe_names: &["Claude.exe"],
+            command_names: &["claude"],
+            protocol_names: &["claude"],
+            display_keywords: &["claude", "anthropic claude"],
+            common_paths: &[r"Claude\Claude.exe", r"AnthropicClaude\Claude.exe"],
             supports_multi_instance: true,
         }),
         "vscode" => Some(WindowsAppLaunchSignature {
@@ -894,7 +899,7 @@ fn push_app_launch_candidate(
     signature: WindowsAppLaunchSignature,
     source: &str,
 ) {
-    if candidates.len() >= WINDOWS_APP_SCAN_CANDIDATE_LIMIT || !path.is_file() {
+    if candidates.len() >= WINDOWS_RUNNING_APP_CANDIDATE_LIMIT || !path.is_file() {
         return;
     }
 
@@ -940,46 +945,28 @@ fn push_app_launch_candidate(
 }
 
 #[cfg(target_os = "windows")]
-fn windows_common_install_roots() -> Vec<std::path::PathBuf> {
+fn windows_fixed_drive_roots() -> Vec<std::path::PathBuf> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+
+    const DRIVE_FIXED: u32 = 3;
+
+    let drive_mask = unsafe { GetLogicalDrives() };
     let mut roots = Vec::new();
-    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-        roots.push(std::path::PathBuf::from(local_appdata).join("Programs"));
-    }
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        roots.push(
-            std::path::PathBuf::from(user_profile)
-                .join("AppData")
-                .join("Local")
-                .join("Programs"),
-        );
-    }
-    if let Ok(program_files) = std::env::var("PROGRAMFILES") {
-        roots.push(std::path::PathBuf::from(program_files));
-    }
-    if let Ok(program_files_x86) = std::env::var("PROGRAMFILES(X86)") {
-        roots.push(std::path::PathBuf::from(program_files_x86));
-    }
-
-    let mut seen = HashSet::new();
-    roots
-        .into_iter()
-        .filter(|root| root.is_dir())
-        .filter(|root| seen.insert(root.to_string_lossy().to_lowercase()))
-        .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn collect_common_windows_app_launch_candidates(
-    candidates: &mut Vec<AppLaunchCandidate>,
-    seen: &mut HashSet<String>,
-    signature: WindowsAppLaunchSignature,
-) {
-    for root in windows_common_install_roots() {
-        for relative in signature.common_paths {
-            let candidate = root.join(relative);
-            push_app_launch_candidate(candidates, seen, &candidate, signature, "common_path");
+    for index in 0..26u32 {
+        if drive_mask & (1 << index) == 0 {
+            continue;
+        }
+        let drive = format!("{}:\\", (b'A' + index as u8) as char);
+        let wide = drive
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        if unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) } == DRIVE_FIXED {
+            roots.push(std::path::PathBuf::from(drive));
         }
     }
+    roots
 }
 
 #[cfg(target_os = "windows")]
@@ -997,11 +984,7 @@ fn normalize_windows_scan_root(raw: &str) -> Option<std::path::PathBuf> {
         value.push('\\');
     }
     let path = std::path::PathBuf::from(value);
-    if path.is_dir() {
-        Some(path)
-    } else {
-        None
-    }
+    path.is_dir().then_some(path)
 }
 
 #[cfg(target_os = "windows")]
@@ -1017,9 +1000,8 @@ fn parse_windows_scan_roots(scan_roots: Option<&str>) -> Vec<std::path::PathBuf>
         return roots;
     }
 
-    ('C'..='Z')
-        .map(|drive| std::path::PathBuf::from(format!("{}:\\", drive)))
-        .filter(|root| root.is_dir())
+    windows_fixed_drive_roots()
+        .into_iter()
         .filter(|root| seen.insert(root.to_string_lossy().to_lowercase()))
         .collect()
 }
@@ -1044,8 +1026,7 @@ fn expand_windows_scan_roots(roots: Vec<std::path::PathBuf>) -> Vec<std::path::P
             let users_dir = root.join("Users");
             if let Ok(entries) = std::fs::read_dir(users_dir) {
                 for entry in entries.flatten() {
-                    let user_programs = entry.path().join("AppData").join("Local").join("Programs");
-                    expanded.push(user_programs);
+                    expanded.push(entry.path().join("AppData").join("Local").join("Programs"));
                 }
             }
         } else {
@@ -1059,76 +1040,6 @@ fn expand_windows_scan_roots(roots: Vec<std::path::PathBuf>) -> Vec<std::path::P
         .filter(|root| root.is_dir())
         .filter(|root| seen.insert(root.to_string_lossy().to_lowercase()))
         .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn should_skip_windows_scan_dir(path: &std::path::Path) -> bool {
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    matches!(
-        name.as_str(),
-        "$recycle.bin"
-            | ".git"
-            | "node_modules"
-            | "system volume information"
-            | "windows"
-            | "winsxs"
-    )
-}
-
-#[cfg(target_os = "windows")]
-fn scan_windows_app_launch_candidates_under_root(
-    root: &std::path::Path,
-    candidates: &mut Vec<AppLaunchCandidate>,
-    seen: &mut HashSet<String>,
-    signature: WindowsAppLaunchSignature,
-    trae_platform: Option<crate::modules::trae_account::TraePlatformKind>,
-) {
-    if candidates.len() >= WINDOWS_APP_SCAN_CANDIDATE_LIMIT || !root.is_dir() {
-        return;
-    }
-
-    let mut stack = vec![(root.to_path_buf(), 0usize)];
-    let mut visited_dirs = 0usize;
-    while let Some((dir, depth)) = stack.pop() {
-        if candidates.len() >= WINDOWS_APP_SCAN_CANDIDATE_LIMIT
-            || visited_dirs >= WINDOWS_APP_SCAN_DIR_LIMIT
-        {
-            break;
-        }
-        visited_dirs += 1;
-
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            if candidates.len() >= WINDOWS_APP_SCAN_CANDIDATE_LIMIT {
-                break;
-            }
-            let file_type = match entry.file_type() {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let path = entry.path();
-            if file_type.is_file() {
-                if let Some(platform) = trae_platform {
-                    if !windows_trae_candidate_matches_platform(&path, platform) {
-                        continue;
-                    }
-                }
-                push_app_launch_candidate(candidates, seen, &path, signature, "scan_root");
-            } else if file_type.is_dir()
-                && depth < WINDOWS_APP_SCAN_MAX_DEPTH
-                && !should_skip_windows_scan_dir(&path)
-            {
-                stack.push((path, depth + 1));
-            }
-        }
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1154,120 +1065,79 @@ fn windows_trae_candidate_matches_platform(
 }
 
 #[cfg(target_os = "windows")]
-fn collect_registered_windows_trae_launch_candidates(
-    candidates: &mut Vec<AppLaunchCandidate>,
-    seen: &mut HashSet<String>,
+fn running_app_candidate_matches(
+    app: &str,
+    path: &std::path::Path,
     signature: WindowsAppLaunchSignature,
-    platform: crate::modules::trae_account::TraePlatformKind,
-) {
-    for base_path in crate::modules::trae_account::windows_trae_install_base_paths(platform) {
-        if base_path.is_file() {
-            if windows_trae_candidate_matches_platform(&base_path, platform) {
-                push_app_launch_candidate(
-                    candidates,
-                    seen,
-                    &base_path,
-                    signature,
-                    "windows_trae_uninstall_registry",
-                );
-            }
-            continue;
-        }
-        if !base_path.is_dir() {
-            continue;
-        }
-        for exe_name in signature.exe_names {
-            let candidate = base_path.join(exe_name);
-            if windows_trae_candidate_matches_platform(&candidate, platform) {
-                push_app_launch_candidate(
-                    candidates,
-                    seen,
-                    &candidate,
-                    signature,
-                    "windows_trae_uninstall_registry",
-                );
-            }
+) -> bool {
+    if app == "codex" && is_codex_embedded_backend_executable(path) {
+        return false;
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(platform) = windows_trae_platform_for_app(app) {
+        if !windows_trae_candidate_matches_platform(path, platform) {
+            return false;
         }
     }
+
+    let exe_names_lower = signature
+        .exe_names
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect();
+    let keywords_lower = signature
+        .display_keywords
+        .iter()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<String>>();
+    score_windows_candidate(path, &exe_names_lower, &keywords_lower).is_some()
 }
 
 #[cfg(target_os = "windows")]
 fn scan_windows_app_launch_targets(
     app: &str,
-    scan_roots: Option<&str>,
+    _scan_roots: Option<&str>,
 ) -> Result<Vec<AppLaunchCandidate>, String> {
+    let started_at = Instant::now();
     let Some(signature) = windows_app_launch_signature(app) else {
         return Err("未知应用类型".to_string());
     };
 
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
-    let trae_platform = windows_trae_platform_for_app(app);
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_exe(UpdateKind::OnlyIfNotSet)
+            .with_cmd(UpdateKind::OnlyIfNotSet),
+    );
 
-    if let Some(platform) = trae_platform {
-        collect_registered_windows_trae_launch_candidates(
+    for process in system.processes().values() {
+        let path = process
+            .exe()
+            .map(std::path::PathBuf::from)
+            .or_else(|| process.cmd().first().map(std::path::PathBuf::from));
+        let Some(path) = path else {
+            continue;
+        };
+        if !running_app_candidate_matches(app, &path, signature) {
+            continue;
+        }
+        push_app_launch_candidate(
             &mut candidates,
             &mut seen,
+            &path,
             signature,
-            platform,
-        );
-    } else {
-        if app == "codex" {
-            if let Some(path) = detect_codex_exec_path_by_windowsapps_scan() {
-                push_app_launch_candidate(
-                    &mut candidates,
-                    &mut seen,
-                    &path,
-                    signature,
-                    "windows_apps",
-                );
-            }
-            if let Some(path) = detect_codex_exec_path_by_appx_install_location() {
-                push_app_launch_candidate(
-                    &mut candidates,
-                    &mut seen,
-                    &path,
-                    signature,
-                    "windows_appx",
-                );
-            }
-        }
-
-        if let Some(path) = detect_windows_exec_path_by_signatures(
-            signature.label,
-            signature.exe_names,
-            signature.command_names,
-            signature.protocol_names,
-            signature.display_keywords,
-        ) {
-            push_app_launch_candidate(
-                &mut candidates,
-                &mut seen,
-                &path,
-                signature,
-                "windows_registry_shortcut_command",
-            );
-        }
-    }
-
-    collect_common_windows_app_launch_candidates(&mut candidates, &mut seen, signature);
-
-    let scan_roots = expand_windows_scan_roots(parse_windows_scan_roots(scan_roots));
-    for root in scan_roots {
-        scan_windows_app_launch_candidates_under_root(
-            &root,
-            &mut candidates,
-            &mut seen,
-            signature,
-            trae_platform,
+            "running_process",
         );
     }
 
-    if app == "codex" {
-        candidates.retain(|candidate| {
-            !is_codex_embedded_backend_executable(std::path::Path::new(&candidate.target))
-        });
-        candidates.sort_by_key(|candidate| {
+    candidates.sort_by_key(|candidate| {
+        let codex_priority = if app == "codex" {
             let file_name = std::path::Path::new(&candidate.target)
                 .file_name()
                 .and_then(|value| value.to_str())
@@ -1277,8 +1147,17 @@ fn scan_windows_app_launch_targets(
             } else {
                 1
             }
-        });
-    }
+        } else {
+            0
+        };
+        (codex_priority, candidate.target.to_ascii_lowercase())
+    });
+    crate::modules::logger::log_info(&format!(
+        "[Path Detect] running app probe: app={}, candidates={}, elapsed={}ms",
+        app,
+        candidates.len(),
+        started_at.elapsed().as_millis()
+    ));
 
     Ok(candidates)
 }
@@ -1593,16 +1472,18 @@ exit 0
 "#
     );
 
-    let output = match powershell_output(&["-Command", &script]) {
-        Ok(value) => value,
-        Err(err) => {
-            crate::modules::logger::log_warn(&format!(
-                "[Path Detect] {} PowerShell detect failed: {}",
-                app_label, err
-            ));
-            return None;
-        }
-    };
+    let output =
+        match powershell_output_with_timeout(&["-Command", &script], WINDOWS_PROCESS_PROBE_TIMEOUT)
+        {
+            Ok(value) => value,
+            Err(err) => {
+                crate::modules::logger::log_warn(&format!(
+                    "[Path Detect] {} PowerShell detect failed: {}",
+                    app_label, err
+                ));
+                return None;
+            }
+        };
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -3321,14 +3202,14 @@ fn find_codex_windows_app_main_exe(app_dir: &std::path::Path) -> Option<std::pat
 fn detect_codex_exec_path_by_windowsapps_scan() -> Option<std::path::PathBuf> {
     let mut best: Option<(u8, Vec<u32>, std::path::PathBuf)> = None;
 
-    for drive in b'A'..=b'Z' {
-        let drive_letter = drive as char;
+    for drive_root in windows_fixed_drive_roots() {
+        let drive_letter = drive_root.to_string_lossy().chars().next().unwrap_or('C');
         let windows_apps_root = if drive_letter == 'C' {
-            format!(r"{}:\Program Files\WindowsApps", drive_letter)
+            drive_root.join("Program Files").join("WindowsApps")
         } else {
-            format!(r"{}:\WindowsApps", drive_letter)
+            drive_root.join("WindowsApps")
         };
-        let root_path = std::path::PathBuf::from(&windows_apps_root);
+        let root_path = windows_apps_root;
         if !root_path.exists() {
             continue;
         }
@@ -3405,7 +3286,9 @@ if ($pkg -and -not [string]::IsNullOrWhiteSpace($pkg.InstallLocation)) {
   Write-Output ([string]$pkg.InstallLocation.Trim())
 }"#;
 
-    let output = powershell_output(&["-Command", script]).ok()?;
+    let output =
+        powershell_output_with_timeout(&["-Command", script], WINDOWS_PROCESS_PROBE_TIMEOUT)
+            .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -13078,7 +12961,10 @@ mod codex_windows_path_migration_tests {
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::{windows_app_launch_signature, windows_trae_candidate_matches_platform};
+    use super::{
+        running_app_candidate_matches, windows_app_launch_signature,
+        windows_trae_candidate_matches_platform,
+    };
     use crate::modules::trae_account::TraePlatformKind;
     use std::path::Path;
 
@@ -13099,6 +12985,7 @@ mod tests {
             "windsurf",
             "kiro",
             "codex",
+            "claude",
             "vscode",
         ] {
             let signature =
@@ -13143,6 +13030,41 @@ mod tests {
             .exe_names
             .iter()
             .any(|name| name.eq_ignore_ascii_case("Codex.exe")));
+    }
+
+    #[test]
+    fn running_codex_match_accepts_main_executable_and_rejects_embedded_backend() {
+        let signature = windows_app_launch_signature("codex").expect("codex signature must exist");
+        assert!(running_app_candidate_matches(
+            "codex",
+            Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.Codex_26.707.9564.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe"
+            ),
+            signature,
+        ));
+        assert!(!running_app_candidate_matches(
+            "codex",
+            Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.Codex_26.707.9564.0_x64__2p2nqsd0c76g0\app\resources\codex.exe"
+            ),
+            signature,
+        ));
+    }
+
+    #[test]
+    fn running_claude_match_requires_claude_executable() {
+        let signature =
+            windows_app_launch_signature("claude").expect("claude signature must exist");
+        assert!(running_app_candidate_matches(
+            "claude",
+            Path::new(r"C:\Program Files\WindowsApps\Claude_1.0.0\app\Claude.exe"),
+            signature,
+        ));
+        assert!(!running_app_candidate_matches(
+            "claude",
+            Path::new(r"C:\Tools\Electron.exe"),
+            signature,
+        ));
     }
 
     #[test]

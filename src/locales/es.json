@@ -3805,7 +3805,9 @@
       "appPath": "Ruta de Grok CLI",
       "cliPath": "Ruta de CLI",
       "cliDetected": "Detectado: {{version}} · {{path}}",
-      "cliMissing": "No se encontró Grok CLI. Indica una ruta."
+      "cliMissing": "No se encontró Grok CLI. Indica una ruta.",
+      "syncOfficialAuthOnSwitch": "Sincronizar el inicio oficial",
+      "syncOfficialAuthOnSwitchDesc": "Al activarlo, cambiar la instancia predeterminada a una cuenta OAuth escribe el archivo oficial ~/.grok/auth.json. Al desactivarlo, se usa un GROK_HOME independiente. Las claves API y las instancias adicionales no sobrescriben el inicio oficial."
     },
     "grokRefreshInterval": "Actualización automática de cuota",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Buscar cuentas de Grok CLI...",
     "flowNotice": {
       "title": "Gestión de cuentas de Grok CLI",
-      "desc": "Cockpit gestiona las cuentas con el formato oficial de credenciales de Grok CLI para cambiar realmente la cuenta predeterminada y vincular instancias aisladas.",
-      "permission": "Ámbito local: lee el archivo ~/.grok/auth.json predeterminado y gestiona directorios independientes de cuentas Grok y GROK_HOME en los datos locales de Cockpit.",
+      "desc": "De forma predeterminada se usan GROK_HOME independientes. Con la sincronización activada, un cambio OAuth de la instancia predeterminada escribe en ~/.grok/auth.json; las instancias adicionales siguen aisladas.",
+      "permission": "Ámbito local: ~/.grok/auth.json puede leerse para importar y solo se escribe con la sincronización activada durante un cambio OAuth de la instancia predeterminada. Las claves API nunca sobrescriben el inicio oficial.",
       "network": "Ámbito de red: autorización OAuth, renovación de credenciales y consulta de uso. Las credenciales no se suben a los servicios de Cockpit."
     },
     "empty": "Aún no hay cuentas de Grok CLI",

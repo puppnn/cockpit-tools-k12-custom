@@ -3805,7 +3805,9 @@
       "appPath": "Percorso Grok CLI",
       "cliPath": "Percorso CLI",
       "cliDetected": "Rilevato: {{version}} · {{path}}",
-      "cliMissing": "Grok CLI non trovato. Indica un percorso."
+      "cliMissing": "Grok CLI non trovato. Indica un percorso.",
+      "syncOfficialAuthOnSwitch": "Sincronizza l’accesso ufficiale",
+      "syncOfficialAuthOnSwitchDesc": "Se attivo, il passaggio dell’istanza predefinita a un account OAuth scrive il file ufficiale ~/.grok/auth.json. Se disattivo, viene usato un GROK_HOME separato. Le chiavi API e le istanze aggiuntive non sovrascrivono l’accesso ufficiale."
     },
     "grokRefreshInterval": "Aggiornamento automatico quota",
     "codebuddy": {
@@ -5170,8 +5172,8 @@
     "search": "Cerca account Grok CLI...",
     "flowNotice": {
       "title": "Gestione account Grok CLI",
-      "desc": "Cockpit gestisce gli account nel formato ufficiale delle credenziali Grok CLI per cambiare realmente l'account predefinito e associare istanze isolate.",
-      "permission": "Ambito locale: legge il file ~/.grok/auth.json predefinito e gestisce directory separate per account Grok e GROK_HOME nei dati locali di Cockpit.",
+      "desc": "Per impostazione predefinita vengono usati GROK_HOME separati. Con la sincronizzazione attiva, un cambio OAuth dell’istanza predefinita scrive in ~/.grok/auth.json; le istanze aggiuntive restano isolate.",
+      "permission": "Ambito locale: ~/.grok/auth.json può essere letto per l’importazione e viene scritto solo con la sincronizzazione attiva durante un cambio OAuth dell’istanza predefinita. Le chiavi API non sovrascrivono mai l’accesso ufficiale.",
       "network": "Ambito di rete: autorizzazione OAuth, rinnovo delle credenziali e query di utilizzo. Le credenziali non vengono caricate sui servizi Cockpit."
     },
     "empty": "Nessun account Grok CLI",

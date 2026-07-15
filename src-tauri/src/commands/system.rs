@@ -100,6 +100,8 @@ pub struct GeneralConfig {
     pub cursor_auto_refresh_minutes: i32,
     /// Grok CLI 自动刷新间隔（分钟），-1 表示禁用
     pub grok_auto_refresh_minutes: i32,
+    /// 默认实例切号时是否同步写入官方 ~/.grok/auth.json
+    pub grok_sync_official_auth_on_switch: bool,
     /// Claude 自动刷新间隔（分钟），-1 表示禁用
     pub claude_auto_refresh_minutes: i32,
     /// CodeBuddy 自动刷新间隔（分钟），-1 表示禁用
@@ -1027,6 +1029,7 @@ fn is_general_config_patch_field(key: &str) -> bool {
             | "kiro_auto_refresh_minutes"
             | "cursor_auto_refresh_minutes"
             | "grok_auto_refresh_minutes"
+            | "grok_sync_official_auth_on_switch"
             | "claude_auto_refresh_minutes"
             | "codebuddy_auto_refresh_minutes"
             | "codebuddy_cn_auto_refresh_minutes"
@@ -2487,6 +2490,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         kiro_auto_refresh_minutes: user_config.kiro_auto_refresh_minutes,
         cursor_auto_refresh_minutes: user_config.cursor_auto_refresh_minutes,
         grok_auto_refresh_minutes: user_config.grok_auto_refresh_minutes,
+        grok_sync_official_auth_on_switch: user_config.grok_sync_official_auth_on_switch,
         claude_auto_refresh_minutes: user_config.claude_auto_refresh_minutes,
         codebuddy_auto_refresh_minutes: user_config.codebuddy_auto_refresh_minutes,
         codebuddy_cn_auto_refresh_minutes: user_config.codebuddy_cn_auto_refresh_minutes,
@@ -2847,6 +2851,7 @@ pub fn save_general_config(
     kiro_auto_refresh_minutes: Option<i32>,
     cursor_auto_refresh_minutes: Option<i32>,
     grok_auto_refresh_minutes: Option<i32>,
+    grok_sync_official_auth_on_switch: Option<bool>,
     claude_auto_refresh_minutes: Option<i32>,
     codebuddy_auto_refresh_minutes: Option<i32>,
     codebuddy_cn_auto_refresh_minutes: Option<i32>,
@@ -3066,6 +3071,9 @@ pub fn save_general_config(
         }
         if let Some(value) = grok_auto_refresh_minutes {
             current.grok_auto_refresh_minutes = value;
+        }
+        if let Some(value) = grok_sync_official_auth_on_switch {
+            current.grok_sync_official_auth_on_switch = value;
         }
         if let Some(value) = claude_auto_refresh_minutes {
             current.claude_auto_refresh_minutes = value;
@@ -3607,18 +3615,46 @@ pub fn detect_app_path(app: String, force: Option<bool>) -> Result<Option<String
 }
 
 #[tauri::command]
-pub fn scan_claude_desktop_launch_targets(
+pub async fn scan_claude_desktop_launch_targets(
     scan_roots: Option<String>,
 ) -> Result<Vec<modules::claude_instance::ClaudeDesktopLaunchCandidate>, String> {
-    let roots = scan_roots
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    Ok(modules::claude_instance::scan_claude_desktop_launch_targets(roots))
+    #[cfg(target_os = "windows")]
+    {
+        let _ = scan_roots;
+        let task = tauri::async_runtime::spawn_blocking(|| {
+            modules::process::scan_app_launch_targets("claude", None)
+        });
+        let candidates = match tokio::time::timeout(Duration::from_secs(2), task).await {
+            Ok(Ok(result)) => result?,
+            Ok(Err(error)) => return Err(format!("检测运行中的 Claude 任务失败: {error}")),
+            Err(_) => return Err("检测运行中的 Claude 超时，请重试".to_string()),
+        };
+        return Ok(candidates
+            .into_iter()
+            .map(
+                |candidate| modules::claude_instance::ClaudeDesktopLaunchCandidate {
+                    target_type: candidate.target_type,
+                    label: candidate.label,
+                    target: candidate.target,
+                    source: candidate.source,
+                    supports_multi_instance: candidate.supports_multi_instance,
+                },
+            )
+            .collect());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let roots = scan_roots
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        Ok(modules::claude_instance::scan_claude_desktop_launch_targets(roots))
+    }
 }
 
 #[tauri::command]
-pub fn scan_app_launch_targets(
+pub async fn scan_app_launch_targets(
     app: String,
     scan_roots: Option<String>,
 ) -> Result<Vec<modules::process::AppLaunchCandidate>, String> {
@@ -3629,28 +3665,16 @@ pub fn scan_app_launch_targets(
         | "opencode" => {}
         _ => return Err("未知应用类型".to_string()),
     }
+    let _ = scan_roots;
 
-    let roots = scan_roots
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-
-    if app == "claude" {
-        return Ok(
-            modules::claude_instance::scan_claude_desktop_launch_targets(roots)
-                .into_iter()
-                .map(|candidate| modules::process::AppLaunchCandidate {
-                    target_type: candidate.target_type,
-                    label: candidate.label,
-                    target: candidate.target,
-                    source: candidate.source,
-                    supports_multi_instance: candidate.supports_multi_instance,
-                })
-                .collect(),
-        );
+    let task = tauri::async_runtime::spawn_blocking(move || {
+        modules::process::scan_app_launch_targets(app.as_str(), None)
+    });
+    match tokio::time::timeout(Duration::from_secs(2), task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(format!("检测运行中的应用任务失败: {error}")),
+        Err(_) => Err("检测运行中的应用超时，请重试".to_string()),
     }
-
-    modules::process::scan_app_launch_targets(app.as_str(), roots)
 }
 
 #[tauri::command]

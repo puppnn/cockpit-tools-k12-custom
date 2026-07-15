@@ -196,10 +196,22 @@ pub fn load_stored_account(account_id: &str) -> Option<ZedStoredAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<ZedStoredAccount>(&account_path, &content) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
-                let _ = save_stored_account_file(&account);
+                let account_for_rewrite = account.clone();
+                crate::modules::deferred_account_rewrite::schedule_account_rewrite_if_unchanged(
+                    "zed",
+                    account_for_rewrite.public_account.id.clone(),
+                    account_path.clone(),
+                    content.as_bytes(),
+                    move || {
+                        crate::modules::secure_account_storage::serialize_account_file(
+                            "zed",
+                            &account_for_rewrite,
+                        )
+                    },
+                );
             }
             Some(account)
         }
@@ -218,7 +230,8 @@ fn save_stored_account_file(account: &ZedStoredAccount) -> Result<(), String> {
 fn delete_account_file(account_id: &str) -> Result<(), String> {
     let path = resolve_account_file_path(account_id)?;
     if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("删除账号文件失败: {}", e))?;
+        crate::modules::atomic_write::remove_file_locked(&path)
+            .map_err(|e| format!("删除账号文件失败: {}", e))?;
     }
     Ok(())
 }
@@ -1048,11 +1061,23 @@ pub fn clear_current_runtime_account() -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
+const SECURITY_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(target_os = "macos")]
 fn security_command_output(args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("security")
-        .args(args)
-        .output()
-        .map_err(|e| format!("执行 security 命令失败: {}", e))
+    let mut command = Command::new("security");
+    command.args(args);
+    crate::modules::process_timeout::output_with_timeout(&mut command, SECURITY_COMMAND_TIMEOUT)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::TimedOut {
+                format!(
+                    "执行 security 命令超时({:?}): args={:?}",
+                    SECURITY_COMMAND_TIMEOUT, args
+                )
+            } else {
+                format!("执行 security 命令失败: {}", e)
+            }
+        })
 }
 
 #[cfg(target_os = "macos")]

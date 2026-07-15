@@ -251,6 +251,7 @@ export function isCodexOverviewAccountAbnormal(
 
   return (
     statusCode === "401" ||
+    errorCode === "deactivated_workspace" ||
     errorCode === "refresh_token_reused" ||
     errorCode === "refresh_token_expired" ||
     errorCode === "refresh_token_invalidated" ||
@@ -258,6 +259,7 @@ export function isCodexOverviewAccountAbnormal(
     errorCode === "invalid_grant" ||
     errorCode === "invalid_token" ||
     lowerRawMessage.includes("refresh_token_reused") ||
+    lowerRawMessage.includes("deactivated_workspace") ||
     lowerRawMessage.includes("refresh_token_expired") ||
     lowerRawMessage.includes("refresh_token_invalidated") ||
     lowerRawMessage.includes("token_invalidated") ||

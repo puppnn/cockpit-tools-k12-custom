@@ -79,6 +79,10 @@ import {
   emitActivePlatformFocus,
   resolvePlatformIdFromPage,
 } from './utils/accountSyncEvents';
+import {
+  CUSTOM_BUILD_REPOSITORY_URL,
+  OFFICIAL_UPDATE_INSTALL_ALLOWED,
+} from './utils/customBuild';
 
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
@@ -1470,6 +1474,10 @@ function MainApp() {
   ]);
 
   const handleApplyPendingUpdate = useCallback(async () => {
+    if (!OFFICIAL_UPDATE_INSTALL_ALLOWED) {
+      writeUpdateLog('warn', '定制版已阻止安装上游官方二进制');
+      return;
+    }
     const targetVersion = updateAction.version || silentUpdateVersion || '';
     const shouldInstall = updateAction.state === 'ready'
       ? updateAction.requiresInstall
@@ -1536,6 +1544,9 @@ function MainApp() {
   ]);
 
   const runLinuxManagedUpdate = useCallback(async (expectedVersion: string) => {
+    if (!OFFICIAL_UPDATE_INSTALL_ALLOWED) {
+      throw new Error('Custom build blocks installation of upstream official binaries');
+    }
     setUpdateRetryStatus('');
     setUpdateDownloadError('');
     setUpdateErrorDetails('');
@@ -1617,6 +1628,9 @@ function MainApp() {
   ]);
 
   const runSharedUpdateDownload = useCallback(async (expectedVersion: string) => {
+    if (!OFFICIAL_UPDATE_INSTALL_ALLOWED) {
+      throw new Error('Custom build blocks downloading upstream official binaries');
+    }
     const taskId = Date.now();
     updateDownloadTaskIdRef.current = taskId;
     updateCancelRequestedRef.current = false;
@@ -1841,6 +1855,11 @@ function MainApp() {
   }, [closeUpdaterHandle, updateAction.state, updateAction.version, writeUpdateLog]);
 
   const handleUpdatePrimaryAction = useCallback(async () => {
+    if (!OFFICIAL_UPDATE_INSTALL_ALLOWED) {
+      openUpdateNotificationDetails();
+      writeUpdateLog('info', '定制版更新保护已阻止上游官方安装入口');
+      return;
+    }
     if (updateAction.state === 'downloading') {
       openUpdateNotificationDetails();
       return;
@@ -2166,7 +2185,8 @@ function MainApp() {
         console.log(
           `[StartupPerf][UpdateCheck] get_update_settings completed in ${settingsInvokeElapsed.toFixed(2)}ms`,
         );
-        const autoInstall = settings?.auto_install ?? false;
+        const autoInstallConfigured = settings?.auto_install ?? false;
+        const autoInstall = autoInstallConfigured && OFFICIAL_UPDATE_INSTALL_ALLOWED;
         const remindOnUpdate = settings?.remind_on_update ?? true;
         const skippedVersion = (settings?.skipped_version ?? '').trim();
         const remoteConfigState = await fetchRemoteConfigState(false);
@@ -2175,7 +2195,7 @@ function MainApp() {
         setUpdateRemindersEnabled(remindOnUpdate);
         writeUpdateLog(
           'info',
-          `读取更新设置: auto_install=${autoInstall}, update_prompt_mode=${updatePromptMode}；启动始终执行更新检查`,
+          `读取更新设置: auto_install_configured=${autoInstallConfigured}, auto_install_effective=${autoInstall}, update_prompt_mode=${updatePromptMode}；启动始终执行更新检查`,
         );
 
         writeUpdateLog('info', '启动检查立即执行');
@@ -3598,6 +3618,8 @@ function MainApp() {
             onCancelUpdate={cancelUpdateDownload}
             onSkipUpdate={handleSkipUpdateVersion}
             onClose={closeUpdateNotification}
+            officialInstallBlocked={!OFFICIAL_UPDATE_INSTALL_ALLOWED}
+            customBuildRepositoryUrl={CUSTOM_BUILD_REPOSITORY_URL}
           />
         </Suspense>
         </div>

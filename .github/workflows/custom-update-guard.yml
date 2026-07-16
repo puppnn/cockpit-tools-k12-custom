@@ -1,0 +1,22 @@
+name: Custom update guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/**
+
+jobs:
+  verify-update-guard:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify custom updater invariants
+        run: node --test scripts/test-custom-update-guard.mjs
+      - name: Verify native custom-build policy
+        run: cargo test --manifest-path src-tauri/Cargo.toml custom_build --lib

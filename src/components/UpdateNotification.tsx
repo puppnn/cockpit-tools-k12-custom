@@ -1,5 +1,14 @@
 import { useState, useMemo, useCallback } from 'react';
-import { X, Download, Sparkles, RefreshCw, Check, XCircle } from 'lucide-react';
+import {
+  Check,
+  Download,
+  ExternalLink,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useEscClose } from '../hooks/useEscClose';
@@ -41,6 +50,8 @@ interface UpdateNotificationProps {
   onPrimaryAction?: () => Promise<void> | void;
   onCancelUpdate?: () => Promise<void> | void;
   onSkipUpdate?: () => Promise<void> | void;
+  officialInstallBlocked?: boolean;
+  customBuildRepositoryUrl?: string;
 }
 
 export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
@@ -58,6 +69,8 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
   onPrimaryAction,
   onCancelUpdate,
   onSkipUpdate,
+  officialInstallBlocked = false,
+  customBuildRepositoryUrl = '',
 }) => {
   const { t, i18n } = useTranslation();
 
@@ -114,6 +127,17 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
         window.open(updateInfo.download_url, '_blank');
       }
       onClose();
+    }
+  };
+
+  const handleOpenCustomBuildRepository = async () => {
+    if (!customBuildRepositoryUrl) {
+      return;
+    }
+    try {
+      await openUrl(customBuildRepositoryUrl);
+    } catch {
+      window.open(customBuildRepositoryUrl, '_blank');
     }
   };
 
@@ -265,6 +289,18 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
             {t('update_notification.message', { current: updateInfo.current_version })}
           </p>
 
+          {officialInstallBlocked && (
+            <div className="update-status update-status-retrying">
+              <ShieldCheck size={16} />
+              <span>
+                {t(
+                  'update_notification.customBuildProtected',
+                  '这是定制版。为避免覆盖本地功能，应用内不会安装上游官方二进制。请先在定制仓库合并并重新构建。',
+                )}
+              </span>
+            </div>
+          )}
+
           {isDownloading && (
             <div className="update-progress-container">
               <div className="update-progress-bar-row">
@@ -367,7 +403,16 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
               {t('update_notification.skipThisVersion')}
             </button>
           )}
-          {isError ? (
+          {officialInstallBlocked ? (
+            <button
+              className="btn btn-primary"
+              onClick={handleOpenCustomBuildRepository}
+              disabled={!customBuildRepositoryUrl}
+            >
+              <ExternalLink size={16} />
+              {t('update_notification.openCustomBuild', '查看定制仓库')}
+            </button>
+          ) : isError ? (
             <>
               <button className="btn btn-secondary" onClick={handleRetryDownload}>
                 <RefreshCw size={16} />

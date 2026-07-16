@@ -166,5 +166,6 @@ pub async fn install_linux_update(
     app: tauri::AppHandle,
     expected_version: Option<String>,
 ) -> Result<(), String> {
+    crate::modules::custom_build::ensure_official_update_install_allowed()?;
     linux_updater::install_linux_update(app, expected_version).await
 }

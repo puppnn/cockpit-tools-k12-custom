@@ -1382,6 +1382,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			if directive.StopCredentialFallback {
 				return nil, newSelectionFailureError(errStream)
 			}
+			if cliproxyexecutor.IsCredentialFallbackSafe(errStream) {
+				// A conclusive provider rejection may move to another credential,
+				// but must not try another model on the same credential.
+				return nil, errStream
+			}
 			if streamRetryBlocked(errStream, opts) {
 				return nil, newSelectionFailureError(errStream)
 			}
@@ -1961,6 +1966,10 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				if directive.StopCredentialFallback {
 					return cliproxyexecutor.Response{}, newSelectionFailureError(errExec)
 				}
+				if cliproxyexecutor.IsCredentialFallbackSafe(errExec) {
+					authErr = errExec
+					break
+				}
 				if isRequestInvalidError(errExec) {
 					return cliproxyexecutor.Response{}, errExec
 				}
@@ -2155,6 +2164,13 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 			if selectionStopsCredentialFallback(errStream) {
 				return nil, errStream
+			}
+			if cliproxyexecutor.IsCredentialFallbackSafe(errStream) {
+				lastErr = errStream
+				if homeMode {
+					homeAuthCount++
+				}
+				continue
 			}
 			if streamRetryBlocked(errStream, opts) {
 				return nil, newSelectionFailureError(errStream)

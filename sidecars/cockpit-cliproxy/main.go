@@ -7049,7 +7049,8 @@ func (l *upstreamAttemptLifecycle) complete(err error, canceled, cancellationUnc
 	var payload *upstreamAttemptPayload
 	l.mu.Lock()
 	known, safe := cliproxyexecutor.UpstreamAttemptRetrySafety(err)
-	terminal := err == nil || !known || !safe
+	credentialFallbackSafe := cliproxyexecutor.IsCredentialFallbackSafe(err)
+	terminal := err == nil || (!credentialFallbackSafe && (!known || !safe))
 	if l.current == nil || l.current.CompletedAt == 0 {
 		l.closed = terminal
 	} else {
@@ -7081,7 +7082,7 @@ func (l *upstreamAttemptLifecycle) complete(err error, canceled, cancellationUnc
 				changed = true
 			}
 		}
-		possibleBillable := cliproxyexecutor.IsPossibleBillableRequest(err) || (err != nil && !known) || (known && !safe)
+		possibleBillable := !credentialFallbackSafe && (cliproxyexecutor.IsPossibleBillableRequest(err) || (err != nil && !known) || (known && !safe))
 		if possibleBillable && !updated.PossibleBillableRequest {
 			updated.PossibleBillableRequest = true
 			changed = true

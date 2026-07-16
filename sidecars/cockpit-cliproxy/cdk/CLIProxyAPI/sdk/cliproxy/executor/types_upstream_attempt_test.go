@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 )
 
 type upstreamAttemptStatusError struct {
@@ -13,6 +14,18 @@ type upstreamAttemptStatusError struct {
 
 func (e upstreamAttemptStatusError) Error() string   { return http.StatusText(e.status) }
 func (e upstreamAttemptStatusError) StatusCode() int { return e.status }
+
+type credentialFallbackStatusError struct {
+	status     int
+	retryAfter time.Duration
+}
+
+func (e credentialFallbackStatusError) Error() string   { return http.StatusText(e.status) }
+func (e credentialFallbackStatusError) StatusCode() int { return e.status }
+func (e credentialFallbackStatusError) Headers() http.Header {
+	return http.Header{"X-Test": {"preserved"}}
+}
+func (e credentialFallbackStatusError) RetryAfter() *time.Duration { return &e.retryAfter }
 
 func TestUpstreamAttemptErrorRetrySafety(t *testing.T) {
 	tests := []struct {
@@ -85,5 +98,36 @@ func TestUpstreamAttemptRetrySafetyUnknownError(t *testing.T) {
 	known, safe := UpstreamAttemptRetrySafety(errors.New("unclassified"))
 	if known || safe {
 		t.Fatalf("unknown error classified as known=%v safe=%v", known, safe)
+	}
+}
+
+func TestCredentialFallbackSafeDoesNotRelaxTransportSafetyOrMarkBillable(t *testing.T) {
+	rejected := MarkCredentialFallbackSafe(credentialFallbackStatusError{
+		status:     http.StatusTooManyRequests,
+		retryAfter: 7 * time.Second,
+	})
+	err := WrapUpstreamAttemptError(rejected, 64, true, false)
+
+	if !IsCredentialFallbackSafe(err) {
+		t.Fatal("explicit rejection marker was not preserved through attempt annotation")
+	}
+	known, safe := UpstreamAttemptRetrySafety(err)
+	if !known || safe {
+		t.Fatalf("transport safety was widened: known=%v safe=%v", known, safe)
+	}
+	if IsPossibleBillableRequest(err) {
+		t.Fatal("explicit credential rejection was marked possibly billable")
+	}
+	statusErr, ok := rejected.(StatusError)
+	if !ok || statusErr.StatusCode() != http.StatusTooManyRequests {
+		t.Fatalf("status was not preserved: %#v", rejected)
+	}
+	headerErr, ok := rejected.(interface{ Headers() http.Header })
+	if !ok || headerErr.Headers().Get("X-Test") != "preserved" {
+		t.Fatalf("headers were not preserved: %#v", rejected)
+	}
+	retryErr, ok := rejected.(interface{ RetryAfter() *time.Duration })
+	if !ok || retryErr.RetryAfter() == nil || *retryErr.RetryAfter() != 7*time.Second {
+		t.Fatalf("retry metadata was not preserved: %#v", rejected)
 	}
 }

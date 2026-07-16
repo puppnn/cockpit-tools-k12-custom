@@ -55,6 +55,15 @@ impl Default for UpdateSettings {
     }
 }
 
+fn apply_custom_build_policy(settings: &mut UpdateSettings) -> bool {
+    if !crate::modules::custom_build::OFFICIAL_UPDATE_INSTALL_ALLOWED && settings.auto_install {
+        settings.auto_install = false;
+        true
+    } else {
+        false
+    }
+}
+
 /// Version jump info returned when app was updated since last run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionJumpInfo {
@@ -399,6 +408,8 @@ fn load_update_settings_unlocked() -> Result<UpdateSettings, String> {
         should_persist = true;
     }
 
+    should_persist |= apply_custom_build_policy(&mut settings);
+
     if should_persist {
         let _ = save_update_settings_unlocked(&settings);
     }
@@ -430,7 +441,9 @@ pub fn save_update_settings(settings: &UpdateSettings) -> Result<(), String> {
     let _guard = update_settings_lock()
         .lock()
         .map_err(|_| "Update settings lock poisoned".to_string())?;
-    save_update_settings_unlocked(settings)
+    let mut settings = settings.clone();
+    apply_custom_build_policy(&mut settings);
+    save_update_settings_unlocked(&settings)
 }
 
 pub fn patch_update_settings<F>(patch: F) -> Result<UpdateSettings, String>
@@ -442,6 +455,7 @@ where
         .map_err(|_| "Update settings lock poisoned".to_string())?;
     let mut settings = load_update_settings_unlocked()?;
     patch(&mut settings);
+    apply_custom_build_policy(&mut settings);
     save_update_settings_unlocked(&settings)?;
     Ok(settings)
 }
@@ -542,6 +556,18 @@ mod tests {
 
         settings.auto_check = false;
         assert!(!should_check_for_updates(&settings));
+    }
+
+    #[test]
+    fn custom_build_policy_disables_auto_install() {
+        let mut settings = UpdateSettings {
+            auto_install: true,
+            ..UpdateSettings::default()
+        };
+
+        assert!(apply_custom_build_policy(&mut settings));
+        assert!(!settings.auto_install);
+        assert!(!apply_custom_build_policy(&mut settings));
     }
 
     #[test]

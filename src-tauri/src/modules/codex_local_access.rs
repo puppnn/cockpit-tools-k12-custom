@@ -1058,9 +1058,19 @@ fn current_upstream_http_client_signature(
         };
     }
 
+    system_auto_upstream_http_client_signature(
+        system_proxy_url_for_target(DEFAULT_OPENAI_RESPONSES_BASE_URL),
+        connect_timeout_ms,
+    )
+}
+
+fn system_auto_upstream_http_client_signature(
+    proxy_url: Option<String>,
+    connect_timeout_ms: u64,
+) -> UpstreamHttpClientSignature {
     UpstreamHttpClientSignature {
         proxy_source: UpstreamProxySource::SystemAuto,
-        proxy_url: None,
+        proxy_url,
         connect_timeout_ms,
     }
 }
@@ -1137,8 +1147,12 @@ fn log_upstream_http_client_signature(signature: &UpstreamHttpClientSignature) {
             "[CodexLocalAccess][legacy] 上游 HTTP 客户端已使用环境代理 proxy_url={}，API 服务上游请求不应用 no_proxy 绕过",
             redact_proxy_url_for_log(proxy_url)
         )),
+        (UpstreamProxySource::SystemAuto, Some(proxy_url)) => logger::log_info(&format!(
+            "[CodexLocalAccess][legacy] 已从系统代理配置解析上游代理 proxy_url={}",
+            redact_proxy_url_for_log(proxy_url)
+        )),
         (UpstreamProxySource::SystemAuto, None) => logger::log_info(
-            "[CodexLocalAccess][legacy] 未配置 API 服务代理、全局代理或环境代理，已回退到 reqwest 系统自动代理配置",
+            "[CodexLocalAccess][legacy] 未解析到系统代理配置，上游请求将直接连接",
         ),
         _ => logger::log_warn("[CodexLocalAccess][legacy] 上游 HTTP 客户端代理状态异常"),
     }
@@ -10757,13 +10771,10 @@ fn sidecar_codex_key_config_value(
 fn sidecar_effective_proxy_signature(
     collection: &CodexLocalAccessCollection,
 ) -> Result<UpstreamHttpClientSignature, String> {
-    let mut signature = current_upstream_http_client_signature(
+    let signature = current_upstream_http_client_signature(
         collection.upstream_proxy_url.as_deref(),
         DEFAULT_UPSTREAM_CONNECT_TIMEOUT,
     );
-    if signature.proxy_source == UpstreamProxySource::SystemAuto && signature.proxy_url.is_none() {
-        signature.proxy_url = system_proxy_url_for_target(DEFAULT_OPENAI_RESPONSES_BASE_URL);
-    }
     if let Some(proxy_url) = signature.proxy_url.as_deref() {
         Proxy::all(proxy_url).map_err(|e| match signature.proxy_source {
             UpstreamProxySource::ApiService => format!("API 代理地址无效: {}", e),
@@ -20318,9 +20329,13 @@ fn gateway_proxy_diagnostics_message(diagnostics: &UpstreamProxyDiagnostics) -> 
                 "当前 API 代理地址为空，且全局代理未启用或未配置，已尝试使用环境代理。".to_string()
             }
         },
-        UpstreamProxySource::SystemAuto => {
-            "当前 API 代理地址为空，且全局代理与环境代理均未配置，已回退到系统自动代理配置；如仍失败，请在 API 代理地址中填写 Clash 的 HTTP/mixed 端口。".to_string()
-        }
+        UpstreamProxySource::SystemAuto => match diagnostics.proxy_url.as_deref() {
+            Some(proxy_url) => format!(
+                "当前 API 代理地址为空，且全局代理与环境代理均未配置，已使用系统代理：{}。",
+                proxy_url
+            ),
+            None => "当前 API 代理地址为空，且未解析到全局、环境或系统代理；如仍失败，请在 API 代理地址中填写 Clash 的 HTTP/mixed 端口。".to_string(),
+        },
     }
 }
 
@@ -24918,6 +24933,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upstream_http_client_uses_resolved_system_proxy() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let bytes_read = stream.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..bytes_read]);
+            assert!(request.contains("POST http://wakeup.invalid/test"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                )
+                .await
+                .unwrap();
+        });
+
+        let signature = super::system_auto_upstream_http_client_signature(
+            Some(format!("http://{}", address)),
+            1_000,
+        );
+        let client = super::build_upstream_http_client(&signature).unwrap();
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.post("http://wakeup.invalid/test").body("{}").send(),
+        )
+        .await
+        .expect("request through the resolved system proxy timed out")
+        .expect("request did not use the resolved system proxy");
+
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn read_http_request_rejects_declared_request_above_limit() {
         let (mut client, mut server) = tokio::io::duplex(4096);
         let request = format!(
@@ -25389,6 +25439,36 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             system_proxy_value_url("https", "https://proxy.local:8443").as_deref(),
             Some("https://proxy.local:8443")
         );
+    }
+
+    #[test]
+    fn system_auto_http_client_signature_uses_resolved_system_proxy() {
+        let signature = super::system_auto_upstream_http_client_signature(
+            Some("http://127.0.0.1:7897".to_string()),
+            21_000,
+        );
+
+        assert_eq!(
+            signature.proxy_source,
+            super::UpstreamProxySource::SystemAuto
+        );
+        assert_eq!(
+            signature.proxy_url.as_deref(),
+            Some("http://127.0.0.1:7897")
+        );
+        assert_eq!(signature.connect_timeout_ms, 21_000);
+    }
+
+    #[test]
+    fn system_auto_http_client_signature_allows_direct_fallback() {
+        let signature = super::system_auto_upstream_http_client_signature(None, 21_000);
+
+        assert_eq!(
+            signature.proxy_source,
+            super::UpstreamProxySource::SystemAuto
+        );
+        assert_eq!(signature.proxy_url, None);
+        assert_eq!(signature.connect_timeout_ms, 21_000);
     }
 
     #[test]

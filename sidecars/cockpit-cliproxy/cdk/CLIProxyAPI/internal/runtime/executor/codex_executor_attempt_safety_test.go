@@ -134,6 +134,67 @@ func TestCodexExecutorExecuteStreamClassifiesPostSendEOFAsPossiblyBillable(t *te
 	}
 }
 
+func TestCodexExecutorExecuteStreamMarksOnlyExplicitUsageLimit429ForCredentialFallback(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       int
+		body         string
+		wantFallback bool
+		wantBillable bool
+	}{
+		{
+			name:         "usage limit rejection",
+			status:       http.StatusTooManyRequests,
+			body:         `{"error":{"type":"usage_limit_reached","message":"quota exhausted","resets_in_seconds":7}}`,
+			wantFallback: true,
+		},
+		{
+			name:         "ordinary 429",
+			status:       http.StatusTooManyRequests,
+			body:         `{"error":{"type":"rate_limit_error","message":"slow down"}}`,
+			wantBillable: true,
+		},
+		{
+			name:         "usage shaped 503",
+			status:       http.StatusServiceUnavailable,
+			body:         `{"error":{"type":"usage_limit_reached","message":"unavailable"}}`,
+			wantBillable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rt := codexSafetyRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if _, err := io.Copy(io.Discard, req.Body); err != nil {
+					return nil, err
+				}
+				return &http.Response{
+					StatusCode: tt.status,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(tt.body)),
+					Request:    req,
+				}, nil
+			})
+
+			executor := NewCodexExecutor(&config.Config{})
+			_, err := executor.ExecuteStream(codexSafetyContext(rt), codexSafetyAuth(), codexSafetyRequest(), codexSafetyOptions())
+			if err == nil {
+				t.Fatal("expected upstream rejection")
+			}
+			if got := cliproxyexecutor.IsCredentialFallbackSafe(err); got != tt.wantFallback {
+				t.Fatalf("credential fallback safe = %v, want %v; err=%v", got, tt.wantFallback, err)
+			}
+			known, safe := cliproxyexecutor.UpstreamAttemptRetrySafety(err)
+			if !known || safe {
+				t.Fatalf("transport safety = known:%v safe:%v; err=%v", known, safe, err)
+			}
+			if got := cliproxyexecutor.IsPossibleBillableRequest(err); got != tt.wantBillable {
+				t.Fatalf("possible billable = %v, want %v; err=%v", got, tt.wantBillable, err)
+			}
+		})
+	}
+}
+
 func TestCodexExecutorExecuteNonStreamClassifiesPostSendEOFAsPossiblyBillable(t *testing.T) {
 	var calls atomic.Int32
 	rt := codexSafetyRoundTripFunc(func(req *http.Request) (*http.Response, error) {

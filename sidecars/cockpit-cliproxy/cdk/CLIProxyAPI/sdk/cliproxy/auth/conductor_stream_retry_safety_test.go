@@ -2,12 +2,15 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
@@ -29,6 +32,13 @@ func (e *streamRetrySafetyExecutor) Execute(_ context.Context, auth *Auth, _ cli
 	e.mu.Lock()
 	e.calls = append(e.calls, authID)
 	e.mu.Unlock()
+	if e.mode == "always_quota_rejected" {
+		err := cliproxyexecutor.MarkCredentialFallbackSafe(&Error{
+			HTTPStatus: http.StatusTooManyRequests,
+			Message:    `{"error":{"type":"usage_limit_reached"}}`,
+		})
+		return cliproxyexecutor.Response{}, cliproxyexecutor.WrapUpstreamAttemptError(err, 32, true, false)
+	}
 	if e.mode == "always_post_send" {
 		return cliproxyexecutor.Response{}, cliproxyexecutor.WrapUpstreamAttemptError(io.ErrUnexpectedEOF, 32, false, false)
 	}
@@ -37,6 +47,12 @@ func (e *streamRetrySafetyExecutor) Execute(_ context.Context, auth *Auth, _ cli
 		switch e.mode {
 		case "pre_send":
 			return cliproxyexecutor.Response{}, cliproxyexecutor.WrapUpstreamAttemptError(errors.New("dial failed"), 0, false, false)
+		case "quota_rejected":
+			err := cliproxyexecutor.MarkCredentialFallbackSafe(&Error{
+				HTTPStatus: http.StatusTooManyRequests,
+				Message:    `{"error":{"type":"usage_limit_reached"}}`,
+			})
+			return cliproxyexecutor.Response{}, cliproxyexecutor.WrapUpstreamAttemptError(err, 32, true, false)
 		case "post_send":
 			return cliproxyexecutor.Response{}, cliproxyexecutor.WrapUpstreamAttemptError(io.ErrUnexpectedEOF, 32, false, false)
 		case "status_503":
@@ -54,6 +70,13 @@ func (e *streamRetrySafetyExecutor) ExecuteStream(_ context.Context, auth *Auth,
 	e.mu.Lock()
 	e.calls = append(e.calls, authID)
 	e.mu.Unlock()
+	if e.mode == "always_quota_rejected" {
+		err := cliproxyexecutor.MarkCredentialFallbackSafe(&Error{
+			HTTPStatus: http.StatusTooManyRequests,
+			Message:    `{"error":{"type":"usage_limit_reached"}}`,
+		})
+		return nil, cliproxyexecutor.WrapUpstreamAttemptError(err, 32, true, false)
+	}
 	if e.mode == "always_post_send" {
 		return nil, cliproxyexecutor.WrapUpstreamAttemptError(io.ErrUnexpectedEOF, 32, false, false)
 	}
@@ -62,6 +85,12 @@ func (e *streamRetrySafetyExecutor) ExecuteStream(_ context.Context, auth *Auth,
 		switch e.mode {
 		case "pre_send":
 			return nil, cliproxyexecutor.WrapUpstreamAttemptError(errors.New("dial failed"), 0, false, false)
+		case "quota_rejected":
+			err := cliproxyexecutor.MarkCredentialFallbackSafe(&Error{
+				HTTPStatus: http.StatusTooManyRequests,
+				Message:    `{"error":{"type":"usage_limit_reached"}}`,
+			})
+			return nil, cliproxyexecutor.WrapUpstreamAttemptError(err, 32, true, false)
 		case "post_send":
 			return nil, cliproxyexecutor.WrapUpstreamAttemptError(io.ErrUnexpectedEOF, 32, false, false)
 		case "status_503":
@@ -98,12 +127,39 @@ func (e *streamRetrySafetyExecutor) Calls() []string {
 	return append([]string(nil), e.calls...)
 }
 
+type streamRetrySafetyHomeDispatcher struct {
+	mu     sync.Mutex
+	counts []int
+}
+
+func (d *streamRetrySafetyHomeDispatcher) HeartbeatOK() bool { return true }
+
+func (d *streamRetrySafetyHomeDispatcher) RPopAuth(_ context.Context, requestedModel string, _ string, _ http.Header, count int) ([]byte, error) {
+	d.mu.Lock()
+	d.counts = append(d.counts, count)
+	d.mu.Unlock()
+	authID := "aa-first"
+	if count > 1 {
+		authID = "bb-second"
+	}
+	return json.Marshal(homeAuthDispatchResponse{
+		Model: requestedModel,
+		Auth:  Auth{ID: authID, Provider: "codex", Status: StatusActive},
+	})
+}
+
+func (d *streamRetrySafetyHomeDispatcher) Counts() []int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]int(nil), d.counts...)
+}
+
 func newStreamRetrySafetyManager(t *testing.T, mode string) (*Manager, *streamRetrySafetyExecutor) {
 	t.Helper()
 	const model = "gpt-5.4"
 	executor := &streamRetrySafetyExecutor{mode: mode, firstAuth: "aa-first"}
 	manager := NewManager(nil, &RoundRobinSelector{}, nil)
-	manager.SetRetryConfig(3, 0, 0)
+	manager.SetRetryConfig(3, 25*time.Millisecond, 0)
 	manager.RegisterExecutor(executor)
 
 	for _, authID := range []string{"aa-first", "bb-second"} {
@@ -144,6 +200,68 @@ func TestManagerExecuteStreamAllowsExplicitPreSendFallback(t *testing.T) {
 	got := executor.Calls()
 	if len(got) != 2 || got[0] != "aa-first" || got[1] != "bb-second" {
 		t.Fatalf("upstream calls = %v, want [aa-first bb-second]", got)
+	}
+}
+
+func TestManagerExecuteStreamAllowsExplicitQuotaRejectionFallback(t *testing.T) {
+	manager, executor := newStreamRetrySafetyManager(t, "quota_rejected")
+	result, err := manager.ExecuteStream(
+		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5.4"}, responsesSafetyOptions(),
+	)
+	if err != nil {
+		t.Fatalf("ExecuteStream: %v", err)
+	}
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("fallback stream error: %v", chunk.Err)
+		}
+	}
+	got := executor.Calls()
+	if len(got) != 2 || got[0] != "aa-first" || got[1] != "bb-second" {
+		t.Fatalf("quota rejection calls = %v, want [aa-first bb-second]", got)
+	}
+}
+
+func TestManagerExecuteStreamHomeQuotaRejectionAdvancesCredentialCount(t *testing.T) {
+	manager, executor := newStreamRetrySafetyManager(t, "quota_rejected")
+	manager.SetConfig(&internalconfig.Config{Home: internalconfig.HomeConfig{Enabled: true}})
+	dispatcher := &streamRetrySafetyHomeDispatcher{}
+	previousDispatcher := currentHomeDispatcher
+	currentHomeDispatcher = func() homeAuthDispatcher { return dispatcher }
+	t.Cleanup(func() { currentHomeDispatcher = previousDispatcher })
+
+	result, err := manager.ExecuteStream(
+		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5.4"}, responsesSafetyOptions(),
+	)
+	if err != nil {
+		t.Fatalf("ExecuteStream: %v", err)
+	}
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("fallback stream error: %v", chunk.Err)
+		}
+	}
+	if got := dispatcher.Counts(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("home credential counts = %v, want [1 2]", got)
+	}
+	if got := executor.Calls(); len(got) != 2 || got[0] != "aa-first" || got[1] != "bb-second" {
+		t.Fatalf("home quota rejection calls = %v, want [aa-first bb-second]", got)
+	}
+}
+
+func TestManagerExecuteStreamDoesNotRetryQuotaRejectionAfterCredentialsExhausted(t *testing.T) {
+	manager, executor := newStreamRetrySafetyManager(t, "always_quota_rejected")
+	result, err := manager.ExecuteStream(
+		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5.4"}, responsesSafetyOptions(),
+	)
+	if err == nil {
+		t.Fatalf("expected quota rejection, got result %#v", result)
+	}
+	if !cliproxyexecutor.IsCredentialFallbackSafe(err) {
+		t.Fatalf("terminal error lost credential-rejection marker: %v", err)
+	}
+	if got := executor.Calls(); len(got) != 2 {
+		t.Fatalf("exhausted credentials produced %d calls, want 2: %v", len(got), got)
 	}
 }
 
@@ -217,6 +335,32 @@ func TestManagerExecuteAllowsExplicitPreSendFallback(t *testing.T) {
 	got := executor.Calls()
 	if len(got) != 2 || got[0] != "aa-first" || got[1] != "bb-second" {
 		t.Fatalf("upstream calls = %v, want [aa-first bb-second]", got)
+	}
+}
+
+func TestManagerExecuteAllowsExplicitQuotaRejectionFallback(t *testing.T) {
+	manager, executor := newStreamRetrySafetyManager(t, "quota_rejected")
+	if _, err := manager.Execute(
+		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5.4"}, responsesNonStreamSafetyOptions(),
+	); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	got := executor.Calls()
+	if len(got) != 2 || got[0] != "aa-first" || got[1] != "bb-second" {
+		t.Fatalf("quota rejection calls = %v, want [aa-first bb-second]", got)
+	}
+}
+
+func TestManagerExecuteDoesNotRetryQuotaRejectionAfterCredentialsExhausted(t *testing.T) {
+	manager, executor := newStreamRetrySafetyManager(t, "always_quota_rejected")
+	_, err := manager.Execute(
+		context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-5.4"}, responsesNonStreamSafetyOptions(),
+	)
+	if err == nil || !cliproxyexecutor.IsCredentialFallbackSafe(err) {
+		t.Fatalf("terminal quota rejection classification = %v", err)
+	}
+	if got := executor.Calls(); len(got) != 2 {
+		t.Fatalf("exhausted credentials produced %d calls, want 2: %v", len(got), got)
 	}
 }
 

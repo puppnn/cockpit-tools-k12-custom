@@ -160,6 +160,84 @@ type StatusError interface {
 	StatusCode() int
 }
 
+// credentialFallbackSafe marks a provider rejection that conclusively did not
+// start billable work. It permits trying a different credential, but it does
+// not make the transport attempt retry-safe or permit replaying the same
+// credential after an ambiguous send failure.
+type credentialFallbackSafe interface {
+	credentialFallbackSafe()
+}
+
+type credentialFallbackSafeError struct {
+	cause error
+}
+
+func (e *credentialFallbackSafeError) Error() string {
+	if e == nil || e.cause == nil {
+		return "credential rejected upstream request"
+	}
+	return e.cause.Error()
+}
+
+func (e *credentialFallbackSafeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func (e *credentialFallbackSafeError) credentialFallbackSafe() {}
+
+func (e *credentialFallbackSafeError) StatusCode() int {
+	if e == nil || e.cause == nil {
+		return 0
+	}
+	var statusErr StatusError
+	if errors.As(e.cause, &statusErr) && statusErr != nil {
+		return statusErr.StatusCode()
+	}
+	return 0
+}
+
+func (e *credentialFallbackSafeError) Headers() http.Header {
+	if e == nil || e.cause == nil {
+		return nil
+	}
+	var headerErr interface{ Headers() http.Header }
+	if errors.As(e.cause, &headerErr) && headerErr != nil {
+		return headerErr.Headers()
+	}
+	return nil
+}
+
+func (e *credentialFallbackSafeError) RetryAfter() *time.Duration {
+	if e == nil || e.cause == nil {
+		return nil
+	}
+	var retryErr interface{ RetryAfter() *time.Duration }
+	if errors.As(e.cause, &retryErr) && retryErr != nil {
+		return retryErr.RetryAfter()
+	}
+	return nil
+}
+
+// MarkCredentialFallbackSafe marks an explicit provider rejection as safe for
+// selecting another credential within the same logical request.
+func MarkCredentialFallbackSafe(err error) error {
+	if err == nil || IsCredentialFallbackSafe(err) {
+		return err
+	}
+	return &credentialFallbackSafeError{cause: err}
+}
+
+// IsCredentialFallbackSafe reports whether an error permits trying a
+// different credential without treating the prior attempt as possibly
+// billable.
+func IsCredentialFallbackSafe(err error) bool {
+	var marker credentialFallbackSafe
+	return errors.As(err, &marker) && marker != nil
+}
+
 // UpstreamAttemptError records how far an upstream HTTP attempt progressed.
 // A request is retry-safe only when the transport did not consume any request
 // body bytes and no response was observed. Body consumption is deliberately a
@@ -194,7 +272,7 @@ func (e *UpstreamAttemptError) RetrySafe() bool {
 
 // PossibleBillableRequest reports whether the upstream may have accepted work.
 func (e *UpstreamAttemptError) PossibleBillableRequest() bool {
-	return e != nil && (e.RequestBodyBytesRead > 0 || e.ResponseReceived)
+	return e != nil && !IsCredentialFallbackSafe(e.Cause) && (e.RequestBodyBytesRead > 0 || e.ResponseReceived)
 }
 
 // StatusCode preserves HTTP status information for callers that use a direct
@@ -272,6 +350,9 @@ func UpstreamAttemptRetrySafety(err error) (known, safe bool) {
 // IsPossibleBillableRequest reports whether a failed attempt may still have
 // executed upstream even though no usage response was available.
 func IsPossibleBillableRequest(err error) bool {
+	if IsCredentialFallbackSafe(err) {
+		return false
+	}
 	var attemptErr *UpstreamAttemptError
 	return errors.As(err, &attemptErr) && attemptErr != nil && attemptErr.PossibleBillableRequest()
 }

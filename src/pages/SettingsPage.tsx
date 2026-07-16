@@ -32,6 +32,12 @@ import {
   resolveUpdaterDownloadUrl,
 } from '../utils/updaterReleaseNotes';
 import { applyReducedMotion } from '../utils/reducedMotion';
+import {
+  CUSTOM_BUILD_ID,
+  CUSTOM_BUILD_LABEL,
+  CUSTOM_BUILD_REPOSITORY_URL,
+  OFFICIAL_UPDATE_INSTALL_ALLOWED,
+} from '../utils/customBuild';
 import { getSubscriptionTier } from '../utils/account';
 import type { Account } from '../types/account';
 import type { CodexAccount } from '../types/codex';
@@ -87,9 +93,9 @@ import { SettingsWebdavSyncSection } from '../components/SettingsWebdavSyncSecti
 import { CodexSshSyncSettingsControl } from '../components/codex/CodexSshSyncSettingsControl';
 import { useEscClose } from '../hooks/useEscClose';
 import './settings/Settings.css';
-import { 
+import {
   Github, User, Rocket, Save, FolderOpen,
-  AlertCircle, RefreshCw, Heart, MessageSquare, FileText, Download, X
+  AlertCircle, RefreshCw, Heart, MessageSquare, FileText, Download, ExternalLink, X
 } from 'lucide-react';
 
 
@@ -778,7 +784,9 @@ export function SettingsPage() {
         skipped_version?: string;
       }>('get_update_settings');
       if (!autoInstallTouchedRef.current) {
-        setAutoInstall(Boolean(settings?.auto_install));
+        setAutoInstall(
+          OFFICIAL_UPDATE_INSTALL_ALLOWED && Boolean(settings?.auto_install),
+        );
       }
       if (!updateRemindersTouchedRef.current) {
         setUpdateRemindersEnabled(settings?.remind_on_update ?? true);
@@ -1422,7 +1430,9 @@ export function SettingsPage() {
           auto_install?: boolean;
           remind_on_update?: boolean;
         }>('get_update_settings');
-        setAutoInstall(Boolean(settings.auto_install));
+        setAutoInstall(
+          OFFICIAL_UPDATE_INSTALL_ALLOWED && Boolean(settings.auto_install),
+        );
         setUpdateRemindersEnabled(settings.remind_on_update ?? true);
       } catch (reloadError) {
         console.error('Failed to reload update settings:', reloadError);
@@ -2981,13 +2991,15 @@ export function SettingsPage() {
 
   useEscClose(releaseHistoryOpen, handleCloseReleaseHistory);
 
-  const handleDownloadReleaseVersion = async (version: string) => {
+  const handleOpenReleaseVersion = async (version: string) => {
     const targetVersion = String(version || '').trim();
     if (!targetVersion) {
       return;
     }
 
-    const releaseUrl = resolveUpdaterDownloadUrl(targetVersion);
+    const releaseUrl = OFFICIAL_UPDATE_INSTALL_ALLOWED
+      ? resolveUpdaterDownloadUrl(targetVersion)
+      : CUSTOM_BUILD_REPOSITORY_URL;
     try {
       await openUrl(releaseUrl);
     } catch {
@@ -3258,7 +3270,7 @@ export function SettingsPage() {
                   <select
                     className="settings-select"
                     value={autoInstall ? 'true' : 'false'}
-                    disabled={!autoInstallLoaded}
+                    disabled={!autoInstallLoaded || !OFFICIAL_UPDATE_INSTALL_ALLOWED}
                     onChange={(e) => {
                       autoInstallTouchedRef.current = true;
                       setAutoInstall(e.target.value === 'true');
@@ -7374,6 +7386,9 @@ export function SettingsPage() {
                 <h2>{t('settings.about.appName')}</h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div className="version-tag">{appVersion}</div>
+                  <div className="version-tag" title={CUSTOM_BUILD_ID}>
+                    {CUSTOM_BUILD_LABEL}
+                  </div>
                   <button 
                     className="btn btn-sm btn-ghost"
                     onClick={handleCheckUpdate}
@@ -7499,12 +7514,18 @@ export function SettingsPage() {
                         <button
                           className="settings-release-history-download-btn"
                           onClick={() => {
-                            void handleDownloadReleaseVersion(item.version);
+                            void handleOpenReleaseVersion(item.version);
                           }}
                           type="button"
                         >
-                          <Download size={12} />
-                          {t('settings.about.downloadThisVersion', '下载此版本')}
+                          {OFFICIAL_UPDATE_INSTALL_ALLOWED ? (
+                            <Download size={12} />
+                          ) : (
+                            <ExternalLink size={12} />
+                          )}
+                          {OFFICIAL_UPDATE_INSTALL_ALLOWED
+                            ? t('settings.about.downloadThisVersion', '下载此版本')
+                            : t('settings.about.openCustomBuildRepository', '查看定制仓库')}
                         </button>
                       </div>
                     </div>

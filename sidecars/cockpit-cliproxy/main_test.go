@@ -2866,6 +2866,86 @@ func TestUpstreamAttemptLifecycleCountsTransportStartsNotAuthSelections(t *testi
 	}
 }
 
+func TestUpstreamAttemptLifecycleTracksCredentialRejectionFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	emitter := newEventEmitter(&output)
+	server := &relayServer{
+		emitter: emitter,
+		manifest: &manifest{accountByAuthID: map[string]*accountSpec{
+			"auth-1": {ID: "account-1", Email: "one@example.com", AuthID: "auth-1"},
+			"auth-2": {ID: "account-2", Email: "two@example.com", AuthID: "auth-2"},
+		}},
+		policy: &requestPolicy{tracker: newRequestUsageTracker()},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request = request.WithContext(internallogging.WithRequestID(request.Context(), "logical-quota-failover"))
+	lifecycle := newUpstreamAttemptLifecycle(server, c, "gpt-5.5")
+
+	lifecycle.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-1", AttemptID: 1})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-1",
+		At:     time.Now(),
+	})
+	rejected := cliproxyexecutor.MarkCredentialFallbackSafe(testExecutorStatusError{status: http.StatusTooManyRequests})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:                cliproxyexecutor.UpstreamAttemptFinished,
+		AuthID:               "auth-1",
+		At:                   time.Now(),
+		RequestBodyBytesRead: 64,
+		ResponseReceived:     true,
+		StatusCode:           http.StatusTooManyRequests,
+		Err:                  cliproxyexecutor.WrapUpstreamAttemptError(rejected, 64, true, false),
+	})
+
+	lifecycle.selected(cliproxyexecutor.AuthSelection{AuthID: "auth-2", AttemptID: 2})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:  cliproxyexecutor.UpstreamAttemptStarted,
+		AuthID: "auth-2",
+		At:     time.Now(),
+	})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:            cliproxyexecutor.UpstreamAttemptResponded,
+		AuthID:           "auth-2",
+		At:               time.Now(),
+		ResponseReceived: true,
+		StatusCode:       http.StatusOK,
+	})
+	lifecycle.observe(cliproxyexecutor.UpstreamAttemptObservation{
+		Phase:            cliproxyexecutor.UpstreamAttemptFinished,
+		AuthID:           "auth-2",
+		At:               time.Now(),
+		ResponseReceived: true,
+		StatusCode:       http.StatusOK,
+	})
+	if !emitter.flush(time.Second) {
+		t.Fatal("timed out flushing credential-failover attempts")
+	}
+
+	unique := make(map[string]upstreamAttemptPayload)
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var event upstreamAttemptPayload
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode attempt event: %v", err)
+		}
+		unique[event.UpstreamAttemptID] = event
+	}
+	if len(unique) != 2 {
+		t.Fatalf("unique physical attempts = %d, want 2; events=%s", len(unique), output.String())
+	}
+	first := unique["logical-quota-failover:1"]
+	if first.Status != http.StatusTooManyRequests || first.RetryReason != "upstream_429" || first.PossibleBillableRequest {
+		t.Fatalf("quota rejection attempt classification = %#v", first)
+	}
+	second := unique["logical-quota-failover:2"]
+	if second.AccountID != "account-2" || second.Status != http.StatusOK || second.CompletedAt == 0 {
+		t.Fatalf("fallback attempt classification = %#v", second)
+	}
+}
+
 func TestUsagePluginResolvesAPIKeyAndRequestKindFromCPARecord(t *testing.T) {
 	m := &manifest{
 		apiKeyByValue: map[string]*apiKeySpec{

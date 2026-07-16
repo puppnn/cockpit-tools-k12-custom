@@ -9,6 +9,9 @@
 > [!IMPORTANT]
 > 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.4**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
 
+> [!WARNING]
+> **不要用上游官方安装包直接覆盖本 Fork。** 定制版仍会检查并展示上游新版本，但应用内下载和安装入口已设为只读保护，不会再用官方二进制覆盖 K12/API 定制功能。升级流程固定为：拉取 `upstream` -> 合并到本 Fork -> 运行测试 -> 重新构建并安装。本仓库当前没有签名 Release，不能把 updater endpoint 直接切到 Fork 后假装自动更新。
+
 一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Grok CLI**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN**、**Zed** 和 **ZCode**，并支持多账号多实例并行运行。
 
 

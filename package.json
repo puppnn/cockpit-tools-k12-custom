@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "test:codex-api-key-scope": "node --test src/utils/codexApiKeyAccountScope.test.ts",
+    "test:custom-update-guard": "node --test scripts/test-custom-update-guard.mjs",
     "typecheck": "tsc --noEmit",
-    "prebuild": "npm run typecheck",
+    "prebuild": "npm run test:custom-update-guard && npm run typecheck",
     "build": "npm run sync-version && tsc && vite build",
     "release:preflight": "node scripts/release/preflight.cjs",
     "test:full-quota-ping": "node scripts/test-codex-full-quota-ping.cjs",

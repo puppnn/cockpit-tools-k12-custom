@@ -544,6 +544,7 @@
       "noneRunning": "لا توجد مثيلات قيد التشغيل حاليًا",
       "syncThreadsNeedTwo": "يلزم وجود مثيلين على الأقل لمزامنة السلاسل",
       "launchPrepared": "أمر التشغيل جاهز",
+      "codexManagedStoreLaunchUnsafe": "يتعذر على Windows Store تمرير مجلد المثيل بشكل موثوق، لذا تم منع فتح الحساب الافتراضي. غيّر طريقة تشغيل هذا المثيل إلى CLI ثم أعد المحاولة. التفاصيل: {{detail}}",
       "speedUpdated": "تم تحديث السرعة"
     },
     "runningDialog": {
@@ -655,6 +656,8 @@
       "closeBehaviorQuit": "إنهاء التطبيق",
       "startupMinimized": "بدء التشغيل مصغّرًا",
       "startupMinimizedDesc": "تصغير النافذة الرئيسية تلقائيًا بعد اكتمال تشغيل التطبيق؛ يمكن استعادتها من Dock أو شريط المهام أو الدرج",
+      "rememberMainWindowState": "تذكّر موضع النافذة الرئيسية وحجمها",
+      "rememberMainWindowStateDesc": "استعادة موضع النافذة وحجمها بعد إعادة التشغيل أو فتحها من الدرج؛ معطّل افتراضيًا",
       "minimizeBehavior": "سلوك تصغير النافذة (macOS فقط)",
       "minimizeBehaviorDesc": "اختر ما إذا كانت النافذة عند تصغيرها تبقى في Dock وشريط القوائم، أو في شريط القوائم فقط",
       "minimizeBehaviorDockAndTray": "Dock + شريط القوائم (موصى به)",
@@ -1914,6 +1917,7 @@
         "freeUnsupported": "الحسابات المجانية غير مدعومة بعد",
         "restrictFreeToggle": "تقييد الحسابات المجانية",
         "chatApiKeyUnsupported": "Chat Completions غير مدعوم",
+        "pendingOauthUnsupported": "معلّق: غير مسموح",
         "freeNoticeRestricted": "الحسابات المجانية مقيّدة. عطّل هذا الخيار لتحديدها.",
         "freeNoticeUnstable": "قد يكون وكيل الحسابات المجانية غير مستقر. استخدمه بحذر.",
         "restrictFreeDisableConfirmTitle": "السماح بالحسابات المجانية",
@@ -3377,6 +3381,7 @@
         "noPriorityAccounts": "لا توجد حسابات متاحة",
         "newSessionPriorityRequiresAffinity": "فعّل تثبيت الجلسة قبل تفعيل توجيه الجلسات الجديدة إلى الحسابات المفضلة",
         "newSessionPriorityAccountsRequired": "اختر حسابًا مفضلاً واحدًا على الأقل للجلسات الجديدة",
+        "responsesWebsockets": "استجابات WebSocket",
         "maxRetryCredentials": "حسابات retry",
         "maxRetryInterval": "انتظار retry",
         "disableCooling": "تعطيل cooldown",

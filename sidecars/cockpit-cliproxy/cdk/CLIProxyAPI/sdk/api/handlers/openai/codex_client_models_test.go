@@ -10,7 +10,7 @@ func TestBuildCodexClientModelsPreserves56Capabilities(t *testing.T) {
 		{"id": "gpt-5.4"},
 		{"id": "gpt-5.6-luna"},
 		{"id": "gpt-5.6-sol"},
-	})
+	}, nil)
 	wantOrder := []string{
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
@@ -43,15 +43,27 @@ func TestBuildCodexClientModelsPreserves56Capabilities(t *testing.T) {
 		if model == nil {
 			t.Fatalf("expected model %s", testCase.slug)
 		}
-		if supported, ok := model["supports_parallel_tool_calls"].(bool); !ok || supported {
+		if supported, ok := model["supports_parallel_tool_calls"].(bool); !ok || !supported {
 			t.Fatalf(
-				"%s supports_parallel_tool_calls = %#v, want false",
+				"%s supports_parallel_tool_calls = %#v, want true",
 				testCase.slug,
 				model["supports_parallel_tool_calls"],
 			)
 		}
 		if got := stringModelValue(model, "default_reasoning_level"); got != testCase.defaultEffort {
 			t.Fatalf("%s default reasoning = %q, want %q", testCase.slug, got, testCase.defaultEffort)
+		}
+		if got := intModelValue(model, "context_window"); got != 372000 {
+			t.Fatalf("%s context_window = %d, want 372000", testCase.slug, got)
+		}
+		if got := intModelValue(model, "max_context_window"); got != 372000 {
+			t.Fatalf("%s max_context_window = %d, want 372000", testCase.slug, got)
+		}
+		if got := stringModelValue(model, "minimal_client_version"); got != "0.144.0" {
+			t.Fatalf("%s minimal_client_version = %q, want 0.144.0", testCase.slug, got)
+		}
+		if got, ok := model["supports_search_tool"].(bool); !ok || !got {
+			t.Fatalf("%s supports_search_tool = %#v, want true", testCase.slug, model["supports_search_tool"])
 		}
 		levels, ok := model["supported_reasoning_levels"].([]any)
 		if !ok {
@@ -79,5 +91,76 @@ func TestBuildCodexClientModelsPreserves56Capabilities(t *testing.T) {
 		if !ok || len(serviceTiers) != 1 {
 			t.Fatalf("%s service tiers = %#v", testCase.slug, model["service_tiers"])
 		}
+	}
+}
+
+func TestCodexClientModelsResponse_DisablesSearchToolForSynthesizedModels(t *testing.T) {
+	resp := CodexClientModelsResponse([]map[string]any{
+		{"id": "custom-openai-compatible-model"},
+		{"id": "gpt-5.5"},
+	})
+	models, ok := resp["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models type = %T, want []map[string]any", resp["models"])
+	}
+
+	bySlug := make(map[string]map[string]any, len(models))
+	for _, model := range models {
+		bySlug[stringModelValue(model, "slug")] = model
+	}
+
+	custom := bySlug["custom-openai-compatible-model"]
+	if custom == nil {
+		t.Fatal("expected synthesized custom model entry")
+	}
+	if got, ok := custom["supports_search_tool"].(bool); !ok || got {
+		t.Fatalf("custom supports_search_tool = %#v, want false", custom["supports_search_tool"])
+	}
+
+	official := bySlug["gpt-5.5"]
+	if official == nil {
+		t.Fatal("expected official template model entry")
+	}
+	if got, ok := official["supports_search_tool"].(bool); !ok || !got {
+		t.Fatalf("official supports_search_tool = %#v, want true", official["supports_search_tool"])
+	}
+}
+
+func TestCodexClientModelsResponse_RequiresTemplateAndCodexProvidersForSearchTool(t *testing.T) {
+	providers := map[string][]string{
+		"new-codex-model": {"codex"},
+		"gpt-5.5":         {"openai-compatible-deepseek"},
+		"gpt-5.4":         {"codex", "xai"},
+		"gpt-5.6-sol":     {"codex"},
+	}
+	resp := codexClientModelsResponse([]map[string]any{
+		{"id": "new-codex-model"},
+		{"id": "gpt-5.5"},
+		{"id": "gpt-5.4"},
+		{"id": "gpt-5.6-sol"},
+	}, func(id string) []string {
+		return providers[id]
+	})
+	models, ok := resp["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models type = %T, want []map[string]any", resp["models"])
+	}
+
+	bySlug := make(map[string]map[string]any, len(models))
+	for _, model := range models {
+		bySlug[stringModelValue(model, "slug")] = model
+	}
+
+	if got, ok := bySlug["new-codex-model"]["supports_search_tool"].(bool); !ok || got {
+		t.Fatalf("non-template supports_search_tool = %#v, want false", bySlug["new-codex-model"]["supports_search_tool"])
+	}
+	if got, ok := bySlug["gpt-5.5"]["supports_search_tool"].(bool); !ok || got {
+		t.Fatalf("mixed/non-codex provider supports_search_tool = %#v, want false", bySlug["gpt-5.5"]["supports_search_tool"])
+	}
+	if got, ok := bySlug["gpt-5.4"]["supports_search_tool"].(bool); !ok || got {
+		t.Fatalf("mixed providers supports_search_tool = %#v, want false", bySlug["gpt-5.4"]["supports_search_tool"])
+	}
+	if got, ok := bySlug["gpt-5.6-sol"]["supports_search_tool"].(bool); !ok || !got {
+		t.Fatalf("codex-only template supports_search_tool = %#v, want true", bySlug["gpt-5.6-sol"]["supports_search_tool"])
 	}
 }

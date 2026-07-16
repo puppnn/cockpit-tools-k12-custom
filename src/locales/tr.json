@@ -497,6 +497,7 @@
       "noneRunning": "Çalışan oturum bulunamadı",
       "syncThreadsNeedTwo": "İş parçacıklarını eşitlemek için en az iki örnek gerekir",
       "launchPrepared": "Başlatma komutu hazır",
+      "codexManagedStoreLaunchUnsafe": "Windows Store örnek dizinini güvenilir biçimde aktaramadığı için varsayılan hesabın açılması engellendi. Bu örneği CLI başlatma moduna geçirip yeniden deneyin. Ayrıntılar: {{detail}}",
       "speedUpdated": "Hız güncellendi"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "Uygulamadan Çık",
       "startupMinimized": "Simge durumunda başlat",
       "startupMinimizedDesc": "Uygulama açıldıktan sonra ana pencereyi otomatik küçültür; Dock, görev çubuğu veya tepsiden geri getirebilirsiniz",
+      "rememberMainWindowState": "Ana pencere konumunu ve boyutunu hatırla",
+      "rememberMainWindowStateDesc": "Yeniden başlatmada veya tepsiden açmada konumu ve boyutu geri yükler; varsayılan olarak kapalıdır",
       "minimizeBehavior": "Pencere küçültme davranışı (yalnızca macOS)",
       "minimizeBehaviorDesc": "Pencere küçültüldüğünde Dock ve menü çubuğunda mı, yoksa yalnızca menü çubuğunda mı kalacağını seçin",
       "minimizeBehaviorDockAndTray": "Dock + menü çubuğu (önerilen)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Ücretsiz hesaplar henüz desteklenmiyor",
         "restrictFreeToggle": "Free hesapları sınırla",
         "chatApiKeyUnsupported": "Chat Completions desteklenmez",
+        "pendingOauthUnsupported": "Bekleyen eklenemez",
         "freeNoticeRestricted": "Free hesaplar sınırlıdır. Seçmek için bunu kapatın.",
         "freeNoticeUnstable": "Free hesap proxy'si kararsız olabilir. Dikkatli kullanın.",
         "restrictFreeDisableConfirmTitle": "Free hesaplara izin ver",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "Kullanılabilir hesap yok",
         "newSessionPriorityRequiresAffinity": "Yeni oturumlar için öncelikli yönlendirmeyi açmadan önce oturum bağını etkinleştirin",
         "newSessionPriorityAccountsRequired": "Yeni oturumlar için en az bir öncelikli hesap seçin",
+        "responsesWebsockets": "WebSocket üzerinden Responses",
         "maxRetryCredentials": "Retry hesapları",
         "maxRetryInterval": "Retry bekleme",
         "disableCooling": "Cooldown kapat",

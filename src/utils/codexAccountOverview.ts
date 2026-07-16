@@ -1,15 +1,15 @@
 import type { TFunction } from "i18next";
-import type { CodexAccount } from "../types/codex";
+import type { CodexAccount } from "../types/codex.ts";
 import {
   getCodexPlanFilterKey,
   isCodexApiKeyAccount,
   isCodexNewApiAccount,
   isCodexPendingOAuthAccount,
-} from "../types/codex";
+} from "../types/codex.ts";
 import type { CodexAccountGroup } from "../services/codexAccountGroupService";
-import { splitValidityFilterValues } from "./accountValidityFilter";
-import { compareCurrentAccountFirst } from "./currentAccountSort";
-import { normalizeAccountsOverviewScope } from "./accountsOverviewFilterPersistence";
+import { splitValidityFilterValues } from "./accountValidityFilter.ts";
+import { compareCurrentAccountFirst } from "./currentAccountSort.ts";
+import { normalizeAccountsOverviewScope } from "./accountsOverviewFilterPersistence.ts";
 
 export const CODEX_PRIMARY_PLAN_FILTER_KEYS = [
   "FREE",

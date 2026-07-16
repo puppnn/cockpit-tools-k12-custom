@@ -490,6 +490,8 @@ pub struct CodexLocalAccessCollection {
     #[serde(default)]
     pub new_session_priority_account_ids: Vec<String>,
     #[serde(default)]
+    pub responses_websockets_enabled: bool,
+    #[serde(default)]
     pub max_retry_credentials: u16,
     #[serde(default = "default_max_retry_interval_ms")]
     pub max_retry_interval_ms: u64,

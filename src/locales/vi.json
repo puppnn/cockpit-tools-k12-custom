@@ -497,6 +497,7 @@
       "noneRunning": "Không tìm thấy phiên bản nào đang chạy",
       "syncThreadsNeedTwo": "Cần ít nhất hai phiên bản để đồng bộ luồng",
       "launchPrepared": "Lệnh khởi chạy đã sẵn sàng",
+      "codexManagedStoreLaunchUnsafe": "Windows Store không thể truyền thư mục phiên bản một cách đáng tin cậy, vì vậy hệ thống đã chặn việc mở tài khoản mặc định. Hãy chuyển phiên bản này sang chế độ khởi chạy CLI rồi thử lại. Chi tiết: {{detail}}",
       "speedUpdated": "Đã cập nhật tốc độ"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "Thoát ứng dụng",
       "startupMinimized": "Khởi động thu nhỏ",
       "startupMinimizedDesc": "Tự động thu nhỏ cửa sổ chính sau khi ứng dụng khởi động; khôi phục từ Dock, thanh tác vụ hoặc khay",
+      "rememberMainWindowState": "Ghi nhớ vị trí và kích thước cửa sổ",
+      "rememberMainWindowStateDesc": "Khôi phục vị trí và kích thước sau khi khởi động lại hoặc mở từ khay; mặc định tắt",
       "minimizeBehavior": "Hành vi thu nhỏ cửa sổ (chỉ macOS)",
       "minimizeBehaviorDesc": "Chọn khi thu nhỏ cửa sổ sẽ giữ trong Dock và thanh menu, hay chỉ giữ trong thanh menu",
       "minimizeBehaviorDockAndTray": "Dock + thanh menu (khuyên dùng)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Tài khoản miễn phí chưa được hỗ trợ",
         "restrictFreeToggle": "Giới hạn tài khoản Free",
         "chatApiKeyUnsupported": "Không hỗ trợ Chat Completions",
+        "pendingOauthUnsupported": "Chờ xác thực: không",
         "freeNoticeRestricted": "Tài khoản Free bị giới hạn. Tắt tùy chọn này để chọn chúng.",
         "freeNoticeUnstable": "Proxy tài khoản Free có thể không ổn định. Hãy dùng thận trọng.",
         "restrictFreeDisableConfirmTitle": "Cho phép tài khoản Free",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "Không có tài khoản khả dụng",
         "newSessionPriorityRequiresAffinity": "Bật tính năng gắn phiên trước khi bật định tuyến ưu tiên cho phiên mới",
         "newSessionPriorityAccountsRequired": "Chọn ít nhất một tài khoản ưu tiên cho phiên mới",
+        "responsesWebsockets": "Responses qua WebSocket",
         "maxRetryCredentials": "Tài khoản retry",
         "maxRetryInterval": "Chờ retry",
         "disableCooling": "Tắt cooldown",

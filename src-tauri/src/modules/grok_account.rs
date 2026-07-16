@@ -430,6 +430,24 @@ pub fn list_accounts_checked() -> Result<Vec<GrokAccountView>, String> {
     let mut repaired = false;
     for summary in index.accounts {
         if let Some(account) = load_account(&summary.id) {
+            // A previous local test run could persist its fixed fixture into the real
+            // data directory. Remove only the complete fixture fingerprint, never by
+            // email alone, so a real account cannot be mistaken for test data.
+            if is_known_test_fixture(&account) {
+                match remove_account(&account.id) {
+                    Ok(()) => {
+                        repaired = true;
+                        logger::log_warn(
+                            "[Grok Account] 已清理历史测试夹具账号: account_id=account-1",
+                        );
+                        continue;
+                    }
+                    Err(error) => logger::log_warn(&format!(
+                        "[Grok Account] 清理历史测试夹具账号失败: account_id={}, error={}",
+                        account.id, error
+                    )),
+                }
+            }
             accounts.push(GrokAccountView::from(&account));
         } else {
             repaired = true;
@@ -440,6 +458,18 @@ pub fn list_accounts_checked() -> Result<Vec<GrokAccountView>, String> {
     }
     accounts.sort_by(|left, right| right.created_at.cmp(&left.created_at));
     Ok(accounts)
+}
+
+fn is_known_test_fixture(account: &GrokAccount) -> bool {
+    account.id == "account-1"
+        && account.email == "person@example.com"
+        && account.auth_mode == GrokAuthMode::Oauth
+        && account.user_id.as_deref() == Some("user-1")
+        && account.principal_id.as_deref() == Some("principal-1")
+        && account.access_token == "secret-access"
+        && account.refresh_token.as_deref() == Some("secret-refresh")
+        && account.created_at == 1
+        && account.last_used == 1
 }
 
 fn rebuild_index() -> Result<(), String> {
@@ -2727,7 +2757,8 @@ mod tests {
     use super::{
         account_from_auth_object, accounts_match_for_upsert, acquire_secret_lock,
         apply_refreshed_token, auth_entry_matches_account, auth_registry_entry, auth_registry_for,
-        default_grok_home, ensure_secret_dir, load_account_from_path, load_index_from_paths,
+        default_grok_home, ensure_secret_dir, list_accounts_checked, load_account,
+        load_account_from_path, load_index_from_paths,
         access_still_usable, find_matching_auth_entry_in_registry, parse_auth_registry,
         pick_best_live_credential, quota_from_payload, quota_remaining_metrics, remove_account,
         remove_matching_auth_scope, resolve_account_id_from_registry, save_account_locked,
@@ -3563,6 +3594,22 @@ mod tests {
         assert!(metrics
             .iter()
             .any(|(name, remaining)| { name == "GrokBuild" && *remaining == 75 }));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn known_test_fixture_is_not_returned_from_account_list() {
+        let _env_lock = crate::modules::test_support::env_lock()
+            .lock()
+            .expect("lock test environment");
+        let temp = TestDir::new();
+        let _environment = EnvironmentGuard::new(&temp.0);
+        save_account_locked(&sample_account()).expect("save account fixture");
+
+        let listed = list_accounts_checked().expect("list accounts");
+
+        assert!(listed.is_empty());
+        assert!(load_account("account-1").is_none());
     }
 
     #[test]

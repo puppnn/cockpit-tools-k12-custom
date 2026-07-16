@@ -8,7 +8,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewWindow, Window};
+use tauri::{
+    LogicalPosition, LogicalSize, Manager, Position, Runtime, Size, WebviewWindow, Window,
+};
 
 use crate::modules::{atomic_write, config, logger};
 
@@ -17,9 +19,19 @@ const MIN_WIDTH: f64 = 900.0;
 const MIN_HEIGHT: f64 = 600.0;
 const DEFAULT_WIDTH: f64 = 1280.0;
 const DEFAULT_HEIGHT: f64 = 800.0;
+const MIN_VISIBLE_WIDTH: f64 = 64.0;
+const MIN_VISIBLE_HEIGHT: f64 = 48.0;
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 static LAST_SAVE_AT: Mutex<Option<Instant>> = Mutex::new(None);
+
+#[derive(Debug, Clone, Copy)]
+struct LogicalRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +75,49 @@ fn clamp_size(width: f64, height: f64) -> (f64, f64) {
         DEFAULT_HEIGHT
     };
     (w, h)
+}
+
+fn remember_main_window_state_enabled() -> bool {
+    config::get_user_config().remember_main_window_state
+}
+
+fn has_visible_overlap(window: LogicalRect, monitor: LogicalRect) -> bool {
+    let overlap_width =
+        (window.x + window.width).min(monitor.x + monitor.width) - window.x.max(monitor.x);
+    let overlap_height =
+        (window.y + window.height).min(monitor.y + monitor.height) - window.y.max(monitor.y);
+    overlap_width >= MIN_VISIBLE_WIDTH && overlap_height >= MIN_VISIBLE_HEIGHT
+}
+
+fn state_position_is_visible<R: Runtime>(
+    window: &WebviewWindow<R>,
+    state: &MainWindowState,
+) -> bool {
+    let (Some(x), Some(y)) = (state.x, state.y) else {
+        return false;
+    };
+    let saved_window = LogicalRect {
+        x,
+        y,
+        width: state.width,
+        height: state.height,
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+
+    monitors.iter().any(|monitor| {
+        let scale = monitor.scale_factor().max(0.1);
+        let position = monitor.position();
+        let size = monitor.size();
+        let monitor_rect = LogicalRect {
+            x: position.x as f64 / scale,
+            y: position.y as f64 / scale,
+            width: size.width as f64 / scale,
+            height: size.height as f64 / scale,
+        };
+        has_visible_overlap(saved_window, monitor_rect)
+    })
 }
 
 pub fn load_main_window_state() -> Option<MainWindowState> {
@@ -154,6 +209,9 @@ pub fn capture_main_window_state<R: Runtime>(
 }
 
 pub fn capture_and_save_main_window<R: Runtime>(window: &WebviewWindow<R>) {
+    if !remember_main_window_state_enabled() || window.is_minimized().unwrap_or(false) {
+        return;
+    }
     match capture_main_window_state(window) {
         Ok(state) => {
             if let Err(err) = save_main_window_state(&state) {
@@ -189,21 +247,23 @@ pub fn capture_and_save_main_window_debounced<R: Runtime>(window: &WebviewWindow
 }
 
 pub fn apply_state_to_window_config(config: &mut tauri::utils::config::WindowConfig) {
+    if !remember_main_window_state_enabled() {
+        return;
+    }
     let Some(state) = load_main_window_state() else {
         return;
     };
     config.width = state.width;
     config.height = state.height;
-    if let (Some(x), Some(y)) = (state.x, state.y) {
-        config.x = Some(x);
-        config.y = Some(y);
-        config.center = false;
-    }
+    // Position is restored only after the window exists and can validate current monitors.
     config.maximized = state.maximized;
 }
 
 /// Apply saved geometry to an already-created main window (first launch / recreate).
 pub fn restore_to_window<R: Runtime>(window: &WebviewWindow<R>) {
+    if !remember_main_window_state_enabled() {
+        return;
+    }
     let Some(state) = load_main_window_state() else {
         return;
     };
@@ -222,9 +282,24 @@ pub fn restore_to_window<R: Runtime>(window: &WebviewWindow<R>) {
         logger::log_warn(&format!("[Window] 恢复窗口尺寸失败: {}", err));
     }
 
-    if let (Some(x), Some(y)) = (state.x, state.y) {
+    if state_position_is_visible(window, &state) {
+        let (x, y) = (state.x.unwrap_or_default(), state.y.unwrap_or_default());
         if let Err(err) = window.set_position(Position::Logical(LogicalPosition { x, y })) {
             logger::log_warn(&format!("[Window] 恢复窗口位置失败: {}", err));
+        }
+    } else {
+        if let Err(err) = window.center() {
+            logger::log_warn(&format!("[Window] 窗口位置无效，居中失败: {}", err));
+        }
+        if state.x.is_some() || state.y.is_some() {
+            let repaired = MainWindowState {
+                x: None,
+                y: None,
+                ..state
+            };
+            if let Err(err) = save_main_window_state(&repaired) {
+                logger::log_warn(&format!("[Window] 清理无效窗口位置失败: {}", err));
+            }
         }
     }
 }
@@ -255,6 +330,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn window_state_memory_is_opt_in_by_default() {
+        assert!(!config::UserConfig::default().remember_main_window_state);
+    }
+
+    #[test]
     fn clamp_size_enforces_minimum() {
         let (w, h) = clamp_size(100.0, 50.0);
         assert_eq!(w, MIN_WIDTH);
@@ -266,5 +346,45 @@ mod tests {
         let (w, h) = clamp_size(1400.0, 900.0);
         assert_eq!(w, 1400.0);
         assert_eq!(h, 900.0);
+    }
+
+    #[test]
+    fn visible_overlap_accepts_partially_visible_window() {
+        let window = LogicalRect {
+            x: 1880.0,
+            y: 200.0,
+            width: 1280.0,
+            height: 800.0,
+        };
+        let monitor = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        assert!(!has_visible_overlap(window, monitor));
+
+        let sufficiently_visible = LogicalRect {
+            x: 1850.0,
+            ..window
+        };
+        assert!(has_visible_overlap(sufficiently_visible, monitor));
+    }
+
+    #[test]
+    fn visible_overlap_rejects_windows_minimized_offscreen() {
+        let window = LogicalRect {
+            x: -32000.0,
+            y: -32000.0,
+            width: 1280.0,
+            height: 800.0,
+        };
+        let monitor = LogicalRect {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+        };
+        assert!(!has_visible_overlap(window, monitor));
     }
 }

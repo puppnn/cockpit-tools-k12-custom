@@ -929,7 +929,7 @@ mod tests {
 
         assert_eq!(
             spark.get("display_name").and_then(Value::as_str),
-            Some("GPT-5.3 Codex Spark")
+            Some("GPT-5.3-Codex-Spark")
         );
         assert_eq!(
             spark.get("visibility").and_then(Value::as_str),

@@ -497,6 +497,7 @@
       "noneRunning": "Keine laufenden Instanzen gefunden",
       "syncThreadsNeedTwo": "Mindestens zwei Instanzen sind erforderlich, um Threads zu synchronisieren",
       "launchPrepared": "Startbefehl ist bereit",
+      "codexManagedStoreLaunchUnsafe": "Der Windows Store kann das Instanzverzeichnis nicht zuverlässig übergeben. Das Öffnen des Standardkontos wurde daher blockiert. Stelle diese Instanz auf den CLI-Startmodus um und versuche es erneut. Details: {{detail}}",
       "speedUpdated": "Tempo aktualisiert"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "Anwendung beenden",
       "startupMinimized": "Minimiert starten",
       "startupMinimizedDesc": "Das Hauptfenster nach dem App-Start automatisch minimieren; Wiederherstellung über Dock, Taskleiste oder Tray",
+      "rememberMainWindowState": "Position und Größe des Hauptfensters merken",
+      "rememberMainWindowStateDesc": "Position und Größe nach Neustart oder Öffnen aus dem Tray wiederherstellen; standardmäßig deaktiviert",
       "minimizeBehavior": "Verhalten beim Minimieren des Fensters (nur macOS)",
       "minimizeBehaviorDesc": "Wählen Sie, ob ein minimiertes Fenster im Dock und in der Menüleiste bleibt oder nur in der Menüleiste",
       "minimizeBehaviorDockAndTray": "Dock + Menüleiste (empfohlen)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Kostenlose Konten werden noch nicht unterstützt",
         "restrictFreeToggle": "Free-Konten begrenzen",
         "chatApiKeyUnsupported": "Chat Completions nicht unterstützt",
+        "pendingOauthUnsupported": "Ausstehend nicht möglich",
         "freeNoticeRestricted": "Free-Konten sind eingeschränkt. Deaktiviere dies, um sie auszuwählen.",
         "freeNoticeUnstable": "Proxy für Free-Konten kann instabil sein. Vorsichtig verwenden.",
         "restrictFreeDisableConfirmTitle": "Free-Konten zulassen",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "Keine Konten verfügbar",
         "newSessionPriorityRequiresAffinity": "Aktivieren Sie die Sitzungsbindung, bevor Sie das bevorzugte Routing für neue Sitzungen aktivieren",
         "newSessionPriorityAccountsRequired": "Wählen Sie mindestens ein bevorzugtes Konto für neue Sitzungen aus",
+        "responsesWebsockets": "Responses über WebSocket",
         "maxRetryCredentials": "Retry-Konten",
         "maxRetryInterval": "Retry-Wartezeit",
         "disableCooling": "Cooldown deaktivieren",

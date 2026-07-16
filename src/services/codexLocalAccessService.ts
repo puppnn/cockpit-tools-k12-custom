@@ -158,6 +158,7 @@ export async function updateCodexLocalAccessRoutingOptions(payload: {
   sessionAffinityTtlMs: number;
   newSessionPriorityEnabled: boolean;
   newSessionPriorityAccountIds: string[];
+  responsesWebsocketsEnabled: boolean;
   maxRetryCredentials: number;
   maxRetryIntervalMs: number;
   disableCooling: boolean;

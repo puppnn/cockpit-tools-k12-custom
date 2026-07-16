@@ -102,7 +102,10 @@ export function resolvePlatformIdFromPage(page: Page | string): PlatformId | nul
   if (normalized === 'claude-cli') {
     return 'claude_manager';
   }
-  if (normalized === 'codex-api-service' || normalized === 'codex-instances') {
+  if (normalized === 'codex-api-service') {
+    return 'codex_api_service';
+  }
+  if (normalized === 'codex-instances') {
     return 'codex';
   }
   if (

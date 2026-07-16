@@ -173,6 +173,54 @@ func appendToolSearchOutputTools(chatTools *[]interface{}, value gjson.Result) {
 	}
 }
 
+// appendAdditionalToolsFromInput collects tools declared in Codex Desktop
+// Responses Lite "additional_tools" input items.
+func appendAdditionalToolsFromInput(chatTools *[]interface{}, input gjson.Result) {
+	if !input.Exists() || !input.IsArray() {
+		return
+	}
+	input.ForEach(func(_, item gjson.Result) bool {
+		if item.Get("type").String() != "additional_tools" {
+			return true
+		}
+		tools := item.Get("tools")
+		if !tools.IsArray() {
+			return true
+		}
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			appendResponsesToolToChatTools(chatTools, tool, "")
+			return true
+		})
+		return true
+	})
+}
+
+// responsesToolOutputText flattens a tool output value that may be a plain
+// string or an array of content parts into a single text payload.
+func responsesToolOutputText(output gjson.Result) string {
+	if output.Type == gjson.String {
+		return output.String()
+	}
+	if output.IsArray() {
+		var b strings.Builder
+		output.ForEach(func(_, part gjson.Result) bool {
+			if part.Type == gjson.String {
+				b.WriteString(part.String())
+				return true
+			}
+			if text := part.Get("text"); text.Exists() {
+				b.WriteString(text.String())
+			}
+			return true
+		})
+		return b.String()
+	}
+	if output.Exists() {
+		return output.Raw
+	}
+	return ""
+}
+
 func collapseSystemMessagesToHead(rawJSON []byte) []byte {
 	var root map[string]any
 	if err := json.Unmarshal(rawJSON, &root); err != nil {
@@ -454,7 +502,8 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 				}
 
 				if output := item.Get("output"); output.Exists() {
-					toolMessage, _ = sjson.SetBytes(toolMessage, "content", output.String())
+					// Flatten content-part arrays used by Responses Lite tool outputs.
+					toolMessage, _ = sjson.SetBytes(toolMessage, "content", responsesToolOutputText(output))
 				}
 
 				out, _ = sjson.SetRawBytes(out, "messages.-1", toolMessage)
@@ -464,6 +513,11 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 				if len(awaitingToolOutputs) == 0 && len(deferredMessages) > 0 {
 					flushDeferredMessages()
 				}
+
+			case "additional_tools":
+				// Codex Desktop Responses Lite may carry tool definitions in
+				// input items rather than top-level "tools". Handled below when
+				// collecting chat tools.
 			}
 
 		}
@@ -476,7 +530,9 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 		out, _ = sjson.SetRawBytes(out, "messages.-1", msg)
 	}
 
-	// Convert tools from responses format to chat completions format
+	// Convert tools from responses format to chat completions format.
+	// Responses Lite often sets top-level tools to null and ships definitions
+	// via input items of type "additional_tools".
 	var chatCompletionsTools []interface{}
 	if tools := root.Get("tools"); tools.Exists() && tools.IsArray() {
 		tools.ForEach(func(_, tool gjson.Result) bool {
@@ -484,6 +540,7 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 			return true
 		})
 	}
+	appendAdditionalToolsFromInput(&chatCompletionsTools, root.Get("input"))
 	appendToolSearchOutputTools(&chatCompletionsTools, root.Get("input"))
 	if len(chatCompletionsTools) > 0 {
 		out, _ = sjson.SetBytes(out, "tools", chatCompletionsTools)

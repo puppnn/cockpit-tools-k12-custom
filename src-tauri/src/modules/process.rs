@@ -3590,6 +3590,15 @@ Start-Process -FilePath $exe{argument_list} -ErrorAction Stop | Out-Null"#,
     Ok(())
 }
 
+const CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX: &str = "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
+
+fn codex_managed_store_launch_unsafe_error(direct_error: &str, powershell_error: &str) -> String {
+    format!(
+        "{}direct_error={}; powershell_error={}",
+        CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX, direct_error, powershell_error
+    )
+}
+
 pub(crate) fn detect_codex_exec_path() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -9716,8 +9725,8 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
                 if err.kind() == std::io::ErrorKind::PermissionDenied
                     && launch_path_text.contains("\\windowsapps\\")
                 {
-                    let mut store_args = build_codex_app_launch_args(extra_args);
-                    store_args.push(format!(
+                    let mut fallback_args = build_codex_app_launch_args(extra_args);
+                    fallback_args.push(format!(
                         "--user-data-dir={}",
                         app_user_data_dir.to_string_lossy()
                     ));
@@ -9725,7 +9734,7 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
                         &launch_path,
                         codex_home_trimmed,
                         &app_user_data_dir,
-                        &store_args,
+                        &fallback_args,
                     ) {
                         Ok(()) => {
                             crate::modules::logger::log_warn(&format!(
@@ -9735,26 +9744,16 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
                             ));
                         }
                         Err(ps_err) => {
-                            let app_user_model_id =
-                                detect_codex_store_app_user_model_id().ok_or_else(|| {
-                                    format!(
-                                        "启动 Codex 失败: {}; PowerShell fallback 失败: {}; 且未检测到 Codex Store AppUserModelID",
-                                        err, ps_err
-                                    )
-                                })?;
                             crate::modules::logger::log_warn(&format!(
-                                "[Codex Start] WindowsApps direct launch denied, PowerShell exec fallback failed, fallback to Store AppUserModelID: app_id={} launch_path={} error={} powershell_error={}",
-                                app_user_model_id,
+                                "[Codex Start] WindowsApps direct launch denied and PowerShell exec fallback failed; managed Store activation blocked to avoid losing CODEX_HOME: launch_path={} error={} powershell_error={}",
                                 launch_path.to_string_lossy(),
                                 err,
                                 ps_err
                             ));
-                            launch_codex_via_store_app_user_model_id(
-                                &app_user_model_id,
-                                Some(codex_home_trimmed),
-                                Some(app_user_data_dir.to_string_lossy().as_ref()),
-                                &store_args,
-                            )?;
+                            return Err(codex_managed_store_launch_unsafe_error(
+                                &err.to_string(),
+                                &ps_err,
+                            ));
                         }
                     }
                     None
@@ -9768,7 +9767,7 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
             launch_path.to_string_lossy(),
             summarize_text_for_process_log(codex_home_trimmed, 96),
             app_user_data_dir.to_string_lossy(),
-            child.as_ref().map(|item| item.id().to_string()).unwrap_or_else(|| "store-app".to_string())
+            child.as_ref().map(|item| item.id().to_string()).unwrap_or_else(|| "powershell-exec".to_string())
         ));
 
         let probe_started = Instant::now();
@@ -9785,14 +9784,16 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
                 child.id()
             ));
             Ok(child.id())
-        } else if let Some(pid) = resolve_codex_pid(None, None) {
-            crate::modules::logger::log_warn(&format!(
-                "[Codex Start] Windows Store fallback 启动后未匹配到 CODEX_HOME，回退 Codex pid={}",
-                pid
-            ));
-            Ok(pid)
         } else {
-            Err("启动 Codex 失败: Store fallback 已调用但 15s 内未检测到 Codex 进程".to_string())
+            let error = codex_managed_store_launch_unsafe_error(
+                "WindowsApps direct launch denied",
+                "PowerShell exec returned success but no managed instance matched within 15s",
+            );
+            crate::modules::logger::log_warn(&format!(
+                "[Codex Start] PowerShell exec did not produce a matching managed instance; default PID fallback blocked: codex_home={}",
+                summarize_text_for_process_log(codex_home_trimmed, 96)
+            ));
+            Err(error)
         }
     }
 
@@ -13002,7 +13003,10 @@ mod codex_macos_launch_tests {
 
 #[cfg(test)]
 mod codex_launch_args_tests {
-    use super::build_codex_app_launch_args;
+    use super::{
+        build_codex_app_launch_args, codex_managed_store_launch_unsafe_error,
+        CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX,
+    };
 
     #[test]
     fn keeps_user_launch_args_without_adding_remote_debugging() {
@@ -13018,6 +13022,14 @@ mod codex_launch_args_tests {
                 "--disable-gpu".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn managed_store_launch_error_is_machine_readable_and_keeps_causes() {
+        let error = codex_managed_store_launch_unsafe_error("denied", "fallback failed");
+        assert!(error.starts_with(CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX));
+        assert!(error.contains("direct_error=denied"));
+        assert!(error.contains("powershell_error=fallback failed"));
     }
 }
 

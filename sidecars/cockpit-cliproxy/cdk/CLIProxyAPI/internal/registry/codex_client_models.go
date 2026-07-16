@@ -12,6 +12,7 @@ var codexClientModelsJSON []byte
 
 type codexClientModelOverridesPayload struct {
 	ModelOverrides []codexClientModelOverride `json:"model_overrides"`
+	Models         []codexClientModelOverride `json:"models"`
 }
 
 type codexClientModelOverride struct {
@@ -45,20 +46,36 @@ func codexClientBuiltinModelInfos() []*ModelInfo {
 			return
 		}
 		codexResponsesLiteModels = make(map[string]struct{})
-		for _, model := range payload.ModelOverrides {
+		seen := make(map[string]struct{})
+
+		register := func(model codexClientModelOverride) {
 			slug := strings.TrimSpace(model.Slug)
 			if slug == "" {
-				continue
+				return
 			}
 			if model.UseResponsesLite {
 				codexResponsesLiteModels[strings.ToLower(slug)] = struct{}{}
 			}
+			if _, ok := seen[slug]; ok {
+				return
+			}
+			// Prefer override entries for builtin ModelInfo (richer display/reasoning);
+			// full models also contribute when overrides are absent.
 			levels := make([]string, 0, len(model.SupportedReasoningLevels))
 			for _, rawLevel := range model.SupportedReasoningLevels {
 				level := strings.ToLower(strings.TrimSpace(rawLevel.Effort))
 				if level != "" {
 					levels = append(levels, level)
 				}
+			}
+			// Only materialize ModelInfo when we have usable metadata.
+			if model.DisplayName == "" && model.ContextWindow == 0 && len(levels) == 0 && !model.UseResponsesLite {
+				return
+			}
+			seen[slug] = struct{}{}
+			var thinking *ThinkingSupport
+			if len(levels) > 0 {
+				thinking = &ThinkingSupport{Levels: levels}
 			}
 			codexClientBuiltinModels = append(codexClientBuiltinModels, &ModelInfo{
 				ID:            slug,
@@ -69,8 +86,16 @@ func codexClientBuiltinModelInfos() []*ModelInfo {
 				Version:       slug,
 				Description:   model.Description,
 				ContextLength: model.ContextWindow,
-				Thinking:      &ThinkingSupport{Levels: levels},
+				Thinking:      thinking,
 			})
+		}
+
+		// Overrides first so ModelInfo prefers the compact metadata block.
+		for _, model := range payload.ModelOverrides {
+			register(model)
+		}
+		for _, model := range payload.Models {
+			register(model)
 		}
 	})
 

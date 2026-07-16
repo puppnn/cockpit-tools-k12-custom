@@ -131,6 +131,8 @@ pub struct GeneralConfig {
     pub floating_card_show_on_startup: bool,
     /// 是否在启动后自动最小化主窗口
     pub startup_minimized: bool,
+    /// 是否记住主窗口尺寸和位置
+    pub remember_main_window_state: bool,
     /// 启动默认页面：`last` 或具体页面 id
     pub startup_page: String,
     /// 悬浮卡片是否默认置顶
@@ -1046,6 +1048,7 @@ fn is_general_config_patch_field(key: &str) -> bool {
             | "tray_icon_style"
             | "floating_card_show_on_startup"
             | "startup_minimized"
+            | "remember_main_window_state"
             | "startup_page"
             | "floating_card_always_on_top"
             | "app_auto_launch_enabled"
@@ -2515,6 +2518,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         tray_icon_style: user_config.tray_icon_style.as_str().to_string(),
         floating_card_show_on_startup: user_config.floating_card_show_on_startup,
         startup_minimized: user_config.startup_minimized,
+        remember_main_window_state: user_config.remember_main_window_state,
         startup_page: config::normalize_startup_page(&user_config.startup_page),
         floating_card_always_on_top: user_config.floating_card_always_on_top,
         app_auto_launch_enabled,

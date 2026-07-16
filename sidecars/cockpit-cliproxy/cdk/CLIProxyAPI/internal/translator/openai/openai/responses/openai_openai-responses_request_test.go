@@ -3,6 +3,7 @@ package responses
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -151,6 +152,46 @@ func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_CustomToolUsesInpu
 	}
 	if got := gjson.GetBytes(out, "messages.1.tool_call_id").String(); got != "call_custom" {
 		t.Fatalf("tool output id = %q, want call_custom", got)
+	}
+}
+
+func TestConvertOpenAIResponsesRequestToOpenAIChatCompletions_AdditionalToolsFromResponsesLite(t *testing.T) {
+	// Codex Desktop Responses Lite often sends tools=null and ships definitions
+	// via additional_tools input items plus custom_tool_call history.
+	raw := []byte(`{
+		"tools": null,
+		"input": [
+			{
+				"type":"additional_tools",
+				"tools":[
+					{"type":"custom","name":"apply_patch","description":"Apply a patch"},
+					{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}
+				]
+			},
+			{"type":"custom_tool_call","call_id":"call_patch","name":"apply_patch","input":"*** Begin Patch\n*** End Patch"},
+			{"type":"custom_tool_call_output","call_id":"call_patch","output":[{"type":"input_text","text":"applied"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}
+		]
+	}`)
+
+	out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("gpt-5.6-sol", raw, true)
+
+	toolNames := map[string]bool{}
+	for _, tool := range gjson.GetBytes(out, "tools").Array() {
+		toolNames[tool.Get("function.name").String()] = true
+	}
+	if !toolNames["apply_patch"] || !toolNames["read_file"] {
+		t.Fatalf("tools from additional_tools missing; names=%v out=%s", toolNames, out)
+	}
+	if got := gjson.GetBytes(out, "tools.#(function.name==\"apply_patch\").function.parameters.properties.input.type").String(); got != "string" {
+		t.Fatalf("apply_patch parameters = %s", out)
+	}
+	args := gjson.GetBytes(out, "messages.0.tool_calls.0.function.arguments").String()
+	if got := gjson.Get(args, "input").String(); !strings.Contains(got, "Begin Patch") {
+		t.Fatalf("custom history args = %q", args)
+	}
+	if got := gjson.GetBytes(out, "messages.1.content").String(); got != "applied" {
+		t.Fatalf("flattened tool output = %q, want applied", got)
 	}
 }
 

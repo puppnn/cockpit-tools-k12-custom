@@ -497,6 +497,7 @@
       "noneRunning": "Nebyly nalezeny žádné běžící instance",
       "syncThreadsNeedTwo": "Pro synchronizaci vláken jsou potřeba alespoň dvě instance",
       "launchPrepared": "Příkaz ke spuštění je připraven",
+      "codexManagedStoreLaunchUnsafe": "Windows Store nedokáže spolehlivě předat adresář instance, proto bylo otevření výchozího účtu zablokováno. Přepněte tuto instanci na spouštění přes CLI a zkuste to znovu. Podrobnosti: {{detail}}",
       "speedUpdated": "Rychlost aktualizována"
     },
     "runningDialog": {
@@ -608,6 +609,8 @@
       "closeBehaviorQuit": "Ukončit aplikaci",
       "startupMinimized": "Spustit minimalizované",
       "startupMinimizedDesc": "Po spuštění aplikace automaticky minimalizuje hlavní okno; obnovíte ho z Docku, hlavního panelu nebo lišty",
+      "rememberMainWindowState": "Pamatovat polohu a velikost okna",
+      "rememberMainWindowStateDesc": "Obnoví polohu a velikost po restartu nebo otevření z lišty; ve výchozím nastavení vypnuto",
       "minimizeBehavior": "Chování při minimalizaci okna (pouze macOS)",
       "minimizeBehaviorDesc": "Vyberte, zda po minimalizaci zůstane okno v Docku a na liště nabídek, nebo pouze na liště nabídek",
       "minimizeBehaviorDockAndTray": "Dock + lišta nabídek (doporučeno)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Bezplatné účty zatím nejsou podporovány",
         "restrictFreeToggle": "Omezit Free účty",
         "chatApiKeyUnsupported": "Chat Completions není podporováno",
+        "pendingOauthUnsupported": "Čekající vyloučeno",
         "freeNoticeRestricted": "Free účty jsou omezené. Vypněte tuto volbu, chcete-li je vybrat.",
         "freeNoticeUnstable": "Proxy pro Free účty může být nestabilní. Používejte opatrně.",
         "restrictFreeDisableConfirmTitle": "Povolit Free účty",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "Žádné účty nejsou dostupné",
         "newSessionPriorityRequiresAffinity": "Před zapnutím přednostního směrování nových relací zapněte vazbu relace",
         "newSessionPriorityAccountsRequired": "Vyberte alespoň jeden upřednostňovaný účet pro nové relace",
+        "responsesWebsockets": "Responses přes WebSocket",
         "maxRetryCredentials": "Retry účty",
         "maxRetryInterval": "Čekání retry",
         "disableCooling": "Vypnout cooldown",

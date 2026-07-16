@@ -7,6 +7,42 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.7] - 2026-07-16
+
+### Added
+
+- **Codex API Service is now a first-class platform entry**: it has its own navigation identity and page entry, with collection members and operations moved out of the regular Codex accounts page; existing platform layouts attach it to the Codex group once, while the dashboard, floating card, and data transfer treat it as an accountless service page; the page shows whether it is current and provides an explicit action to enable the service and switch the default Codex instance.
+- **Codex API Service client catalog includes GPT-5.6 Sol / Terra / Luna**: official model metadata covers context windows, Fast service tiers, search-tool capability, and reasoning efforts through `max` / `ultra` (where the model supports them), with Responses Lite routing for these models.
+- **Codex API Key provider changes synchronize linked account snapshots**: editing a managed model provider updates the linked API Key accounts' endpoint, wire protocol, model catalog, vision capabilities, and WebSocket support while preserving account usage metadata.
+- **Codex API Service can add accounts without leaving the current page**: the existing Codex OAuth, Token / JSON, API Key, and local-import flows open in place; new accounts can join the API Service automatically, empty collections offer direct add/manage actions, nested import and account-note dialogs remain usable, and operation feedback can be dismissed independently.
+
+### Changed
+
+- **Codex pages preserve loaded state while switching**: the Codex account page and API Service page remain mounted after first use, so switching between them keeps existing data visible while refreshes run in the background.
+- **Main window size and position memory is now opt-in and off by default**: window state is saved and restored across restart or tray rebuild only after users enable it under Settings → General, so existing users are not affected by position restoration by default.
+- **Codex client catalog advertises search tools only for official template models on Codex credentials**: synthesized or non-Codex-routed models no longer claim `supports_search_tool`, reducing broken tool-search attempts on incompatible routes.
+- **Codex API Service Ollama-compatible model metadata recognizes GPT-5.6 and deeper reasoning efforts**: family/context mapping covers `gpt-5.6*`, and thinking efforts accept `max` / `ultra` in addition to `low` / `medium` / `high` / `xhigh`.
+- **Codex API Service Responses WebSocket is now an account-pool routing toggle**: it is off by default for new and existing configurations; only OAuth API Service profiles and their multi-instance profiles use WebSocket after users enable it under Account Pool → Routing Options, while third-party ProviderGateway profiles remain disabled.
+
+### Fixed
+
+- **Fixed Codex client catalog wiping official Fast service tiers and overwriting template context limits**: the API Service no longer forces empty `service_tiers` or a hard-coded `max_context_window` of `1000000` on every model; official template values (including GPT-5.6) are preserved, and defaults fill only missing fields on synthesized models.
+- **Fixed Codex Desktop Responses Lite sessions that send `tools: null` and lose tool definitions**: tool definitions carried in `additional_tools` input items are merged into the upstream request, custom tool history is replayed, and freeform tool outputs with content-part arrays are flattened so the model still sees available tools and prior tool results.
+- **Fixed Codex account deletion removing the local file before API Service pool cleanup completed**: deletion now removes the account from the API Service pool through the same path as manual removal before deleting local credentials, preventing a false deletion failure followed by an empty JSON export.
+- **Fixed new Codex conversations on Chat Completions providers briefly failing with `auth_unavailable` before recovering**: WebSocket support for Chat Completions is now always normalized to `false` when provider settings are loaded, created, or updated, and its editor no longer shows the WebSocket toggle; provider-gateway profile takeover explicitly writes `supports_websockets = false` regardless of the previous profile value; the Sidecar also prevents provider-gateway requests from entering the Codex WebSocket auth route.
+- **Fixed Codex multi-instance shared-directory creation failing under standard Windows permissions or cross-drive paths**: shared directories now use an in-process native NTFS junction API instead of PowerShell or `mklink`; if junction creation is unavailable, Cockpit safely falls back to copying the directory and refuses to overwrite a non-empty target.
+- **Fixed the main window briefly appearing and then moving off-screen during position restore**: minimized-window coordinates are no longer saved, and restored positions must overlap a current display or they are cleared and the window is centered.
+- **Fixed managed Codex instances from the Windows Store being able to open the default account by mistake**: when `CODEX_HOME` and the instance data directory cannot be passed reliably, Cockpit no longer falls back to Store AppUserModelID activation or an arbitrary default Codex process; launch is blocked with guidance to switch that instance to CLI mode.
+- **Fixed pending or incomplete OAuth accounts being able to enter the Codex API Service**: these accounts remain visible with an explanation in the member picker but cannot be selected until authorization completes; the backend pool applies the same eligibility rule so accounts that cannot serve API traffic are not persisted.
+- **Fixed Codex batch deletion remaining stuck at `0/N` after accounts were removed**: the job now removes the selected accounts from the API Service pool once before deleting local account files, bounds that cleanup to five seconds as best effort, and the account page polls until the job pauses, completes, or fails before refreshing and clearing successful jobs.
+- **Fixed Codex API Key provider WebSocket changes not propagating to existing linked accounts**: saving a managed provider now updates the linked API Key account snapshots and rewrites the current `config.toml` when applicable, so later normal account switches keep `supports_websockets = true` for eligible custom Responses providers; Chat Completions and built-in OpenAI remain disabled.
+- **Fixed Codex sidecar streaming bootstrap retries reading the legacy single-account retry setting**: the new API Service now uses its dedicated streaming bootstrap retry value. (#1572, PR #1617) Thanks @kin001.
+- **Fixed Kiro IAM Identity Center refresh failing after the imported token expired**: `clientIdHash` now resolves the exact AWS SSO client registration file so the stored client ID and secret can be reused. (#1300, PR #1614) Thanks @kin001.
+- **Fixed Wakeup omitting available models that were missing from upstream sort metadata**: valid map-only models are now retained with deterministic fallback ordering. (#1313, PR #1613) Thanks @kin001.
+- **Fixed Claude Desktop quota refresh remaining blocked after a Cloudflare challenge**: failed direct requests can fall back to a cooldown-protected Electron page-context probe, with the original diagnostics preserved if the probe fails. (#1337, PR #1612) Thanks @kin001.
+- **Fixed Grok account listings being able to surface a known persisted test fixture**: only the complete fixture fingerprint is cleaned, so real accounts are not matched by email alone.
+
+---
 ## [1.3.6] - 2026-07-16
 
 ### Added

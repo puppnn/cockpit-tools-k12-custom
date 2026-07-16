@@ -118,15 +118,16 @@ type manifest struct {
 }
 
 type apiKeySpec struct {
-	ID              string               `json:"id"`
-	Label           string               `json:"label"`
-	Key             string               `json:"key"`
-	ProviderGateway *providerGatewaySpec `json:"providerGateway,omitempty"`
-	AccountIDs      []string             `json:"accountIds"`
-	ModelPrefix     string               `json:"modelPrefix,omitempty"`
-	AllowedModels   []string             `json:"allowedModels"`
-	ExcludedModels  []string             `json:"excludedModels"`
-	Enabled         bool                 `json:"enabled"`
+	ID                  string               `json:"id"`
+	Label               string               `json:"label"`
+	Key                 string               `json:"key"`
+	ProviderGateway     *providerGatewaySpec `json:"providerGateway,omitempty"`
+	AccountIDs          []string             `json:"accountIds"`
+	ModelPrefix         string               `json:"modelPrefix,omitempty"`
+	ResponsesWebsockets bool                 `json:"responsesWebsockets,omitempty"`
+	AllowedModels       []string             `json:"allowedModels"`
+	ExcludedModels      []string             `json:"excludedModels"`
+	Enabled             bool                 `json:"enabled"`
 }
 
 type apiKeyPriorityState struct {
@@ -1347,7 +1348,7 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 		if spec != nil && isModelsRequest(c.Request) {
 			models := clientCatalogModelsForAPIKey(p.manifest, spec)
 			if isCodexClientModelsRequest(c.Request) {
-				c.JSON(http.StatusOK, buildCodexClientModelsResponse(models))
+				c.JSON(http.StatusOK, buildCodexClientModelsResponse(models, spec))
 			} else {
 				c.JSON(http.StatusOK, buildModelsResponse(models))
 			}
@@ -1661,15 +1662,15 @@ func buildOllamaShowResponse(model string, modifiedAt time.Time) gin.H {
 			"display_name":                displayNameForModel(model),
 			"input_modalities":            []string{"text", "image"},
 			"context_length":              contextLength,
-			"supported_reasoning_efforts": []string{"low", "medium", "high"},
-			"default_reasoning_effort":    "medium",
+			"supported_reasoning_efforts": ollamaReasoningEfforts(model),
+			"default_reasoning_effort":    ollamaDefaultReasoningEffort(model),
 		},
 	}
 }
 
 func ollamaModelFamily(model string) string {
 	normalized := strings.ToLower(strings.TrimSpace(model))
-	for _, prefix := range []string{"gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
+	for _, prefix := range []string{"gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-oss", "codex"} {
 		if strings.HasPrefix(normalized, prefix) {
 			return prefix
 		}
@@ -1687,6 +1688,8 @@ func ollamaModelFamily(model string) string {
 
 func ollamaContextLength(model string) int {
 	switch {
+	case strings.HasPrefix(model, "gpt-5.6"):
+		return 372000
 	case strings.HasPrefix(model, "gpt-5.5"), strings.HasPrefix(model, "gpt-5.4"):
 		return 400000
 	case strings.HasPrefix(model, "gpt-5.3"), strings.HasPrefix(model, "gpt-5.2"), strings.HasPrefix(model, "gpt-5.1"):
@@ -1696,34 +1699,90 @@ func ollamaContextLength(model string) int {
 	}
 }
 
-func buildCodexClientModelsResponse(models []string) gin.H {
+func ollamaReasoningEfforts(model string) []string {
+	switch {
+	case strings.HasPrefix(model, "gpt-5.6-sol"), strings.HasPrefix(model, "gpt-5.6-terra"):
+		return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+	case strings.HasPrefix(model, "gpt-5.6-luna"), strings.HasPrefix(model, "gpt-5.6"):
+		return []string{"low", "medium", "high", "xhigh", "max"}
+	default:
+		return []string{"low", "medium", "high", "xhigh"}
+	}
+}
+
+func ollamaDefaultReasoningEffort(model string) string {
+	if strings.HasPrefix(model, "gpt-5.6-sol") {
+		return "low"
+	}
+	return "medium"
+}
+
+func buildCodexClientModelsResponse(models []string, spec *apiKeySpec) gin.H {
 	sourceModels := make([]map[string]any, 0, len(models))
 	for _, model := range models {
 		displayName := displayNameForModel(model)
-		sourceModels = append(sourceModels, map[string]any{
-			"id":             model,
-			"display_name":   displayName,
-			"description":    displayName,
-			"context_length": 272000,
-		})
+		entry := map[string]any{
+			"id":           model,
+			"display_name": displayName,
+			"description":  displayName,
+		}
+		// Only seed context_length for non-template models. Template models keep
+		// official context/service-tier values from codex_client_models.json.
+		if cw := ollamaContextLength(model); cw > 0 {
+			entry["context_length"] = cw
+		}
+		sourceModels = append(sourceModels, entry)
 	}
-	response := gin.H(sdkopenai.CodexClientModelsResponse(sourceModels))
+	response := gin.H(sdkopenai.CodexClientModelsResponseWithProviders(sourceModels, func(string) []string {
+		if spec != nil && spec.ProviderGateway != nil {
+			return []string{"provider-gateway"}
+		}
+		return []string{"codex"}
+	}))
 	if data, ok := response["models"].([]map[string]any); ok {
 		hydrateCodexCompatibilityModels(data)
-		for index, model := range data {
+		preferWebsockets := spec != nil && spec.ProviderGateway == nil && spec.ResponsesWebsockets
+		for _, model := range data {
+			model["prefer_websockets"] = preferWebsockets
 			slug, _ := model["slug"].(string)
 			if isHiddenCodexClientModel(slug) {
 				model["visibility"] = "hide"
 			}
-			model["max_context_window"] = 1000000
-			model["priority"] = 1000 + index
-			model["additional_speed_tiers"] = []any{}
-			model["service_tiers"] = []any{}
-			model["availability_nux"] = nil
-			model["upgrade"] = nil
+			// Preserve template priority/context/service_tiers. Only fill gaps
+			// for synthesized models that lack official catalog fields.
+			if _, ok := model["max_context_window"]; !ok {
+				if cw := intModelValueAny(model["context_window"]); cw > 0 {
+					model["max_context_window"] = cw
+				}
+			}
+			if _, ok := model["additional_speed_tiers"]; !ok {
+				model["additional_speed_tiers"] = []any{}
+			}
+			if _, ok := model["service_tiers"]; !ok {
+				model["service_tiers"] = []any{}
+			}
+			if _, ok := model["availability_nux"]; !ok {
+				model["availability_nux"] = nil
+			}
+			if _, ok := model["upgrade"]; !ok {
+				model["upgrade"] = nil
+			}
 		}
 	}
 	return response
+}
+
+func intModelValueAny(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func hydrateCodexCompatibilityModels(models []map[string]any) {
@@ -1759,6 +1818,14 @@ func displayNameForModel(model string) string {
 		return "GPT-5 Codex"
 	case "gpt-5-codex-mini":
 		return "GPT-5 Codex Mini"
+	case "gpt-5.6-sol":
+		return "GPT-5.6-Sol"
+	case "gpt-5.6-terra":
+		return "GPT-5.6-Terra"
+	case "gpt-5.6-luna":
+		return "GPT-5.6-Luna"
+	case "gpt-5.5":
+		return "GPT-5.5"
 	case "gpt-5.4":
 		return "GPT-5.4"
 	case "gpt-5.4-mini":
@@ -4912,7 +4979,7 @@ func (s *relayServer) handleModels(c *gin.Context) {
 	}
 	models := clientCatalogModelsForAPIKey(s.manifest, spec)
 	if isCodexClientModelsRequest(c.Request) {
-		c.JSON(http.StatusOK, buildCodexClientModelsResponse(models))
+		c.JSON(http.StatusOK, buildCodexClientModelsResponse(models, spec))
 		return
 	}
 	c.JSON(http.StatusOK, buildModelsResponse(models))
@@ -4923,7 +4990,21 @@ func (s *relayServer) handleResponses(c *gin.Context) {
 }
 
 func (s *relayServer) handleResponsesWebsocket(c *gin.Context) {
-	if _, ok := s.requireAPIKey(c); !ok {
+	spec, ok := s.requireAPIKey(c)
+	if !ok {
+		return
+	}
+	if spec.ProviderGateway != nil {
+		writeAPIError(
+			c,
+			http.StatusBadRequest,
+			"provider gateway does not support responses websocket",
+			"websocket_not_supported",
+		)
+		return
+	}
+	if !spec.ResponsesWebsockets {
+		writeAPIError(c, http.StatusBadRequest, "responses websocket is disabled", "websocket_disabled")
 		return
 	}
 	if s.responsesWebsocket == nil {
@@ -8344,7 +8425,7 @@ func ollamaThinkingEffort(value any) string {
 	switch v := value.(type) {
 	case string:
 		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "low", "medium", "high", "xhigh":
+		case "low", "medium", "high", "xhigh", "max", "ultra":
 			return strings.ToLower(strings.TrimSpace(v))
 		case "true":
 			return "medium"

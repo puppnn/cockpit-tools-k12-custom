@@ -84,7 +84,7 @@ import { CodebuddyIcon } from '../components/icons/CodebuddyIcon';
 import { QoderIcon } from '../components/icons/QoderIcon';
 import { ZcodeIcon } from '../components/icons/ZcodeIcon';
 import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
-import { PlatformId, PLATFORM_PAGE_MAP } from '../types/platform';
+import { isAccountPlatform, PlatformId, PLATFORM_PAGE_MAP } from '../types/platform';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { setAntigravityRuntimeTargetFromPlatform } from '../utils/antigravityRuntimeTarget';
 import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget';
@@ -2618,12 +2618,14 @@ export function DashboardPage({
     antigravity: stats.antigravity,
     antigravity_ide: stats.antigravity,
     codex: stats.codex,
+    codex_api_service: 0,
     claude_manager: stats.claude,
     zed: stats.zed,
     'github-copilot': stats.githubCopilot,
     windsurf: stats.windsurf,
     kiro: stats.kiro,
-    cursor: stats.cursor,    grok: stats.grok,
+    cursor: stats.cursor,
+    grok: stats.grok,
     codebuddy: stats.codebuddy,
     codebuddy_cn: stats.codebuddy_cn,
     qoder: stats.qoder,
@@ -2672,10 +2674,15 @@ export function DashboardPage({
         continue;
       }
       const defaultPlatformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
-      const platformId =
+      const preferredPlatformId =
         defaultPlatformId && entryPlatformIds.includes(defaultPlatformId)
           ? defaultPlatformId
           : entryPlatformIds[0];
+      // Account cards need a real account platform; service-only platforms are skipped.
+      const platformId =
+        preferredPlatformId && isAccountPlatform(preferredPlatformId)
+          ? preferredPlatformId
+          : entryPlatformIds.find((candidate) => isAccountPlatform(candidate));
       if (!platformId) {
         continue;
       }
@@ -2719,6 +2726,9 @@ export function DashboardPage({
   );
 
   const renderPlatformCard = (platformId: PlatformId) => {
+    if (!isAccountPlatform(platformId)) {
+      return null;
+    }
     if (platformId === 'antigravity') {
       return (
         <div className="main-card antigravity-card" key={platformId}>

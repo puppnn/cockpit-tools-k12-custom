@@ -497,6 +497,7 @@
       "noneRunning": "未找到正在運行的實例",
       "syncThreadsNeedTwo": "至少需要兩個實例才能同步執行緒",
       "launchPrepared": "啟動指令已準備",
+      "codexManagedStoreLaunchUnsafe": "Windows Store 無法可靠傳遞執行個體目錄，已阻止開啟預設帳號。請將此執行個體的啟動方式切換為 CLI 後重試。詳細資訊：{{detail}}",
       "speedUpdated": "速度已更新"
     },
     "runningDialog": {
@@ -608,6 +609,8 @@
       "closeBehaviorQuit": "退出應用程式",
       "startupMinimized": "啟動後自動最小化",
       "startupMinimizedDesc": "應用啟動完成後自動最小化主視窗，可從 Dock、工作列或系統列恢復",
+      "rememberMainWindowState": "記住主視窗位置與大小",
+      "rememberMainWindowStateDesc": "重新啟動或從系統列開啟時恢復主視窗位置與大小；預設關閉",
       "minimizeBehavior": "視窗最小化行為（僅 macOS）",
       "minimizeBehaviorDesc": "選擇最小化視窗時保留在 Dock 與選單列，或僅保留在選單列",
       "minimizeBehaviorDockAndTray": "Dock + 選單列（建議預設）",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "暫不支援 Free 帳號",
         "restrictFreeToggle": "限制 Free 帳號使用",
         "chatApiKeyUnsupported": "Chat Completions 不支援加入",
+        "pendingOauthUnsupported": "待授權不可加入",
         "freeNoticeRestricted": "已限制 Free 帳號，關閉後才可勾選。",
         "freeNoticeUnstable": "Free 帳號反代可能不穩定，請謹慎使用。",
         "restrictFreeDisableConfirmTitle": "確認允許 Free 帳號",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "暫無可選帳號",
         "newSessionPriorityRequiresAffinity": "啟用新會話優先前，請先啟用會話親和",
         "newSessionPriorityAccountsRequired": "請至少選擇一個新會話優先帳號",
+        "responsesWebsockets": "WebSocket 回應傳輸",
         "maxRetryCredentials": "重試帳號數",
         "maxRetryInterval": "重試等待",
         "disableCooling": "停用冷卻",

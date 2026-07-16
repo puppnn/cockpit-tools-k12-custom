@@ -31,7 +31,7 @@ import (
 )
 
 func TestCodexClientModelsResponseShape(t *testing.T) {
-	response := buildCodexClientModelsResponse([]string{"gpt-5.4", "gpt-image-2", codexAutoReviewModel})
+	response := buildCodexClientModelsResponse([]string{"gpt-5.4", "gpt-image-2", codexAutoReviewModel}, &apiKeySpec{})
 	models, ok := response["models"].([]map[string]any)
 	if !ok {
 		t.Fatalf("models response should contain a models array: %#v", response["models"])
@@ -45,8 +45,8 @@ func TestCodexClientModelsResponseShape(t *testing.T) {
 	if textModel == nil || imageModel == nil || reviewModel == nil {
 		t.Fatalf("expected all requested models, got %#v", models)
 	}
-	if _, ok := textModel["prefer_websockets"].(bool); !ok {
-		t.Fatalf("text model should keep websocket preference: %#v", textModel)
+	if got, ok := textModel["prefer_websockets"].(bool); !ok || got {
+		t.Fatalf("text model prefer_websockets = %#v, want false by default", textModel["prefer_websockets"])
 	}
 	if textModel["visibility"] != "list" {
 		t.Fatalf("text model should be listed in Codex client catalog: %#v", textModel)
@@ -57,6 +57,17 @@ func TestCodexClientModelsResponseShape(t *testing.T) {
 	if _, ok := textModel["input_modalities"].([]any); !ok {
 		t.Fatalf("text model should keep input modalities: %#v", textModel)
 	}
+	// Official catalog service tiers / context must not be hard-cleared by main.go.
+	if tiers, ok := textModel["service_tiers"].([]any); !ok || len(tiers) == 0 {
+		t.Fatalf("text model should keep official service_tiers: %#v", textModel["service_tiers"])
+	}
+	if cw := intFromAny(textModel["max_context_window"]); cw != 1000000 {
+		// gpt-5.4 template uses max_context_window=1000000; ensure we did not wipe it.
+		t.Fatalf("text model max_context_window should keep template value 1000000, got %#v", textModel["max_context_window"])
+	}
+	if cw := intFromAny(textModel["context_window"]); cw != 272000 {
+		t.Fatalf("text model context_window should keep template value 272000, got %#v", textModel["context_window"])
+	}
 	if imageModel["visibility"] != "hide" {
 		t.Fatalf("image model should be hidden in Codex client catalog: %#v", imageModel)
 	}
@@ -65,8 +76,111 @@ func TestCodexClientModelsResponseShape(t *testing.T) {
 	}
 }
 
+func TestCodexClientModelsResponsePreserves56Template(t *testing.T) {
+	response := buildCodexClientModelsResponse([]string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "custom-compat-model"}, &apiKeySpec{})
+	models, ok := response["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models response should contain a models array: %#v", response["models"])
+	}
+	sol := findCodexClientModelForTest(models, "gpt-5.6-sol")
+	if sol == nil {
+		t.Fatal("expected gpt-5.6-sol")
+	}
+	if intFromAny(sol["context_window"]) != 372000 || intFromAny(sol["max_context_window"]) != 372000 {
+		t.Fatalf("sol context windows = %#v / %#v", sol["context_window"], sol["max_context_window"])
+	}
+	if tiers, ok := sol["service_tiers"].([]any); !ok || len(tiers) != 1 {
+		t.Fatalf("sol service_tiers = %#v", sol["service_tiers"])
+	}
+	if got, ok := sol["supports_search_tool"].(bool); !ok || !got {
+		t.Fatalf("sol supports_search_tool = %#v, want true", sol["supports_search_tool"])
+	}
+	if got, ok := sol["prefer_websockets"].(bool); !ok || got {
+		t.Fatalf("sol prefer_websockets = %#v, want false by default", sol["prefer_websockets"])
+	}
+	if got := stringFromAny(sol["minimal_client_version"]); got != "0.144.0" {
+		t.Fatalf("sol minimal_client_version = %q, want 0.144.0", got)
+	}
+	levels, ok := sol["supported_reasoning_levels"].([]any)
+	if !ok {
+		t.Fatalf("sol reasoning levels = %#v", sol["supported_reasoning_levels"])
+	}
+	hasUltra := false
+	for _, raw := range levels {
+		level, _ := raw.(map[string]any)
+		if stringFromAny(level["effort"]) == "ultra" {
+			hasUltra = true
+		}
+	}
+	if !hasUltra {
+		t.Fatalf("sol should expose ultra reasoning: %#v", levels)
+	}
+
+	custom := findCodexClientModelForTest(models, "custom-compat-model")
+	if custom == nil {
+		t.Fatal("expected synthesized custom model")
+	}
+	if got, ok := custom["supports_search_tool"].(bool); !ok || got {
+		t.Fatalf("custom supports_search_tool = %#v, want false", custom["supports_search_tool"])
+	}
+}
+
+func TestCodexClientModelsResponseEnablesWebsocketsWhenConfigured(t *testing.T) {
+	response := buildCodexClientModelsResponse([]string{"gpt-5.6-sol"}, &apiKeySpec{
+		ResponsesWebsockets: true,
+	})
+	models, ok := response["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models response should contain a models array: %#v", response["models"])
+	}
+	sol := findCodexClientModelForTest(models, "gpt-5.6-sol")
+	if sol == nil {
+		t.Fatal("expected gpt-5.6-sol")
+	}
+	if got, ok := sol["prefer_websockets"].(bool); !ok || !got {
+		t.Fatalf("sol prefer_websockets = %#v, want true", sol["prefer_websockets"])
+	}
+}
+
+func TestCodexClientModelsResponseDisablesSearchForProviderGateway(t *testing.T) {
+	response := buildCodexClientModelsResponse([]string{"gpt-5.6-sol"}, &apiKeySpec{
+		ProviderGateway: &providerGatewaySpec{},
+	})
+	models, ok := response["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models response should contain a models array: %#v", response["models"])
+	}
+	sol := findCodexClientModelForTest(models, "gpt-5.6-sol")
+	if sol == nil {
+		t.Fatal("expected gpt-5.6-sol")
+	}
+	if got, ok := sol["supports_search_tool"].(bool); !ok || got {
+		t.Fatalf("provider gateway supports_search_tool = %#v, want false", sol["supports_search_tool"])
+	}
+}
+
+func intFromAny(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+func stringFromAny(value any) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
+}
+
 func TestCodexSparkUsesCompleteCodexClientCatalogTemplate(t *testing.T) {
-	response := buildCodexClientModelsResponse([]string{codexSparkCatalogTemplateModel, codexSparkModel})
+	response := buildCodexClientModelsResponse([]string{codexSparkCatalogTemplateModel, codexSparkModel}, &apiKeySpec{})
 	models, ok := response["models"].([]map[string]any)
 	if !ok {
 		t.Fatalf("models response should contain a models array: %#v", response["models"])
@@ -5648,7 +5762,7 @@ func TestCodexAlphaSearchDirectPathIsRegistered(t *testing.T) {
 	t.Parallel()
 	runtime := &fakeRuntime{alphaSearchPayload: []byte(`{"ok":true}`)}
 	m := &manifest{
-		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true, ResponsesWebsockets: true}},
 	}
 	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
 	router := (&relayServer{
@@ -5689,22 +5803,19 @@ func TestCodexAlphaSearchRequiresAPIKey(t *testing.T) {
 func TestResponsesWebsocketRouteRequiresAPIKey(t *testing.T) {
 	t.Parallel()
 	called := false
+	m := &manifest{
+		APIKeys: []apiKeySpec{{
+			ID:                  "key_1",
+			Key:                 "client-key",
+			Enabled:             true,
+			ResponsesWebsockets: true,
+		}},
+	}
+	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
 	router := (&relayServer{
-		runtime: &fakeRuntime{},
-		manifest: &manifest{
-			APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
-			apiKeyByValue: map[string]*apiKeySpec{
-				"client-key": {ID: "key_1", Key: "client-key", Enabled: true},
-			},
-		},
-		policy: &requestPolicy{
-			manifest: &manifest{
-				APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
-				apiKeyByValue: map[string]*apiKeySpec{
-					"client-key": {ID: "key_1", Key: "client-key", Enabled: true},
-				},
-			},
-		},
+		runtime:  &fakeRuntime{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
 		responsesWebsocket: func(c *gin.Context) {
 			called = true
 			c.Status(http.StatusSwitchingProtocols)
@@ -5742,7 +5853,7 @@ func TestResponsesWebsocketRouteRequiresAPIKey(t *testing.T) {
 func TestResponsesWebsocketRouteUnavailableWithoutHandler(t *testing.T) {
 	t.Parallel()
 	m := &manifest{
-		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true, ResponsesWebsockets: true}},
 	}
 	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
 	router := (&relayServer{
@@ -5759,6 +5870,83 @@ func TestResponsesWebsocketRouteUnavailableWithoutHandler(t *testing.T) {
 		t.Fatalf("status = %d, want 503 body=%s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "responses websocket unavailable") {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+func TestResponsesWebsocketRouteDisabledByDefault(t *testing.T) {
+	t.Parallel()
+	called := false
+	m := &manifest{
+		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+	}
+	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+		responsesWebsocket: func(c *gin.Context) {
+			called = true
+			c.Status(http.StatusSwitchingProtocols)
+		},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 body=%s", w.Code, w.Body.String())
+	}
+	if called {
+		t.Fatal("websocket handler should not run when disabled")
+	}
+	if !strings.Contains(w.Body.String(), "responses websocket is disabled") {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+func TestResponsesWebsocketRejectsProviderGatewayBeforeCodexAuth(t *testing.T) {
+	t.Parallel()
+	called := false
+	m := &manifest{
+		APIKeys: []apiKeySpec{{
+			ID:      "provider_gateway_deepseek",
+			Key:     "client-key",
+			Enabled: true,
+			ProviderGateway: &providerGatewaySpec{
+				BaseURL:       "https://api.deepseek.com/v1",
+				APIKey:        "sk-deepseek",
+				UpstreamModel: "deepseek-v4-pro",
+				WireAPI:       "chat_completions",
+			},
+		}},
+	}
+	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+		responsesWebsocket: func(c *gin.Context) {
+			called = true
+			c.Status(http.StatusSwitchingProtocols)
+		},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 body=%s", w.Code, w.Body.String())
+	}
+	if called {
+		t.Fatal("provider gateway must not enter the Codex websocket auth handler")
+	}
+	if !strings.Contains(w.Body.String(), "websocket_not_supported") {
 		t.Fatalf("body = %s", w.Body.String())
 	}
 }

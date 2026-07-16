@@ -8430,6 +8430,7 @@ mod tests {
         read_api_provider_from_config_toml, read_quick_config_from_config_toml, remove_accounts,
         resolve_api_provider_config, save_account, save_account_index,
         should_accept_authority_snapshot, sync_account_from_auth_dir,
+        sync_api_key_provider_accounts,
         sync_api_key_account_from_local_state, sync_managed_projection_from_auth_dir,
         try_parse_pending_oauth_delimited_line, upsert_account, upsert_account_for_reauth,
         upsert_account_from_access_token, upsert_account_from_access_token_with_hints,
@@ -11033,6 +11034,57 @@ supports_websockets = false
     }
 
     #[test]
+    fn provider_snapshot_sync_updates_account_and_current_config_without_touching_last_used() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let env = TestEnvGuard::new("codex-provider-snapshot-sync-test");
+        let mut account = CodexAccount::new_api_key(
+            "relay-account".to_string(),
+            "relay@example.com".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example.com/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+            Vec::new(),
+        );
+        account.api_wire_api = Some("responses".to_string());
+        account.last_used = 123;
+        save_account(&account).expect("save account");
+
+        let mut index = CodexAccountIndex::new();
+        index.current_account_id = Some(account.id.clone());
+        save_account_index(&index).expect("save account index");
+
+        let updated = sync_api_key_provider_accounts(
+            vec![account.id.clone(), account.id.clone()],
+            Some("https://relay.example.com/v1".to_string()),
+            Some(CodexApiProviderMode::Custom),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+            vec!["gpt-5".to_string()],
+            Some("responses".to_string()),
+            true,
+            false,
+            Default::default(),
+            None,
+        )
+        .expect("sync provider snapshot");
+
+        assert_eq!(updated, 1);
+        let saved = load_account(&account.id).expect("load updated account");
+        assert!(saved.api_supports_websockets);
+        assert_eq!(saved.api_wire_api.as_deref(), Some("responses"));
+        assert_eq!(saved.api_model_catalog, vec!["gpt-5".to_string()]);
+        assert_eq!(saved.last_used, 123);
+
+        let config = fs::read_to_string(env.codex_home().join("config.toml"))
+            .expect("read current config");
+        assert!(config.contains("supports_websockets = true"));
+    }
+
+    #[test]
     fn api_key_bundle_bound_to_empty_id_token_oauth_writes_api_key_auth_file() {
         let _lock = crate::modules::test_support::env_lock()
             .lock()
@@ -12403,6 +12455,68 @@ pub fn update_api_key_credentials(
     ));
 
     Ok(account)
+}
+
+pub fn sync_api_key_provider_accounts(
+    account_ids: Vec<String>,
+    api_base_url: Option<String>,
+    api_provider_mode: Option<CodexApiProviderMode>,
+    api_provider_id: Option<String>,
+    api_provider_name: Option<String>,
+    api_model_catalog: Vec<String>,
+    api_wire_api: Option<String>,
+    api_supports_websockets: bool,
+    api_supports_vision: bool,
+    api_model_vision_support: std::collections::HashMap<String, bool>,
+    api_vision_routing_model: Option<String>,
+) -> Result<usize, String> {
+    let provider_config = resolve_api_provider_config(
+        api_base_url.as_deref(),
+        api_provider_mode,
+        api_provider_id.as_deref(),
+        api_provider_name.as_deref(),
+    )?;
+    let current_account_id = load_account_index().current_account_id;
+    let mut seen = HashSet::new();
+    let mut updated_accounts = Vec::new();
+
+    for account_id in account_ids {
+        if !seen.insert(account_id.clone()) {
+            continue;
+        }
+        let Some(mut account) = load_account(&account_id) else {
+            continue;
+        };
+        if !account.is_api_key_auth() {
+            continue;
+        }
+        let api_key = normalize_api_key(account.openai_api_key.as_deref().unwrap_or_default())
+            .ok_or_else(|| format!("API Key 账号缺少密钥: {}", account.id))?;
+        let sync_model_catalog_to_codex = account.api_sync_model_catalog_to_codex;
+        apply_api_key_fields(
+            &mut account,
+            &api_key,
+            provider_config.clone(),
+            api_model_catalog.clone(),
+            sync_model_catalog_to_codex,
+            api_wire_api.clone(),
+            api_supports_websockets,
+            api_supports_vision,
+            api_model_vision_support.clone(),
+            api_vision_routing_model.clone(),
+        );
+        save_account(&account)?;
+        updated_accounts.push(account);
+    }
+
+    if let Some(current_account) = updated_accounts
+        .iter()
+        .find(|account| current_account_id.as_deref() == Some(account.id.as_str()))
+    {
+        write_account_bundle_to_dir(&get_codex_home(), current_account)?;
+    }
+
+    Ok(updated_accounts.len())
 }
 
 pub fn update_account_name(account_id: &str, name: String) -> Result<CodexAccount, String> {

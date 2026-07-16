@@ -173,6 +173,9 @@ pub struct UserConfig {
     /// 是否在启动后自动最小化主窗口
     #[serde(default = "default_startup_minimized")]
     pub startup_minimized: bool,
+    /// 是否记住主窗口尺寸和位置
+    #[serde(default = "default_remember_main_window_state")]
+    pub remember_main_window_state: bool,
     /// 启动默认页面：`last` 表示恢复上次页面，其它为页面 id（如 dashboard、codex）
     #[serde(default = "default_startup_page")]
     pub startup_page: String,
@@ -719,6 +722,9 @@ fn default_floating_card_show_on_startup() -> bool {
 fn default_startup_minimized() -> bool {
     false
 }
+fn default_remember_main_window_state() -> bool {
+    false
+}
 fn default_startup_page() -> String {
     "last".to_string()
 }
@@ -1115,6 +1121,7 @@ impl Default for UserConfig {
             tray_icon_style: default_tray_icon_style(),
             floating_card_show_on_startup: default_floating_card_show_on_startup(),
             startup_minimized: default_startup_minimized(),
+            remember_main_window_state: default_remember_main_window_state(),
             startup_page: default_startup_page(),
             floating_card_always_on_top: default_floating_card_always_on_top(),
             app_auto_launch_enabled: default_app_auto_launch_enabled(),
@@ -1583,6 +1590,13 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             obj.insert(
                 "startup_minimized".to_string(),
                 json!(default_startup_minimized()),
+            );
+        }
+
+        if !obj.contains_key("remember_main_window_state") {
+            obj.insert(
+                "remember_main_window_state".to_string(),
+                json!(default_remember_main_window_state()),
             );
         }
 

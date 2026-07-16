@@ -419,7 +419,7 @@ app.whenReady().then(async () => {
     return;
   }
 
-  await writeStatus('starting');
+  await writeStatus('starting', {}, null, { skipWebProfile: mode === 'probe' });
 
   if (mode === 'probe') {
     let probeWin = null;

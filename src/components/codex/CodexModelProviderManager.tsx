@@ -62,6 +62,7 @@ import {
   deleteCodexAccounts,
   getCurrentCodexAccount,
   listCodexAccounts,
+  syncCodexApiKeyProviderAccounts,
   updateCodexApiKeyBoundOAuthAccount,
 } from "../../services/codexService";
 import {
@@ -134,6 +135,7 @@ import {
   type CodexProviderWireApi,
 } from "../../utils/codexProviderGateway";
 import { emitAccountsChanged } from "../../utils/accountSyncEvents";
+import { findCodexAccountsReferencingModelProvider } from "../../utils/codexModelProviderAccountSync";
 import { CodexQuickConfigCard } from "./CodexQuickConfigCard";
 import {
   CodexServicePanelModal,
@@ -2173,6 +2175,49 @@ export function CodexModelProviderManager({
           console.warn("[CodexModelProviders] 额度类型探测失败", usageErr);
         }
       }
+      if (savedProvider && currentEditingProvider) {
+        const linkedAccountIds = findCodexAccountsReferencingModelProvider(
+          currentEditingProvider,
+          accounts,
+        );
+        if (linkedAccountIds.length > 0) {
+          const presetId = resolveCodexApiProviderPresetId(savedProvider.baseUrl);
+          const isOpenAIOfficial = presetId === "openai_official";
+          const wireApi = resolveProviderWireApi(savedProvider);
+          const updatedAccountCount = await syncCodexApiKeyProviderAccounts({
+            accountIds: linkedAccountIds,
+            apiBaseUrl: savedProvider.baseUrl,
+            apiProviderMode: isOpenAIOfficial ? "openai_builtin" : "custom",
+            apiProviderId:
+              presetId === CODEX_API_PROVIDER_CUSTOM_ID
+                ? savedProvider.id
+                : presetId,
+            apiProviderName: savedProvider.name,
+            apiModelCatalog: savedProvider.modelCatalog,
+            apiWireApi: wireApi,
+            apiSupportsWebsockets:
+              !isOpenAIOfficial &&
+              wireApi === "responses" &&
+              savedProvider.supportsWebsockets === true,
+            apiSupportsVision: savedProvider.supportsVision === true,
+            apiModelVisionSupport: Object.fromEntries(
+              Object.entries(savedProvider.modelCapabilities ?? {}).map(
+                ([model, capability]) => [
+                  model,
+                  capability.supportsVision === true,
+                ],
+              ),
+            ),
+            apiVisionRoutingModel: savedProvider.visionRoutingModel,
+          });
+          if (updatedAccountCount > 0) {
+            await emitAccountsChanged({
+              platformId: "codex",
+              reason: "provider-snapshot-sync",
+            });
+          }
+        }
+      }
       await reloadProviders();
       setShowModal(false);
       setForm(EMPTY_FORM);
@@ -2187,6 +2232,8 @@ export function CodexModelProviderManager({
       setSaving(false);
     }
   }, [
+    accounts,
+    currentEditingProvider,
     currentEditingProvider?.apiKeys.length,
     form,
     parseServiceError,
@@ -4557,45 +4604,43 @@ export function CodexModelProviderManager({
                   </button>
                 </div>
               </div>
-              <div className="form-group">
-                <label>
-                  {t(
-                    "codex.modelProviders.fields.supportsWebsockets",
-                    "WebSocket 传输",
-                  )}
-                </label>
-                <label className="provider-vision-toggle">
-                  <span className="provider-vision-toggle-copy">
-                    <span className="provider-vision-toggle-title">
-                      {t(
-                        "codex.modelProviders.websockets.title",
-                        "允许 Codex 使用 Responses WebSocket",
-                      )}
+              {form.wireApi === "responses" && (
+                <div className="form-group">
+                  <label>
+                    {t(
+                      "codex.modelProviders.fields.supportsWebsockets",
+                      "WebSocket 传输",
+                    )}
+                  </label>
+                  <label className="provider-vision-toggle">
+                    <span className="provider-vision-toggle-copy">
+                      <span className="provider-vision-toggle-title">
+                        {t(
+                          "codex.modelProviders.websockets.title",
+                          "允许 Codex 使用 Responses WebSocket",
+                        )}
+                      </span>
+                      <span className="provider-vision-toggle-desc">
+                        {t(
+                          "codex.modelProviders.websockets.help",
+                          "仅在供应商明确支持 Responses WebSocket 时开启；连接方式可通过 Codex 或代理服务日志确认。",
+                        )}
+                      </span>
                     </span>
-                    <span className="provider-vision-toggle-desc">
-                      {t(
-                        "codex.modelProviders.websockets.help",
-                        "仅在供应商明确支持 Responses WebSocket 时开启；连接方式可通过 Codex 或代理服务日志确认。",
-                      )}
+                    <span className="provider-vision-switch">
+                      <input
+                        type="checkbox"
+                        checked={form.supportsWebsockets}
+                        onChange={(event) =>
+                          mutateForm({ supportsWebsockets: event.target.checked })
+                        }
+                        disabled={saving || selectedPresetId === "openai_official"}
+                      />
+                      <span className="provider-vision-switch-track" />
                     </span>
-                  </span>
-                  <span className="provider-vision-switch">
-                    <input
-                      type="checkbox"
-                      checked={form.supportsWebsockets}
-                      onChange={(event) =>
-                        mutateForm({ supportsWebsockets: event.target.checked })
-                      }
-                      disabled={
-                        saving ||
-                        form.wireApi !== "responses" ||
-                        selectedPresetId === "openai_official"
-                      }
-                    />
-                    <span className="provider-vision-switch-track" />
-                  </span>
-                </label>
-              </div>
+                  </label>
+                </div>
+              )}
               {form.wireApi === "chat_completions" && (
                 <>
                   <div className="form-group">

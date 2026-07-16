@@ -77,6 +77,16 @@ func toolSpecsFromRequest(requestRawJSON []byte) map[string]responsesToolSpec {
 	}
 	root := gjson.ParseBytes(requestRawJSON)
 	addToolSpecs(root.Get("tools"), "", specs)
+	// Codex Desktop Responses Lite ships tool definitions via additional_tools
+	// input items when top-level tools is null.
+	if input := root.Get("input"); input.Exists() && input.IsArray() {
+		input.ForEach(func(_, item gjson.Result) bool {
+			if item.Get("type").String() == "additional_tools" {
+				addToolSpecs(item.Get("tools"), "", specs)
+			}
+			return true
+		})
+	}
 	collectToolSearchOutputSpecs(root.Get("input"), specs)
 	return specs
 }

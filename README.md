@@ -3,11 +3,11 @@
 [English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
 
 [![Custom fork](https://img.shields.io/badge/custom%20fork-K12%20session%20routing-2f81f7)](https://github.com/puppnn/cockpit-tools-k12-custom)
-[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.6-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.6)
+[![Based on](https://img.shields.io/badge/based%20on-Cockpit%20Tools%20v1.3.7-555)](https://github.com/jlcodes99/cockpit-tools/releases/tag/v1.3.7)
 [![Upstream](https://img.shields.io/badge/upstream-jlcodes99%2Fcockpit--tools-238636)](https://github.com/jlcodes99/cockpit-tools)
 
 > [!IMPORTANT]
-> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.6**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
+> 这是 [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) 的定制 Fork，当前完整集成上游正式版 **v1.3.7**，并重点改进 Codex 本地 API 服务的 K12 会话路由、连续任务故障切换和 OAuth 额度保留。上游功能与本 Fork 的定制策略会一起保留；定制功能不包含在上游官方 Release 中。
 
 > [!WARNING]
 > **不要用上游官方安装包直接覆盖本 Fork。** 定制版仍会检查并展示上游新版本，但应用内下载和安装入口已设为只读保护，不会再用官方二进制覆盖 K12/API 定制功能。升级流程固定为：拉取 `upstream` -> 合并到本 Fork -> 运行测试 -> 重新构建并安装。本仓库当前没有签名 Release，不能把 updater endpoint 直接切到 Fork 后假装自动更新。
@@ -27,9 +27,9 @@
 
 ---
 
-## 上游 v1.3.6 集成
+## 上游 v1.3.7 集成
 
-- **完整平台能力**：保留上游 v1.3.6 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
+- **完整平台能力**：保留上游 v1.3.7 的 Grok CLI、ZCode、多实例管理和 18 种语言支持。
 - **新版 Codex 账号体验**：采用动态套餐筛选和额度摘要、模型专属附加额度显隐、清空筛选、改进后的账号展示名与导入流程。
 - **Client Key 账号范围**：保留按 Key 继承或自定义有序账号池、置顶优先账号、允许/排除模型与分周期用量统计。K12 会话亲和和新会话优先池只在当前 Client Key 允许的账号范围内工作，不会越过 Key 的账号或模型限制。
 - **路由与流式响应**：保留上游随机账号路由和可选的“SSE 立即返回 200”。随机路由仍遵守会话亲和、账号健康、冷却、额度保留和模型资格；立即 SSE 默认关闭，仅改变流式响应提交时机，不改变账号选择策略。

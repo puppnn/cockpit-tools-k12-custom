@@ -228,7 +228,7 @@ const TOP_PROMO_PAGE_PLATFORM_TARGETS: Partial<Record<Page, readonly string[]>> 
   wakeup: ['antigravity', 'antigravity-ide'],
   verification: ['antigravity', 'antigravity-ide'],
   codex: ['codex'],
-  'codex-api-service': ['codex'],
+  'codex-api-service': ['codex_api_service', 'codex'],
   'codex-instances': ['codex'],
   claude: ['claude', 'claude-manager'],
   'claude-cli': ['claude', 'claude-manager'],
@@ -749,6 +749,23 @@ function MainApp() {
     } catch {}
     return 'dashboard';
   });
+  const isCodexSuitePage = page === 'codex' || page === 'codex-api-service';
+  const [codexSuiteKeepAlive, setCodexSuiteKeepAlive] = useState(isCodexSuitePage);
+  const shouldMountCodexSuite = isCodexSuitePage || codexSuiteKeepAlive;
+
+  useEffect(() => {
+    if (isCodexSuitePage) {
+      setCodexSuiteKeepAlive(true);
+    }
+  }, [isCodexSuitePage]);
+
+  useEffect(() => {
+    const ensureMounted = () => setCodexSuiteKeepAlive(true);
+    window.addEventListener('codex-suite-ensure-mounted', ensureMounted);
+    return () => {
+      window.removeEventListener('codex-suite-ensure-mounted', ensureMounted);
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -3987,10 +4004,31 @@ function MainApp() {
           )}
           {page === 'api-relay' && <ApiKeyFunPage />}
           {page === 'overview' && <AccountsPage onNavigate={setPage} />}
-          {page === 'codex' && <CodexAccountsPage />}
+          {/* Codex suite: keep both pages mounted after first visit to avoid empty flash when switching. */}
+          {shouldMountCodexSuite && (
+            <Suspense fallback={page === 'codex' ? suspenseFallback : null}>
+              <div
+                className="app-page-keep-alive"
+                hidden={page !== 'codex'}
+                aria-hidden={page !== 'codex'}
+              >
+                <CodexAccountsPage />
+              </div>
+            </Suspense>
+          )}
+          {shouldMountCodexSuite && (
+            <Suspense fallback={page === 'codex-api-service' ? suspenseFallback : null}>
+              <div
+                className="app-page-keep-alive"
+                hidden={page !== 'codex-api-service'}
+                aria-hidden={page !== 'codex-api-service'}
+              >
+                <CodexApiServicePage />
+              </div>
+            </Suspense>
+          )}
           {page === 'claude' && <ClaudeAccountsPage subPlatform="desktop" />}
           {page === 'claude-cli' && <ClaudeAccountsPage subPlatform="cli" />}
-          {page === 'codex-api-service' && <CodexApiServicePage />}
           {page === 'github-copilot' && <GitHubCopilotAccountsPage />}
           {page === 'windsurf' && <WindsurfAccountsPage />}
           {page === 'kiro' && <KiroAccountsPage />}

@@ -410,6 +410,34 @@ export async function updateCodexApiKeyCredentials(
   });
 }
 
+export async function syncCodexApiKeyProviderAccounts(input: {
+  accountIds: string[];
+  apiBaseUrl: string;
+  apiProviderMode: CodexApiProviderMode;
+  apiProviderId: string;
+  apiProviderName: string;
+  apiModelCatalog?: string[];
+  apiWireApi: CodexProviderWireApi;
+  apiSupportsWebsockets: boolean;
+  apiSupportsVision: boolean;
+  apiModelVisionSupport: Record<string, boolean>;
+  apiVisionRoutingModel?: string;
+}): Promise<number> {
+  return await invoke('sync_codex_api_key_provider_accounts', {
+    accountIds: input.accountIds,
+    apiBaseUrl: input.apiBaseUrl,
+    apiProviderMode: input.apiProviderMode,
+    apiProviderId: input.apiProviderId,
+    apiProviderName: input.apiProviderName,
+    apiModelCatalog: input.apiModelCatalog ?? null,
+    apiWireApi: input.apiWireApi,
+    apiSupportsWebsockets: input.apiSupportsWebsockets,
+    apiSupportsVision: input.apiSupportsVision,
+    apiModelVisionSupport: input.apiModelVisionSupport,
+    apiVisionRoutingModel: input.apiVisionRoutingModel ?? null,
+  });
+}
+
 export async function updateCodexApiKeyBoundOAuthAccount(
   accountId: string,
   boundOauthAccountId: string | null,

@@ -77,7 +77,7 @@ import {
 import { useWindsurfInstanceStore } from '../stores/useWindsurfInstanceStore';
 import { useWorkbuddyInstanceStore } from '../stores/useWorkbuddyInstanceStore';
 import { useZcodeInstanceStore } from '../stores/useZcodeInstanceStore';
-import { ALL_PLATFORM_IDS, PLATFORM_PAGE_MAP, PlatformId } from '../types/platform';
+import { ALL_PLATFORM_IDS, isAccountPlatform, PLATFORM_PAGE_MAP, PlatformId } from '../types/platform';
 import type { InstanceProfile } from '../types/instance';
 import { isPrivacyModeEnabledByDefault, maskSensitiveValue } from '../utils/privacy';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
@@ -195,6 +195,8 @@ function resolveInstanceStoreApi(platformId: PlatformId): FloatingCardInstanceSt
       return useInstanceStore.getState();
     case 'codex':
       return useCodexInstanceStore.getState();
+    case 'codex_api_service':
+      return null;
     case 'claude_manager':
       return useClaudeInstanceStore.getState();
     case 'github-copilot':
@@ -330,6 +332,7 @@ export function FloatingCardWindow() {
     // Prefer layout order, but only platforms enabled for menu bar (菜单栏显示).
     for (const platformId of orderedPlatformIds) {
       if (!ALL_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
+      if (!isAccountPlatform(platformId)) continue;
       if (remoteHiddenPlatformSet.has(platformId)) continue;
       if (!trayEnabled.has(platformId)) continue;
       ordered.push(platformId);
@@ -339,6 +342,7 @@ export function FloatingCardWindow() {
     // Keep tray-enabled platforms that are not yet in orderedPlatformIds.
     for (const platformId of trayPlatformIds) {
       if (!ALL_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
+      if (!isAccountPlatform(platformId)) continue;
       if (remoteHiddenPlatformSet.has(platformId)) continue;
       ordered.push(platformId);
       seen.add(platformId);
@@ -469,6 +473,8 @@ export function FloatingCardWindow() {
             useCodexAccountStore.getState().fetchAccounts(),
             useCodexAccountStore.getState().fetchCurrentAccount(),
           ]);
+          break;
+        case 'codex_api_service':
           break;
         case 'claude_manager':
           await Promise.allSettled([
@@ -825,6 +831,11 @@ export function FloatingCardWindow() {
           accounts: codexAccounts,
           actualCurrentAccount: codexCurrent,
         };
+      case 'codex_api_service':
+        return {
+          accounts: [],
+          actualCurrentAccount: null,
+        };
       case 'claude_manager':
         return {
           accounts: claudeAccounts,
@@ -893,6 +904,11 @@ export function FloatingCardWindow() {
           accounts: zcodeAccounts,
           actualCurrentAccount: zcodeCurrent,
         };
+      default:
+        return {
+          accounts: [],
+          actualCurrentAccount: null,
+        };
     }
   }, [
     agAccounts,
@@ -947,6 +963,8 @@ export function FloatingCardWindow() {
         return getRecommendedAntigravityAccount(agAccounts, effectiveCurrentId);
       case 'codex':
         return getRecommendedCodexAccount(codexAccounts, effectiveCurrentId);
+      case 'codex_api_service':
+        return null;
       case 'claude_manager':
         return getRecommendedClaudeAccount(claudeAccounts, effectiveCurrentId);
       case 'github-copilot':
@@ -976,6 +994,8 @@ export function FloatingCardWindow() {
         return getRecommendedWorkbuddyAccount(workbuddyAccounts, effectiveCurrentId);
       case 'zed':
         return getRecommendedZedAccount(zedAccounts, effectiveCurrentId);
+      default:
+        return null;
     }
   }, [
     agAccounts,
@@ -1042,6 +1062,8 @@ export function FloatingCardWindow() {
         return buildAntigravityAccountPresentation(viewedAccount as typeof agAccounts[number], displayGroups, t);
       case 'codex':
         return buildCodexAccountPresentation(viewedAccount as typeof codexAccounts[number], t);
+      case 'codex_api_service':
+        return null;
       case 'claude_manager':
         return buildClaudeAccountPresentation(viewedAccount as typeof claudeAccounts[number], t);
       case 'github-copilot':
@@ -1071,6 +1093,8 @@ export function FloatingCardWindow() {
         return buildZedAccountPresentation(viewedAccount as typeof zedAccounts[number], t);
       case 'zcode':
         return buildZcodeAccountPresentation(viewedAccount as typeof zcodeAccounts[number], t);
+      default:
+        return null;
     }
   }, [
     agAccounts,

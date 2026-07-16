@@ -135,6 +135,7 @@ export interface CodexLocalAccessCollection {
   sessionAffinityDefaultEnabledMigrated?: boolean;
   newSessionPriorityEnabled: boolean;
   newSessionPriorityAccountIds: string[];
+  responsesWebsocketsEnabled: boolean;
   maxRetryCredentials: number;
   maxRetryIntervalMs: number;
   timeouts: CodexLocalAccessTimeouts;
@@ -333,7 +334,11 @@ export interface CodexLocalAccessState {
 
 export interface CodexLocalAccessAppendAccountSkipped {
   accountId: string;
-  reason: "not_found" | "chat_completions_api_key" | "free_restricted";
+  reason:
+    | "not_found"
+    | "chat_completions_api_key"
+    | "free_restricted"
+    | "pending_oauth";
 }
 
 export interface CodexLocalAccessAppendAccountsResult {

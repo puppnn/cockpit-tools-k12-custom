@@ -3305,27 +3305,34 @@ fn desktop_web_profile_has_cloudflare_challenge(profile: &Value) -> bool {
 }
 
 fn desktop_web_profile_needs_hidden_probe(profile: &Value) -> bool {
-    let errors = desktop_web_profile_error_strings(profile);
-    !errors.is_empty()
-        && !errors
-            .iter()
-            .any(|error| desktop_error_is_cloudflare_challenge(error))
+    !desktop_web_profile_error_strings(profile).is_empty()
 }
 
-fn should_attempt_desktop_hidden_probe(account_id: &str) -> bool {
-    let now = Instant::now();
-    let Ok(mut attempts) = CLAUDE_DESKTOP_HIDDEN_PROBE_ATTEMPTS.lock() else {
-        return true;
-    };
+fn should_attempt_desktop_hidden_probe_at(
+    attempts: &mut HashMap<String, Instant>,
+    account_id: &str,
+    now: Instant,
+    cooldown: Duration,
+) -> bool {
     if let Some(previous) = attempts.get(account_id) {
-        if now.duration_since(*previous)
-            < Duration::from_secs(CLAUDE_DESKTOP_HIDDEN_PROBE_COOLDOWN_SECONDS)
-        {
+        if now.duration_since(*previous) < cooldown {
             return false;
         }
     }
     attempts.insert(account_id.to_string(), now);
     true
+}
+
+fn should_attempt_desktop_hidden_probe(account_id: &str) -> bool {
+    let Ok(mut attempts) = CLAUDE_DESKTOP_HIDDEN_PROBE_ATTEMPTS.lock() else {
+        return true;
+    };
+    should_attempt_desktop_hidden_probe_at(
+        &mut attempts,
+        account_id,
+        Instant::now(),
+        Duration::from_secs(CLAUDE_DESKTOP_HIDDEN_PROBE_COOLDOWN_SECONDS),
+    )
 }
 
 async fn probe_desktop_web_profile_hidden_with_cooldown(
@@ -3342,6 +3349,56 @@ async fn probe_desktop_web_profile_hidden_with_cooldown(
     tauri::async_runtime::spawn_blocking(move || probe_desktop_web_profile(&profile_dir))
         .await
         .map_err(|error| format!("隐藏 Electron Cookie 刷新任务失败: {}", error))?
+}
+
+async fn resolve_desktop_web_profile_with_hidden_probe<F, Fut>(
+    account_id: &str,
+    silent_result: Result<Value, String>,
+    hidden_probe: F,
+) -> Result<Value, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    match silent_result {
+        Ok(web_profile) if desktop_web_profile_needs_hidden_probe(&web_profile) => {
+            let reason = if desktop_web_profile_has_cloudflare_challenge(&web_profile) {
+                " Cloudflare challenge"
+            } else {
+                "非 CF 错误"
+            };
+            match hidden_probe().await {
+                Ok(probed_profile) => {
+                    logger::log_info(&format!(
+                        "[Claude] 静默刷新存在{}，已通过隐藏 Electron probe 更新资料: account_id={}",
+                        reason, account_id
+                    ));
+                    Ok(probed_profile)
+                }
+                Err(error) => {
+                    logger::log_warn(&format!(
+                        "[Claude] 隐藏 Electron probe 失败，保留静默刷新结果: account_id={}, error={}",
+                        account_id, error
+                    ));
+                    Ok(web_profile)
+                }
+            }
+        }
+        Ok(web_profile) => Ok(web_profile),
+        Err(error) => match hidden_probe().await {
+            Ok(probed_profile) => {
+                logger::log_info(&format!(
+                    "[Claude] 静默刷新失败，已通过隐藏 Electron probe 更新资料: account_id={}",
+                    account_id
+                ));
+                Ok(probed_profile)
+            }
+            Err(fallback_error) => Err(format!(
+                "{}；隐藏 Electron Cookie 刷新也失败: {}",
+                error, fallback_error
+            )),
+        },
+    }
 }
 
 fn write_desktop_cookie_probe_file(
@@ -8265,50 +8322,12 @@ pub async fn refresh_account_quota(account_id: &str) -> Result<ClaudeAccount, St
     if account.auth_mode == ClaudeAuthMode::DesktopOAuth {
         let snapshot_dir = resolve_valid_desktop_profile_dir(&mut account)?;
         let local_profile_applied = apply_desktop_local_profile(&mut account, &snapshot_dir);
-        let web_profile_result = match fetch_desktop_web_profile_silent(&snapshot_dir).await {
-            Ok(web_profile) if desktop_web_profile_has_cloudflare_challenge(&web_profile) => {
-                Ok(web_profile)
-            }
-            Ok(web_profile) if desktop_web_profile_needs_hidden_probe(&web_profile) => {
-                match probe_desktop_web_profile_hidden_with_cooldown(account_id, &snapshot_dir)
-                    .await
-                {
-                    Ok(probed_profile) => {
-                        logger::log_info(&format!(
-                            "[Claude] 静默刷新存在非 CF 错误，已通过隐藏 Electron probe 更新资料: account_id={}",
-                            account_id
-                        ));
-                        Ok(probed_profile)
-                    }
-                    Err(error) => {
-                        logger::log_warn(&format!(
-                            "[Claude] 隐藏 Electron probe 失败，保留静默刷新结果: account_id={}, error={}",
-                            account_id, error
-                        ));
-                        Ok(web_profile)
-                    }
-                }
-            }
-            Ok(web_profile) => Ok(web_profile),
-            Err(error) if desktop_error_is_cloudflare_challenge(&error) => Err(error),
-            Err(error) => {
-                match probe_desktop_web_profile_hidden_with_cooldown(account_id, &snapshot_dir)
-                    .await
-                {
-                    Ok(probed_profile) => {
-                        logger::log_info(&format!(
-                            "[Claude] 静默刷新失败，已通过隐藏 Electron probe 更新资料: account_id={}",
-                            account_id
-                        ));
-                        Ok(probed_profile)
-                    }
-                    Err(fallback_error) => Err(format!(
-                        "{}；隐藏 Electron Cookie 刷新也失败: {}",
-                        error, fallback_error
-                    )),
-                }
-            }
-        };
+        let silent_result = fetch_desktop_web_profile_silent(&snapshot_dir).await;
+        let web_profile_result =
+            resolve_desktop_web_profile_with_hidden_probe(account_id, silent_result, || {
+                probe_desktop_web_profile_hidden_with_cooldown(account_id, &snapshot_dir)
+            })
+            .await;
         match web_profile_result {
             Ok(web_profile) => {
                 let web_quota_available = desktop_web_usage_to_quota(&web_profile).is_some();
@@ -8443,6 +8462,124 @@ pub async fn refresh_all_quotas() -> Result<Vec<(String, Result<ClaudeAccount, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cloudflare_challenge_profile() -> Value {
+        serde_json::json!({
+            "fetchContext": "cookie_direct",
+            "errors": {
+                "organizationUsage": "HTTP 403 Cloudflare challenge-platform cf-ray=test"
+            }
+        })
+    }
+
+    fn successful_usage_profile(fetch_context: &str) -> Value {
+        serde_json::json!({
+            "fetchContext": fetch_context,
+            "endpoints": {
+                "organizationUsage": {
+                    "five_hour": { "utilization": 42 },
+                    "seven_day": { "utilization": 18 }
+                }
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn cloudflare_challenge_uses_hidden_electron_probe_result() {
+        let direct = cloudflare_challenge_profile();
+        let probed = successful_usage_profile("page");
+        let expected = probed.clone();
+        let probe_called = std::cell::Cell::new(false);
+
+        let resolved = resolve_desktop_web_profile_with_hidden_probe(
+            "claude-desktop-test",
+            Ok(direct),
+            || {
+                probe_called.set(true);
+                std::future::ready(Ok(probed))
+            },
+        )
+        .await
+        .expect("page-context probe should recover the usage profile");
+
+        assert!(probe_called.get());
+        assert_eq!(resolved, expected);
+        assert!(desktop_web_usage_to_quota(&resolved).is_some());
+    }
+
+    #[tokio::test]
+    async fn successful_silent_profile_does_not_launch_hidden_probe() {
+        let direct = successful_usage_profile("cookie_direct");
+        let expected = direct.clone();
+        let probe_called = std::cell::Cell::new(false);
+
+        let resolved = resolve_desktop_web_profile_with_hidden_probe(
+            "claude-desktop-test",
+            Ok(direct),
+            || {
+                probe_called.set(true);
+                std::future::ready(Err("unexpected hidden probe".to_string()))
+            },
+        )
+        .await
+        .expect("successful silent refresh should be preserved");
+
+        assert!(!probe_called.get());
+        assert_eq!(resolved, expected);
+    }
+
+    #[tokio::test]
+    async fn failed_or_cooled_down_hidden_probe_preserves_challenge_profile() {
+        let direct = cloudflare_challenge_profile();
+        let expected = direct.clone();
+
+        let resolved = resolve_desktop_web_profile_with_hidden_probe(
+            "claude-desktop-test",
+            Ok(direct),
+            || {
+                std::future::ready(Err(
+                    "hidden Electron refresh is in its 600 second cooldown".to_string()
+                ))
+            },
+        )
+        .await
+        .expect("a failed fallback should retain the direct refresh diagnostics");
+
+        assert_eq!(resolved, expected);
+        assert!(desktop_web_profile_has_cloudflare_challenge(&resolved));
+    }
+
+    #[test]
+    fn hidden_probe_cooldown_is_deterministic_per_account() {
+        let mut attempts = HashMap::new();
+        let started_at = Instant::now();
+        let cooldown = Duration::from_secs(600);
+
+        assert!(should_attempt_desktop_hidden_probe_at(
+            &mut attempts,
+            "account-a",
+            started_at,
+            cooldown,
+        ));
+        assert!(!should_attempt_desktop_hidden_probe_at(
+            &mut attempts,
+            "account-a",
+            started_at + Duration::from_secs(599),
+            cooldown,
+        ));
+        assert!(should_attempt_desktop_hidden_probe_at(
+            &mut attempts,
+            "account-b",
+            started_at + Duration::from_secs(599),
+            cooldown,
+        ));
+        assert!(should_attempt_desktop_hidden_probe_at(
+            &mut attempts,
+            "account-a",
+            started_at + cooldown,
+            cooldown,
+        ));
+    }
 
     #[test]
     fn rejects_oauth_authorize_url_as_callback_input() {

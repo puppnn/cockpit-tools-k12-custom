@@ -497,6 +497,7 @@
       "noneRunning": "No se encontraron instancias en ejecución",
       "syncThreadsNeedTwo": "Se requieren al menos dos instancias para sincronizar hilos",
       "launchPrepared": "El comando de inicio está listo",
+      "codexManagedStoreLaunchUnsafe": "Windows Store no puede transferir de forma fiable el directorio de la instancia, por lo que se bloqueó la apertura de la cuenta predeterminada. Cambia esta instancia al modo de inicio CLI e inténtalo de nuevo. Detalles: {{detail}}",
       "speedUpdated": "Velocidad actualizada"
     },
     "runningDialog": {
@@ -608,6 +609,8 @@
       "closeBehaviorQuit": "Salir de la aplicación",
       "startupMinimized": "Iniciar minimizada",
       "startupMinimizedDesc": "Minimiza automáticamente la ventana principal tras iniciar la app; restáurala desde el Dock, la barra de tareas o la bandeja",
+      "rememberMainWindowState": "Recordar posición y tamaño de la ventana",
+      "rememberMainWindowStateDesc": "Restaura la posición y el tamaño tras reiniciar o abrir desde la bandeja; desactivado de forma predeterminada",
       "minimizeBehavior": "Comportamiento al minimizar la ventana (solo macOS)",
       "minimizeBehaviorDesc": "Elige si al minimizar la ventana permanece en el Dock y la barra de menús, o solo en la barra de menús",
       "minimizeBehaviorDockAndTray": "Dock + barra de menús (recomendado)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Las cuentas gratuitas aún no son compatibles",
         "restrictFreeToggle": "Limitar cuentas Free",
         "chatApiKeyUnsupported": "Chat Completions no compatible",
+        "pendingOauthUnsupported": "Pendiente no se admite",
         "freeNoticeRestricted": "Las cuentas Free están limitadas. Desactiva esto para seleccionarlas.",
         "freeNoticeUnstable": "El proxy de cuentas Free puede ser inestable. Úsalo con cuidado.",
         "restrictFreeDisableConfirmTitle": "Permitir cuentas Free",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "No hay cuentas disponibles",
         "newSessionPriorityRequiresAffinity": "Activa la afinidad de sesión antes de activar el enrutamiento preferente para sesiones nuevas",
         "newSessionPriorityAccountsRequired": "Selecciona al menos una cuenta preferida para las sesiones nuevas",
+        "responsesWebsockets": "Responses por WebSocket",
         "maxRetryCredentials": "Cuentas retry",
         "maxRetryInterval": "Espera retry",
         "disableCooling": "Desactivar cooldown",

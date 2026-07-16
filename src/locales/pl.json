@@ -497,6 +497,7 @@
       "noneRunning": "Nie znaleziono uruchomionych instancji",
       "syncThreadsNeedTwo": "Do synchronizacji wątków wymagane są co najmniej dwie instancje",
       "launchPrepared": "Polecenie uruchomienia jest gotowe",
+      "codexManagedStoreLaunchUnsafe": "Windows Store nie może niezawodnie przekazać katalogu instancji, dlatego zablokowano otwarcie konta domyślnego. Zmień tryb uruchamiania tej instancji na CLI i spróbuj ponownie. Szczegóły: {{detail}}",
       "speedUpdated": "Szybkość zaktualizowana"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "Zamknij aplikację",
       "startupMinimized": "Uruchamiaj zminimalizowane",
       "startupMinimizedDesc": "Automatycznie minimalizuje główne okno po starcie aplikacji; przywrócisz je z Docka, paska zadań lub zasobnika",
+      "rememberMainWindowState": "Zapamiętaj położenie i rozmiar okna",
+      "rememberMainWindowStateDesc": "Przywraca położenie i rozmiar po ponownym uruchomieniu lub otwarciu z zasobnika; domyślnie wyłączone",
       "minimizeBehavior": "Zachowanie przy minimalizacji okna (tylko macOS)",
       "minimizeBehaviorDesc": "Wybierz, czy po zminimalizowaniu okno ma pozostać w Docku i pasku menu, czy tylko w pasku menu",
       "minimizeBehaviorDockAndTray": "Dock + pasek menu (zalecane)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Bezpłatne konta nie są jeszcze obsługiwane",
         "restrictFreeToggle": "Ogranicz konta Free",
         "chatApiKeyUnsupported": "Chat Completions nieobsługiwane",
+        "pendingOauthUnsupported": "Oczekujące wykluczone",
         "freeNoticeRestricted": "Konta Free są ograniczone. Wyłącz tę opcję, aby je wybrać.",
         "freeNoticeUnstable": "Proxy kont Free może być niestabilne. Używaj ostrożnie.",
         "restrictFreeDisableConfirmTitle": "Zezwól na konta Free",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "Brak dostępnych kont",
         "newSessionPriorityRequiresAffinity": "Przed włączeniem preferowanego routingu nowych sesji włącz przywiązanie sesji",
         "newSessionPriorityAccountsRequired": "Wybierz co najmniej jedno preferowane konto dla nowych sesji",
+        "responsesWebsockets": "Responses przez WebSocket",
         "maxRetryCredentials": "Konta retry",
         "maxRetryInterval": "Czas retry",
         "disableCooling": "Wyłącz cooldown",

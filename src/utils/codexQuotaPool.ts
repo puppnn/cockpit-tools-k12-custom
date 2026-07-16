@@ -1,9 +1,9 @@
-import type { CodexAccount } from '../types/codex';
+import type { CodexAccount } from '../types/codex.ts';
 import {
   getCodexPlanFilterKey,
   getCodexQuotaWindows,
-} from '../types/codex';
-import { sortCodexPlanFilterKeys } from './codexAccountOverview';
+} from '../types/codex.ts';
+import { sortCodexPlanFilterKeys } from './codexAccountOverview.ts';
 
 export interface CodexQuotaPoolWindow {
   key: string;

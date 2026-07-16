@@ -497,6 +497,7 @@
       "noneRunning": "実行中のインスタンスが見つかりません",
       "syncThreadsNeedTwo": "スレッドを同期するには少なくとも2つのインスタンスが必要です",
       "launchPrepared": "起動コマンドの準備ができました",
+      "codexManagedStoreLaunchUnsafe": "Windows Store ではインスタンスディレクトリを確実に引き継げないため、既定アカウントが開かれないよう起動を中止しました。このインスタンスの起動方式を CLI に変更して、もう一度お試しください。詳細: {{detail}}",
       "speedUpdated": "速度を更新しました"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "アプリを終了",
       "startupMinimized": "最小化して起動",
       "startupMinimizedDesc": "アプリ起動後にメインウィンドウを自動で最小化し、Dock、タスクバー、トレイから復元できます",
+      "rememberMainWindowState": "メインウィンドウの位置とサイズを記憶",
+      "rememberMainWindowStateDesc": "再起動時やトレイから開き直す際に位置とサイズを復元します。初期設定はオフです",
       "minimizeBehavior": "ウィンドウ最小化時の動作（macOSのみ）",
       "minimizeBehaviorDesc": "ウィンドウを最小化した際にDockとメニューバーの両方に残すか、メニューバーのみにするかを選択",
       "minimizeBehaviorDockAndTray": "Dock + メニューバー（推奨・既定）",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "無料アカウントはまだサポートされていません",
         "restrictFreeToggle": "Freeアカウントを制限",
         "chatApiKeyUnsupported": "Chat Completionsは非対応",
+        "pendingOauthUnsupported": "未認可は追加不可",
         "freeNoticeRestricted": "Freeアカウントは制限中です。選択するにはこの設定をオフにしてください。",
         "freeNoticeUnstable": "Freeアカウントのプロキシは不安定な場合があります。注意して使用してください。",
         "restrictFreeDisableConfirmTitle": "Freeアカウントを許可",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "利用可能なアカウントがありません",
         "newSessionPriorityRequiresAffinity": "新規セッションの優先ルーティングを有効にする前に、セッション固定を有効にしてください",
         "newSessionPriorityAccountsRequired": "新規セッション用の優先アカウントを1つ以上選択してください",
+        "responsesWebsockets": "WebSocket 経由の Responses",
         "maxRetryCredentials": "再試行アカウント",
         "maxRetryInterval": "再試行待ち",
         "disableCooling": "クールダウン無効",

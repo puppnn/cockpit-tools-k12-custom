@@ -497,6 +497,7 @@
       "noneRunning": "Работающих инстансов не найдено",
       "syncThreadsNeedTwo": "Для синхронизации тредов требуется как минимум два экземпляра",
       "launchPrepared": "Команда запуска готова",
+      "codexManagedStoreLaunchUnsafe": "Windows Store не может надежно передать каталог экземпляра, поэтому открытие учетной записи по умолчанию заблокировано. Переключите этот экземпляр в режим запуска CLI и повторите попытку. Подробности: {{detail}}",
       "speedUpdated": "Скорость обновлена"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "Закрыть приложение",
       "startupMinimized": "Запускать свернутым",
       "startupMinimizedDesc": "Автоматически сворачивает главное окно после запуска приложения; восстановить можно из Dock, панели задач или трея",
+      "rememberMainWindowState": "Запоминать положение и размер окна",
+      "rememberMainWindowStateDesc": "Восстанавливает положение и размер после перезапуска или открытия из трея; по умолчанию выключено",
       "minimizeBehavior": "Поведение при сворачивании окна (только macOS)",
       "minimizeBehaviorDesc": "Выберите, оставлять ли окно при сворачивании в Dock и строке меню или только в строке меню",
       "minimizeBehaviorDockAndTray": "Dock + строка меню (рекомендуется)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "Бесплатные аккаунты пока не поддерживаются.",
         "restrictFreeToggle": "Ограничить Free-аккаунты",
         "chatApiKeyUnsupported": "Chat Completions не поддерживается",
+        "pendingOauthUnsupported": "Ожидает: нельзя",
         "freeNoticeRestricted": "Free-аккаунты ограничены. Отключите это, чтобы их выбирать.",
         "freeNoticeUnstable": "Прокси Free-аккаунтов может быть нестабильным. Используйте с осторожностью.",
         "restrictFreeDisableConfirmTitle": "Разрешить Free-аккаунты",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "Нет доступных аккаунтов",
         "newSessionPriorityRequiresAffinity": "Перед включением приоритетной маршрутизации новых сессий включите привязку сессии",
         "newSessionPriorityAccountsRequired": "Выберите хотя бы один приоритетный аккаунт для новых сессий",
+        "responsesWebsockets": "Responses через WebSocket",
         "maxRetryCredentials": "Аккаунты retry",
         "maxRetryInterval": "Ожидание retry",
         "disableCooling": "Отключить cooldown",

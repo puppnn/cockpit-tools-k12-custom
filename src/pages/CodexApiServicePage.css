@@ -95,7 +95,8 @@
 }
 
 .codex-api-service-status,
-.codex-api-service-pill {
+.codex-api-service-pill,
+.codex-api-service-current-tag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -109,6 +110,12 @@
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+.codex-api-service-current-tag {
+  border-color: color-mix(in srgb, var(--primary) 28%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
 }
 
 .codex-api-service-status.running,
@@ -163,7 +170,7 @@
 
 .codex-api-service-hero-actions {
   gap: 5px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .codex-api-service-hero-actions .btn {
@@ -221,6 +228,20 @@
   height: 12px;
 }
 
+.codex-api-service-empty-with-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.codex-api-service-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .codex-api-service-message-stack {
   display: flex;
   flex-direction: column;
@@ -242,12 +263,41 @@
 }
 
 .codex-api-service-message span {
+  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .codex-api-service-message svg {
   flex: 0 0 auto;
+}
+
+.codex-api-service-message-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.codex-api-service-message-dismiss:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.codex-api-service-message-dismiss:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  outline-offset: 1px;
 }
 
 .codex-api-service-message.error {

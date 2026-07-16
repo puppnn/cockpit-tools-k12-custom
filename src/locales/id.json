@@ -556,6 +556,7 @@
       "noneRunning": "Tidak ditemukan instansi yang sedang berjalan",
       "syncThreadsNeedTwo": "Diperlukan setidaknya dua instansi untuk menyinkronkan thread",
       "launchPrepared": "Perintah peluncuran siap",
+      "codexManagedStoreLaunchUnsafe": "Windows Store tidak dapat meneruskan direktori instans secara andal, sehingga pembukaan akun default diblokir. Ubah instans ini ke mode peluncuran CLI lalu coba lagi. Detail: {{detail}}",
       "speedUpdated": "Kecepatan diperbarui"
     },
     "runningDialog": {
@@ -661,6 +662,8 @@
       "closeBehaviorQuit": "Keluar dari aplikasi",
       "startupMinimized": "Mulai diperkecil",
       "startupMinimizedDesc": "Otomatis memperkecil jendela utama setelah aplikasi selesai dibuka; pulihkan dari Dock, taskbar, atau tray",
+      "rememberMainWindowState": "Ingat posisi dan ukuran jendela utama",
+      "rememberMainWindowStateDesc": "Pulihkan posisi dan ukuran setelah memulai ulang atau membuka dari tray; nonaktif secara default",
       "minimizeBehavior": "Perilaku perkecil jendela (khusus macOS)",
       "minimizeBehaviorDesc": "Pilih apakah saat diperkecil jendela tetap di Dock dan menu bar, atau hanya di menu bar",
       "minimizeBehaviorDockAndTray": "Dock + Menu Bar (Direkomendasikan)",
@@ -1917,6 +1920,7 @@
         "freeUnsupported": "Akun gratis belum didukung",
         "restrictFreeToggle": "Batasi akun Free",
         "chatApiKeyUnsupported": "Chat Completions tidak didukung",
+        "pendingOauthUnsupported": "Auth tertunda: tidak",
         "freeNoticeRestricted": "Akun Free dibatasi. Nonaktifkan ini untuk memilihnya.",
         "freeNoticeUnstable": "Proxy akun Free bisa tidak stabil. Gunakan dengan hati-hati.",
         "restrictFreeDisableConfirmTitle": "Izinkan akun Free",
@@ -3377,6 +3381,7 @@
         "noPriorityAccounts": "Tidak ada akun yang tersedia",
         "newSessionPriorityRequiresAffinity": "Aktifkan Afinitas Sesi sebelum mengaktifkan routing prioritas untuk sesi baru",
         "newSessionPriorityAccountsRequired": "Pilih setidaknya satu akun prioritas untuk sesi baru",
+        "responsesWebsockets": "Responses melalui WebSocket",
         "maxRetryCredentials": "Akun retry",
         "maxRetryInterval": "Tunggu retry",
         "disableCooling": "Matikan cooldown",

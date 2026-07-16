@@ -20,6 +20,7 @@ import {
   KeyRound,
   Pin,
   PinOff,
+  Play,
   Plus,
   Power,
   RefreshCw,
@@ -92,6 +93,10 @@ import {
   summarizeCodexQuotaPool,
 } from "../utils/codexQuotaPool";
 import { filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
+import {
+  isCodexLocalAccessRiskNoticeDismissed,
+} from "../utils/codexLocalAccessRiskNotice";
+import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
 import { scrollElementTo } from "../utils/reducedMotion";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { MultiSelectFilterDropdown } from "../components/MultiSelectFilterDropdown";
@@ -741,6 +746,7 @@ export function CodexApiServicePage() {
     () => readStoredAddressKind(),
   );
   const [busy, setBusy] = useState(false);
+  const [activating, setActivating] = useState(false);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testDialogRunning, setTestDialogRunning] = useState(false);
   const [testChatMessages, setTestChatMessages] = useState<TestChatMessage[]>(
@@ -795,6 +801,8 @@ export function CodexApiServicePage() {
     useState(false);
   const [newSessionPriorityAccountIdsDraft, setNewSessionPriorityAccountIdsDraft] =
     useState<string[]>([]);
+  const [responsesWebsocketsEnabledDraft, setResponsesWebsocketsEnabledDraft] =
+    useState(false);
   const [maxRetryCredentialsDraft, setMaxRetryCredentialsDraft] = useState("0");
   const [maxRetryIntervalDraft, setMaxRetryIntervalDraft] = useState("30");
   const [disableCoolingDraft, setDisableCoolingDraft] = useState(false);
@@ -1189,13 +1197,14 @@ export function CodexApiServicePage() {
     state?.accountHealth.filter((item) => item.available).length ??
     memberAccounts.length;
 
+  const currentPlatformId = "codex_api_service" as const;
   const currentGroup = useMemo(
-    () => findGroupByPlatform(platformGroups, "codex"),
+    () => findGroupByPlatform(platformGroups, currentPlatformId),
     [platformGroups],
   );
   const switchOptions = useMemo(
     () =>
-      (currentGroup ? currentGroup.platformIds : (["codex"] as const)).map(
+      (currentGroup ? currentGroup.platformIds : [currentPlatformId]).map(
         (platformId) => ({
           platformId,
           label: currentGroup
@@ -1498,6 +1507,9 @@ export function CodexApiServicePage() {
     setNewSessionPriorityAccountIdsDraft(
       collection?.newSessionPriorityAccountIds ?? [],
     );
+    setResponsesWebsocketsEnabledDraft(
+      collection?.responsesWebsocketsEnabled ?? false,
+    );
     setMaxRetryCredentialsDraft(String(collection?.maxRetryCredentials ?? 0));
     setMaxRetryIntervalDraft(
       formatSeconds(collection?.maxRetryIntervalMs ?? 30000),
@@ -1519,6 +1531,7 @@ export function CodexApiServicePage() {
     collection?.sessionAffinityTtlMs,
     collection?.newSessionPriorityEnabled,
     collection?.newSessionPriorityAccountIds,
+    collection?.responsesWebsocketsEnabled,
     collection?.maxRetryCredentials,
     collection?.maxRetryIntervalMs,
     collection?.disableCooling,
@@ -1621,6 +1634,92 @@ export function CodexApiServicePage() {
         ? t("codex.localAccess.disabledSuccess", "API 服务已停用")
         : t("codex.localAccess.enabledSuccess", "API 服务已启用"),
     );
+  };
+
+  const refreshApiServiceCurrent = useCallback(async () => {
+    try {
+      const instances = await codexInstanceService.listInstances();
+      if (!mountedRef.current) return;
+      const defaultInstance = instances.find((instance) => instance.isDefault);
+      setCodexInstances(instances);
+      setApiServiceIsCurrent(
+        defaultInstance?.bindAccountId === CODEX_API_SERVICE_BIND_ID,
+      );
+    } catch {
+      if (!mountedRef.current) return;
+      setApiServiceIsCurrent(false);
+    }
+  }, []);
+
+  const handleOpenAddAccount = useCallback(() => {
+    requestCodexOpenAddAccount({
+      autoJoinApiService: true,
+      tab: "oauth",
+    });
+  }, []);
+
+  const handleActivateService = async () => {
+    if (!collection) return;
+    if (!collection.enabled) {
+      const confirmedEnableAndSwitch = await confirmDialog(
+        t(
+          "codex.localAccess.enableBeforeActivateMessage",
+          "API 服务当前未启用，需要先启用服务。是否启用并切号？",
+        ),
+        {
+          title: t(
+            "codex.localAccess.enableBeforeActivateTitle",
+            "服务未启用",
+          ),
+          kind: "warning",
+          okLabel: t(
+            "codex.localAccess.enableAndActivateAction",
+            "启用并切号",
+          ),
+          cancelLabel: t("common.cancel", "取消"),
+        },
+      );
+      if (!confirmedEnableAndSwitch) return;
+    }
+    if (!isCodexLocalAccessRiskNoticeDismissed()) {
+      const confirmedRisk = await confirmDialog(
+        t(
+          "codex.localAccess.riskNotice.desc",
+          "当前 Codex API 服务相关功能，本质上属于代理转发使用方式。继续使用即表示您已知悉相关情况，并愿意自行承担可能产生的风险。",
+        ),
+        {
+          title: t("codex.localAccess.riskNotice.title", "使用风险提示"),
+          kind: "warning",
+          okLabel: t(
+            "codex.localAccess.riskNotice.continueSwitch",
+            "继续切号",
+          ),
+          cancelLabel: t("common.cancel", "取消"),
+        },
+      );
+      if (!confirmedRisk) return;
+    }
+
+    setActivating(true);
+    setError("");
+    setNotice("");
+    try {
+      const next = await codexLocalAccessService.activateCodexLocalAccess();
+      if (!mountedRef.current) return;
+      setState(next);
+      await fetchCurrentAccount();
+      await refreshApiServiceCurrent();
+      setNotice(
+        t("codex.localAccess.activateSuccess", "已切换到 API 服务"),
+      );
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setError(String(err).replace(/^Error:\s*/, ""));
+    } finally {
+      if (mountedRef.current) {
+        setActivating(false);
+      }
+    }
   };
 
   const handleOpenTestDialog = () => {
@@ -2593,6 +2692,7 @@ export function CodexApiServicePage() {
             sessionAffinityTtlMs: ttlSeconds * 1000,
             newSessionPriorityEnabled: newSessionPriorityEnabledDraft,
             newSessionPriorityAccountIds,
+            responsesWebsocketsEnabled: responsesWebsocketsEnabledDraft,
             maxRetryCredentials,
             maxRetryIntervalMs: maxRetryIntervalSeconds * 1000,
             disableCooling: disableCoolingDraft,
@@ -3281,20 +3381,18 @@ export function CodexApiServicePage() {
       <div className="page-tabs-row page-tabs-center page-tabs-row-with-leading">
         <div className="page-tabs-leading">
           <PlatformGroupSwitcher
-            currentPlatformId="codex"
-            activePlatformId={null}
-            currentLabel={t("codex.apiService.navTitle", "Codex API 服务")}
+            currentPlatformId={currentPlatformId}
+            currentLabel={
+              currentGroup
+                ? resolveGroupChildName(
+                    currentGroup,
+                    currentPlatformId,
+                    getPlatformLabel(currentPlatformId, t),
+                  )
+                : getPlatformLabel(currentPlatformId, t)
+            }
             options={switchOptions}
             currentGroupId={currentGroup?.id ?? null}
-            extraOptions={[
-              {
-                id: "codex-api-service",
-                label: t("codex.apiService.navTitle", "Codex API 服务"),
-                page: "codex-api-service",
-                icon: <CodexIcon size={18} />,
-                active: true,
-              },
-            ]}
           />
         </div>
         <div className="page-tabs filter-tabs">
@@ -3321,6 +3419,11 @@ export function CodexApiServicePage() {
               <div className="codex-api-service-title-copy">
                 <div className="codex-api-service-title-line">
                   <h1>{t("codex.apiService.title", "Codex API 服务")}</h1>
+                  {apiServiceIsCurrent && (
+                    <span className="codex-api-service-current-tag">
+                      {t("codex.current", "当前")}
+                    </span>
+                  )}
                   <span
                     className={`codex-api-service-status ${state?.running ? "running" : collection?.enabled ? "stopped" : "disabled"}`}
                   >
@@ -3342,7 +3445,7 @@ export function CodexApiServicePage() {
                     menuClassName="codex-local-access-title-mode-menu"
                     menuWidth={116}
                     menuMaxHeight={120}
-                    disabled={busy || testDialogRunning || !collection}
+                    disabled={busy || activating || testDialogRunning || !collection}
                     ariaLabel={t(
                       "codex.localAccess.gatewayModeLabel",
                       "网关模式",
@@ -3357,7 +3460,7 @@ export function CodexApiServicePage() {
               type="button"
               className="btn btn-secondary"
               onClick={() => void reloadState()}
-              disabled={busy || testDialogRunning}
+              disabled={busy || activating || testDialogRunning}
             >
               <RefreshCw size={14} />
               {t("codex.localAccess.refreshStats", "刷新统计")}
@@ -3366,7 +3469,7 @@ export function CodexApiServicePage() {
               type="button"
               className="btn btn-secondary"
               onClick={handleOpenTestDialog}
-              disabled={!collection || busy || testDialogRunning}
+              disabled={!collection || busy || activating || testDialogRunning}
             >
               <ShieldCheck
                 size={14}
@@ -3376,9 +3479,23 @@ export function CodexApiServicePage() {
             </button>
             <button
               type="button"
-              className={`btn ${collection?.enabled ? "btn-danger" : "btn-primary"}`}
+              className={`btn ${apiServiceIsCurrent ? "btn-secondary" : "btn-primary"}`}
+              onClick={() => void handleActivateService()}
+              disabled={!collection || busy || activating || testDialogRunning}
+              title={t("codex.localAccess.activateAction", "启动 API 服务")}
+            >
+              {activating ? (
+                <RefreshCw size={14} className="loading-spinner" />
+              ) : (
+                <Play size={14} />
+              )}
+              {t("codex.localAccess.activateAction", "启动 API 服务")}
+            </button>
+            <button
+              type="button"
+              className={`btn ${collection?.enabled ? "btn-danger" : "btn-secondary"}`}
               onClick={() => void handleToggleEnabled()}
-              disabled={!collection || busy || testDialogRunning}
+              disabled={!collection || busy || activating || testDialogRunning}
             >
               <Power size={14} />
               {collection?.enabled
@@ -3394,6 +3511,15 @@ export function CodexApiServicePage() {
               <div className="codex-api-service-message error">
                 <CircleAlert size={15} />
                 <span>{error}</span>
+                <button
+                  type="button"
+                  className="codex-api-service-message-dismiss"
+                  onClick={() => setError("")}
+                  aria-label={t("common.close", "关闭")}
+                  title={t("common.close", "关闭")}
+                >
+                  <X size={14} />
+                </button>
               </div>
             )}
             {state?.lastError && (
@@ -3404,7 +3530,7 @@ export function CodexApiServicePage() {
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => void handleKillPort()}
-                  disabled={portKilling || busy}
+                  disabled={portKilling || busy || activating}
                 >
                   <Wrench size={13} />
                   {t("codex.localAccess.killPortAction", "清理端口")}
@@ -3415,6 +3541,15 @@ export function CodexApiServicePage() {
               <div className="codex-api-service-message success">
                 <Check size={15} />
                 <span>{notice}</span>
+                <button
+                  type="button"
+                  className="codex-api-service-message-dismiss"
+                  onClick={() => setNotice("")}
+                  aria-label={t("common.close", "关闭")}
+                  title={t("common.close", "关闭")}
+                >
+                  <X size={14} />
+                </button>
               </div>
             )}
             {pricingRepriceActive && (
@@ -4384,6 +4519,16 @@ export function CodexApiServicePage() {
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
+                    onClick={handleOpenAddAccount}
+                    disabled={busy || activating || testDialogRunning}
+                    title={t("common.shared.addAccount", "添加账号")}
+                  >
+                    <Plus size={14} />
+                    {t("common.shared.addAccount", "添加账号")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
                     onClick={handleOpenAccountModelRules}
                     disabled={busy || !collection || memberAccounts.length === 0}
                   >
@@ -4407,8 +4552,30 @@ export function CodexApiServicePage() {
               </div>
               <div className="codex-api-service-account-grid">
                 {memberAccounts.length === 0 ? (
-                  <div className="codex-api-service-empty">
-                    {t("codex.localAccess.emptyMembers", "当前集合暂无账号")}
+                  <div className="codex-api-service-empty codex-api-service-empty-with-action">
+                    <span>
+                      {t("codex.localAccess.emptyMembers", "当前集合暂无账号")}
+                    </span>
+                    <div className="codex-api-service-empty-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleOpenAddAccount}
+                        disabled={busy || activating || testDialogRunning}
+                      >
+                        <Plus size={14} />
+                        {t("common.shared.addAccount", "添加账号")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setMemberModalOpen(true)}
+                        disabled={busy || !collection}
+                      >
+                        <FolderPlus size={14} />
+                        {t("codex.localAccess.modal.manageMembers", "管理成员")}
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   memberAccounts.map((account) => {
@@ -4631,6 +4798,22 @@ export function CodexApiServicePage() {
                       setSessionAffinityTtlDraft(event.target.value)
                     }
                     disabled={busy || !collection}
+                  />
+                </label>
+                <label>
+                  <span>
+                    {t(
+                      "codex.apiService.routing.responsesWebsockets",
+                      "Responses WebSocket",
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={responsesWebsocketsEnabledDraft}
+                    onChange={(event) =>
+                      setResponsesWebsocketsEnabledDraft(event.target.checked)
+                    }
+                    disabled={busy || !collection || gatewayMode !== "sidecar"}
                   />
                 </label>
                 <label>

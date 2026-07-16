@@ -497,6 +497,7 @@
       "noneRunning": "실행 중인 인스턴스를 찾을 수 없습니다",
       "syncThreadsNeedTwo": "스레드를 동기화하려면 인스턴스가 두 개 이상 필요합니다",
       "launchPrepared": "실행 명령이 준비되었습니다",
+      "codexManagedStoreLaunchUnsafe": "Windows Store에서 인스턴스 디렉터리를 안정적으로 전달할 수 없어 기본 계정 열기를 차단했습니다. 이 인스턴스의 실행 방식을 CLI로 변경한 후 다시 시도하세요. 세부 정보: {{detail}}",
       "speedUpdated": "속도가 업데이트되었습니다"
     },
     "runningDialog": {
@@ -611,6 +612,8 @@
       "closeBehaviorQuit": "애플리케이션 종료",
       "startupMinimized": "최소화로 시작",
       "startupMinimizedDesc": "앱 실행이 끝나면 기본 창을 자동으로 최소화하고 Dock, 작업 표시줄 또는 트레이에서 복원할 수 있습니다",
+      "rememberMainWindowState": "기본 창 위치 및 크기 기억",
+      "rememberMainWindowStateDesc": "재시작하거나 트레이에서 다시 열 때 창 위치와 크기를 복원합니다. 기본값은 꺼짐입니다",
       "minimizeBehavior": "창 최소화 동작 (macOS 전용)",
       "minimizeBehaviorDesc": "창을 최소화할 때 Dock과 메뉴 막대에 모두 유지할지, 메뉴 막대에만 유지할지 선택",
       "minimizeBehaviorDockAndTray": "Dock + 메뉴 막대 (기본값 권장)",
@@ -1867,6 +1870,7 @@
         "freeUnsupported": "무료 계정은 아직 지원되지 않습니다",
         "restrictFreeToggle": "Free 계정 제한",
         "chatApiKeyUnsupported": "Chat Completions 미지원",
+        "pendingOauthUnsupported": "미인증 추가 불가",
         "freeNoticeRestricted": "Free 계정은 제한됩니다. 선택하려면 이 옵션을 끄세요.",
         "freeNoticeUnstable": "Free 계정 프록시는 불안정할 수 있습니다. 주의해서 사용하세요.",
         "restrictFreeDisableConfirmTitle": "Free 계정 허용",
@@ -3330,6 +3334,7 @@
         "noPriorityAccounts": "사용 가능한 계정 없음",
         "newSessionPriorityRequiresAffinity": "새 세션 우선 라우팅을 사용하려면 먼저 세션 고정을 켜세요",
         "newSessionPriorityAccountsRequired": "새 세션에 사용할 우선 계정을 하나 이상 선택하세요",
+        "responsesWebsockets": "WebSocket Responses 전송",
         "maxRetryCredentials": "재시도 계정",
         "maxRetryInterval": "재시도 대기",
         "disableCooling": "쿨다운 끄기",

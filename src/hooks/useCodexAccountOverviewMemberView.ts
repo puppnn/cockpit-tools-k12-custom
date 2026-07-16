@@ -34,6 +34,8 @@ import {
   filterAndSortCodexOverviewAccounts,
   incrementCodexPlanFilterCount,
   isCodexOverviewAccountAbnormal,
+  isCodexOverviewAccountSubscriptionExpired,
+  isCodexOverviewAccountZeroQuota,
   readCodexCustomSortActive,
   readCodexCustomSortOrder,
   writeCodexCustomSortActive,
@@ -219,6 +221,12 @@ export function useCodexAccountOverviewMemberView({
       if (isCodexOverviewAccountAbnormal(account)) {
         counts.ERROR += 1;
       }
+      if (isCodexOverviewAccountZeroQuota(account)) {
+        counts.ZERO_QUOTA += 1;
+      }
+      if (isCodexOverviewAccountSubscriptionExpired(account)) {
+        counts.EXPIRED += 1;
+      }
     });
     return counts;
   }, [accounts]);
@@ -227,7 +235,12 @@ export function useCodexAccountOverviewMemberView({
     () =>
       buildCodexPlanFilterOptions(tierCounts, {
         includeValid: true,
+        includeZeroQuota: true,
+        includeExpired: true,
         pendingLabel: t("codex.pendingAuth.badge", "待授权"),
+        errorLabel: t("codex.filters.authError", "授权失败"),
+        zeroQuotaLabel: t("codex.filters.zeroQuota", "0% 额度"),
+        expiredLabel: t("codex.filters.expired", "已过期"),
         validOption: buildValidAccountsFilterOption(t, tierCounts.VALID),
       }),
     [t, tierCounts],

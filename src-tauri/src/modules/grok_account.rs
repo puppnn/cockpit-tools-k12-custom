@@ -1227,14 +1227,96 @@ fn parse_auth_registry(value: &Value) -> Result<GrokAccount, String> {
         return account_from_auth_object(value);
     }
     if let Ok(account) = serde_json::from_value::<GrokAccount>(value.clone()) {
-        if normalize_text(Some(&account.access_token)).is_none() {
-            return Err(
-                "Grok 脱敏导出不含登录凭据，不能用于恢复账号；请导入官方 auth.json".to_string(),
-            );
-        }
+        validate_importable_account(&account)?;
         return Ok(account);
     }
-    Err("未识别 Grok auth.json 格式".to_string())
+    Err("未识别 Grok JSON 格式（支持官方 auth.json 或 Cockpit 导出账号数组）".to_string())
+}
+
+/// 是否具备可恢复的登录凭据（OAuth access/refresh 或 API Key）。
+fn account_has_importable_credentials(account: &GrokAccount) -> bool {
+    if account.is_api_key_auth() {
+        return account.resolved_api_key().is_some();
+    }
+    normalize_text(Some(&account.access_token)).is_some()
+        || account
+            .refresh_token
+            .as_deref()
+            .and_then(|value| normalize_text(Some(value)))
+            .is_some()
+}
+
+fn validate_importable_account(account: &GrokAccount) -> Result<(), String> {
+    if account_has_importable_credentials(account) {
+        return Ok(());
+    }
+    Err(
+        "Grok 导入 JSON 缺少登录凭据（access_token / refresh_token / api_key），不能用于恢复账号；请使用官方 auth.json 或本应用导出的完整 JSON"
+            .to_string(),
+    )
+}
+
+fn import_full_accounts(accounts: Vec<GrokAccount>) -> Result<Vec<GrokAccountView>, String> {
+    if accounts.is_empty() {
+        return Err("导入数组为空".to_string());
+    }
+    let mut result = Vec::new();
+    for (idx, account) in accounts.into_iter().enumerate() {
+        validate_importable_account(&account).map_err(|error| {
+            format!("第 {} 条记录解析失败: {}", idx + 1, error)
+        })?;
+        let saved = upsert_candidate(account, None).map_err(|error| {
+            format!("第 {} 条记录导入失败: {}", idx + 1, error)
+        })?;
+        result.push(GrokAccountView::from(&saved));
+    }
+    Ok(result)
+}
+
+/// 尝试按 Cockpit 完整账号结构解析（导出格式）。
+fn try_import_cockpit_export(value: &Value) -> Option<Result<Vec<GrokAccountView>, String>> {
+    // 数组：[GrokAccount, ...]
+    if let Ok(accounts) = serde_json::from_value::<Vec<GrokAccount>>(value.clone()) {
+        if !accounts.is_empty()
+            && accounts
+                .iter()
+                .any(|account| account_has_importable_credentials(account))
+        {
+            return Some(import_full_accounts(accounts));
+        }
+        // 可能是脱敏视图数组，交给后续路径给出明确错误
+        if !accounts.is_empty() {
+            return Some(Err(
+                "Grok 导入 JSON 缺少登录凭据（access_token / refresh_token / api_key），不能用于恢复账号；请使用官方 auth.json 或本应用导出的完整 JSON"
+                    .to_string(),
+            ));
+        }
+    }
+    // 单对象账号
+    if let Ok(account) = serde_json::from_value::<GrokAccount>(value.clone()) {
+        if account_has_importable_credentials(&account) {
+            return Some(import_full_accounts(vec![account]));
+        }
+        // 可能是脱敏视图：若字段像账号但无凭据，直接报错
+        if !account.id.trim().is_empty() || !account.email.trim().is_empty() {
+            return Some(Err(
+                "Grok 导入 JSON 缺少登录凭据（access_token / refresh_token / api_key），不能用于恢复账号；请使用官方 auth.json 或本应用导出的完整 JSON"
+                    .to_string(),
+            ));
+        }
+    }
+    // 包装：{ "accounts": [...] } / { "items": [...] }
+    if let Some(items) = value
+        .get("accounts")
+        .or_else(|| value.get("items"))
+        .and_then(Value::as_array)
+    {
+        if let Ok(accounts) = serde_json::from_value::<Vec<GrokAccount>>(Value::Array(items.clone()))
+        {
+            return Some(import_full_accounts(accounts));
+        }
+    }
+    None
 }
 
 pub fn import_from_local() -> Result<Vec<GrokAccountView>, String> {
@@ -1251,58 +1333,58 @@ pub fn import_from_local() -> Result<Vec<GrokAccountView>, String> {
 pub fn import_from_json(content: &str) -> Result<Vec<GrokAccountView>, String> {
     let value: Value =
         serde_json::from_str(content).map_err(|error| format!("解析 Grok JSON 失败: {}", error))?;
+
+    // 1) Cockpit 导出的完整账号（含凭据）— 与文件导入 / Token 粘贴共用
+    if let Some(result) = try_import_cockpit_export(&value) {
+        return result;
+    }
+
+    // 2) 官方 auth.json / 注册表对象 / 数组
     let values = if let Some(items) = value.as_array() {
         items.clone()
     } else {
         vec![value]
     };
+    if values.is_empty() {
+        return Err("导入数组为空".to_string());
+    }
     let mut accounts = Vec::new();
-    for value in values {
-        let candidate = parse_auth_registry(&value)?;
-        let account = upsert_candidate(candidate, None)?;
+    for (idx, value) in values.into_iter().enumerate() {
+        let candidate = parse_auth_registry(&value).map_err(|error| {
+            format!("第 {} 条记录解析失败: {}", idx + 1, error)
+        })?;
+        let account = upsert_candidate(candidate, None).map_err(|error| {
+            format!("第 {} 条记录导入失败: {}", idx + 1, error)
+        })?;
         accounts.push(GrokAccountView::from(&account));
     }
     Ok(accounts)
 }
 
+/// 导出完整账号 JSON（含凭据），可再导入恢复；与 Codex / WorkBuddy 等平台一致。
 pub fn export_accounts(account_ids: &[String]) -> Result<String, String> {
-    let values: Vec<Value> = account_ids
+    let accounts: Vec<GrokAccount> = account_ids
         .iter()
         .filter_map(|id| load_account(id))
-        .map(|account| {
-            serde_json::to_value(GrokAccountView::from(&account)).unwrap_or_else(|_| json!({}))
-        })
         .collect();
-    serde_json::to_string_pretty(&values)
-        .map_err(|error| format!("序列化 Grok 脱敏导出失败: {}", error))
-}
-
-fn ensure_account_not_bound(
-    account_id: &str,
-    instance_store: &crate::models::InstanceStore,
-) -> Result<(), String> {
-    let bound_default = !instance_store.default_settings.follow_local_account
-        && instance_store.default_settings.bind_account_id.as_deref() == Some(account_id);
-    let bound_instance = instance_store
-        .instances
-        .iter()
-        .find(|instance| instance.bind_account_id.as_deref() == Some(account_id));
-    if bound_default {
-        return Err("该 Grok 账号已绑定默认实例，请先解除绑定".to_string());
+    if accounts.is_empty() {
+        return Err("没有可导出的 Grok 账号".to_string());
     }
-    if let Some(instance) = bound_instance {
-        return Err(format!(
-            "该 Grok 账号已绑定实例“{}”，请先解除绑定",
-            instance.name
-        ));
-    }
-    Ok(())
+    serde_json::to_string_pretty(&accounts)
+        .map_err(|error| format!("序列化 Grok 导出失败: {}", error))
 }
 
 pub fn remove_account(account_id: &str) -> Result<(), String> {
     let id = normalize_id(account_id)?;
-    let instance_store = crate::modules::grok_instance::load_instance_store()?;
-    ensure_account_not_bound(&id, &instance_store)?;
+    // 删除时自动解绑默认/多开实例，无需用户先手动解绑
+    let unbound = crate::modules::grok_instance::unbind_account(&id)?;
+    if !unbound.is_empty() {
+        logger::log_info(&format!(
+            "删除 Grok 账号前已自动解绑实例: account_id={}, instances={}",
+            id,
+            unbound.join(", ")
+        ));
+    }
     let _guard = ACCOUNT_LOCK.lock().map_err(|_| "获取 Grok 账号锁失败")?;
     let _store_guard = acquire_store_lock()?;
     let path = account_path(&id)?;
@@ -1409,10 +1491,6 @@ fn remove_matching_auth_scope(
 }
 
 pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
-    let instance_store = crate::modules::grok_instance::load_instance_store()?;
-    for account_id in account_ids {
-        ensure_account_not_bound(account_id, &instance_store)?;
-    }
     for account_id in account_ids {
         remove_account(account_id)?;
     }
@@ -1812,46 +1890,235 @@ fn live_auth_path_for_account(account: &GrokAccount) -> Result<PathBuf, String> 
     Ok(managed_profile_dir(&account.id)?.join(AUTH_FILE))
 }
 
-/// 从当前账号实际使用的 auth.json 吸收 CLI 已轮换的 access/refresh。
-fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool, String> {
-    if account.is_api_key_auth() {
-        return Ok(false);
-    }
-    let auth_path = live_auth_path_for_account(account)?;
-    let Some(registry) = read_auth_registry(&auth_path)? else {
-        return Ok(false);
-    };
-    let Some(entry) = auth_registry_entry(&registry) else {
-        return Ok(false);
-    };
-    if !auth_entry_matches_account(&Value::Object(entry.clone()), account) {
-        return Ok(false);
+/// access 仍可用的缓冲（秒）：未到 expires_at 且距过期大于该值时优先直接使用，不抢刷。
+const ACCESS_USABLE_LEAD_SECS: i64 = 60;
+/// 与 CLIProxyAPI RefreshLead 对齐：到期前 5 分钟主动 refresh。
+const ACCESS_REFRESH_LEAD_SECS: i64 = 5 * 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GrokCredSource {
+    Store,
+    ManagedHome,
+    OfficialHome,
+}
+
+impl GrokCredSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Store => "store",
+            Self::ManagedHome => "managed_home",
+            Self::OfficialHome => "official_home",
+        }
     }
 
+    /// 时间并列时的稳定次序（数值越大越优先）。
+    fn tie_break_rank(self) -> u8 {
+        match self {
+            Self::OfficialHome => 3,
+            Self::ManagedHome => 2,
+            Self::Store => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LiveCredentialCandidate {
+    source: GrokCredSource,
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_at: Option<i64>,
+    expires_at_raw: Option<Value>,
+    /// 文件 mtime 或账号文件 mtime（秒）。
+    observed_at: i64,
+    /// 匹配到的完整条目，用于合并 auth_raw。
+    entry: Option<Map<String, Value>>,
+    path: Option<PathBuf>,
+}
+
+fn path_mtime_secs(path: &Path) -> i64 {
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| {
+            time.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs() as i64)
+        })
+        .unwrap_or(0)
+}
+
+/// 在 registry 中找**同账号**条目：principal/user/email/token 与现有逻辑一致，绝不串号。
+fn find_matching_auth_entry_in_registry<'a>(
+    registry: &'a Value,
+    account: &GrokAccount,
+) -> Option<&'a Map<String, Value>> {
+    let object = registry.as_object()?;
+    let mut matches: Vec<&Map<String, Value>> = object
+        .iter()
+        .filter_map(|(key, value)| {
+            // 只认 xAI OIDC registry 键，避免误读其它字段
+            split_xai_auth_registry_key(key)?;
+            let entry = value.as_object()?;
+            auth_entry_matches_account(value, account).then_some(entry)
+        })
+        .collect();
+    if matches.is_empty() {
+        return None;
+    }
+    if matches.len() == 1 {
+        return Some(matches[0]);
+    }
+    // 多条同账号（极少见）：取 expires_at 最晚的
+    matches.sort_by(|left, right| {
+        let left_exp = left.get("expires_at").and_then(parse_timestamp).unwrap_or(0);
+        let right_exp = right
+            .get("expires_at")
+            .and_then(parse_timestamp)
+            .unwrap_or(0);
+        right_exp.cmp(&left_exp)
+    });
+    Some(matches[0])
+}
+
+fn live_candidate_from_entry(
+    source: GrokCredSource,
+    path: &Path,
+    entry: &Map<String, Value>,
+) -> Option<LiveCredentialCandidate> {
+    let access_token = string_field(entry, "key")?;
+    let refresh_token = string_field(entry, "refresh_token");
+    let expires_at = entry.get("expires_at").and_then(parse_timestamp);
+    let expires_at_raw = entry
+        .get("expires_at")
+        .filter(|value| !value.is_null())
+        .cloned();
+    Some(LiveCredentialCandidate {
+        source,
+        access_token,
+        refresh_token,
+        expires_at,
+        expires_at_raw,
+        observed_at: path_mtime_secs(path),
+        entry: Some(entry.clone()),
+        path: Some(path.to_path_buf()),
+    })
+}
+
+fn live_candidate_from_auth_path(
+    path: &Path,
+    account: &GrokAccount,
+    source: GrokCredSource,
+) -> Option<LiveCredentialCandidate> {
+    let registry = read_auth_registry(path).ok().flatten()?;
+    let entry = find_matching_auth_entry_in_registry(&registry, account)?;
+    live_candidate_from_entry(source, path, entry)
+}
+
+fn live_candidate_from_store(account: &GrokAccount) -> Option<LiveCredentialCandidate> {
+    if account.access_token.trim().is_empty() && account.refresh_token.is_none() {
+        return None;
+    }
+    let path = account_path(&account.id).ok();
+    let observed_at = path
+        .as_ref()
+        .map(|p| path_mtime_secs(p))
+        .filter(|t| *t > 0)
+        .or_else(|| account.usage_updated_at.map(|ms| ms / 1000))
+        .unwrap_or_else(|| account.last_used / 1000);
+    Some(LiveCredentialCandidate {
+        source: GrokCredSource::Store,
+        access_token: account.access_token.clone(),
+        refresh_token: account.refresh_token.clone(),
+        expires_at: account.expires_at,
+        expires_at_raw: account.expires_at_raw.clone(),
+        observed_at,
+        entry: account.auth_raw.as_ref().and_then(Value::as_object).cloned(),
+        path,
+    })
+}
+
+fn collect_live_credential_candidates(account: &GrokAccount) -> Vec<LiveCredentialCandidate> {
+    let mut candidates = Vec::new();
+    if let Some(store) = live_candidate_from_store(account) {
+        candidates.push(store);
+    }
+    if let Ok(managed) = managed_profile_dir(&account.id) {
+        let path = managed.join(AUTH_FILE);
+        if let Some(candidate) =
+            live_candidate_from_auth_path(&path, account, GrokCredSource::ManagedHome)
+        {
+            candidates.push(candidate);
+        }
+    }
+    if let Ok(official) = default_grok_home() {
+        let path = official.join(AUTH_FILE);
+        if let Some(candidate) =
+            live_candidate_from_auth_path(&path, account, GrokCredSource::OfficialHome)
+        {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
+fn access_still_usable(expires_at: Option<i64>, now: i64) -> bool {
+    match expires_at {
+        Some(exp) => exp > now + ACCESS_USABLE_LEAD_SECS,
+        // 无过期信息时不视为「确定可用」，避免盲用旧 token
+        None => false,
+    }
+}
+
+fn pick_best_live_credential(
+    candidates: &[LiveCredentialCandidate],
+    now: i64,
+) -> Option<&LiveCredentialCandidate> {
+    if candidates.is_empty() {
+        return None;
+    }
+    // 优先「access 仍可用」的集合；若没有，再退回全部（靠 RT 兜底 refresh）
+    let usable: Vec<&LiveCredentialCandidate> = candidates
+        .iter()
+        .filter(|c| !c.access_token.trim().is_empty() && access_still_usable(c.expires_at, now))
+        .collect();
+    let pool: Vec<&LiveCredentialCandidate> = if usable.is_empty() {
+        candidates.iter().collect()
+    } else {
+        usable
+    };
+    pool.into_iter().max_by(|left, right| {
+        left.observed_at
+            .cmp(&right.observed_at)
+            .then_with(|| {
+                left.expires_at
+                    .unwrap_or(0)
+                    .cmp(&right.expires_at.unwrap_or(0))
+            })
+            .then_with(|| left.source.tie_break_rank().cmp(&right.source.tie_break_rank()))
+    })
+}
+
+fn apply_live_credential_candidate(
+    account: &mut GrokAccount,
+    candidate: &LiveCredentialCandidate,
+) -> bool {
     let mut changed = false;
-    if let Some(access_token) = string_field(entry, "key") {
-        if access_token != account.access_token {
-            account.access_token = access_token;
+    if !candidate.access_token.is_empty() && candidate.access_token != account.access_token {
+        account.access_token = candidate.access_token.clone();
+        changed = true;
+    }
+    if let Some(refresh) = candidate.refresh_token.as_ref() {
+        if account.refresh_token.as_deref() != Some(refresh.as_str()) {
+            account.refresh_token = Some(refresh.clone());
             changed = true;
         }
     }
-    if let Some(refresh_token) = string_field(entry, "refresh_token") {
-        if account.refresh_token.as_deref() != Some(refresh_token.as_str()) {
-            account.refresh_token = Some(refresh_token);
-            changed = true;
-        }
+    if candidate.expires_at.is_some() && candidate.expires_at != account.expires_at {
+        account.expires_at = candidate.expires_at;
+        account.expires_at_raw = candidate.expires_at_raw.clone();
+        changed = true;
     }
-    if let Some(expires_at) = entry.get("expires_at").and_then(parse_timestamp) {
-        if account.expires_at != Some(expires_at) {
-            account.expires_at = Some(expires_at);
-            account.expires_at_raw = entry
-                .get("expires_at")
-                .filter(|value| !value.is_null())
-                .cloned();
-            changed = true;
-        }
-    }
-    if changed {
+    if let Some(entry) = candidate.entry.as_ref() {
         let mut merged = account
             .auth_raw
             .as_ref()
@@ -1862,24 +2129,57 @@ fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool
             merged.insert(key.clone(), value.clone());
         }
         account.auth_raw = Some(Value::Object(merged));
+    }
+    changed
+}
+
+/// 从账号库 / 受管 home / 官方 ~/.grok 中，仅匹配**同一账号**后选取最新可用凭据并 adopt。
+/// 返回是否改动了内存中的 account。
+fn adopt_best_live_credentials(account: &mut GrokAccount) -> Result<bool, String> {
+    if account.is_api_key_auth() {
+        return Ok(false);
+    }
+    let candidates = collect_live_credential_candidates(account);
+    let now = now_ts();
+    let Some(best) = pick_best_live_credential(&candidates, now).cloned() else {
+        return Ok(false);
+    };
+    let changed = apply_live_credential_candidate(account, &best);
+    if changed {
         logger::log_info(&format!(
-            "[Grok Account] 已从运行中 auth.json 同步 CLI 最新凭据: account_id={}, email={}, auth_path={}",
+            "[Grok Account] 已采用最新同账号凭据: account_id={}, email={}, source={}, path={}, observed_at={}, expires_at={:?}",
             account.id,
             account.email,
-            auth_path.display()
+            best.source.as_str(),
+            best.path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            best.observed_at,
+            best.expires_at
         ));
     }
     Ok(changed)
 }
 
+/// 兼容旧调用名：行为升级为多源同账号 best-adopt。
+fn adopt_live_tokens_from_account_home(account: &mut GrokAccount) -> Result<bool, String> {
+    adopt_best_live_credentials(account)
+}
+
 async fn refresh_credentials(account: &mut GrokAccount, force: bool) -> Result<(), String> {
-    // 刷新前先读账号独立 home：该实例 CLI 若已轮换 refresh_token，用最新值再请求
-    let _ = adopt_live_tokens_from_account_home(account);
+    // 先在多源中找同账号「最新可用」凭据（官方 CLI / 受管 home / 库可能已轮换 RT）
+    let _ = adopt_best_live_credentials(account);
+    let now = now_ts();
+    // 已有仍可用的 access：查额度/注入优先直接用，避免与官方抢刷 RT
+    if !force && access_still_usable(account.expires_at, now) {
+        return Ok(());
+    }
     let should_refresh = force
         || account
             .expires_at
-            .map(|expires_at| expires_at <= now_ts() + 5 * 60)
-            .unwrap_or(false);
+            .map(|expires_at| expires_at <= now + ACCESS_REFRESH_LEAD_SECS)
+            .unwrap_or(true);
     if !should_refresh {
         return Ok(());
     }
@@ -1899,12 +2199,17 @@ async fn refresh_credentials(account: &mut GrokAccount, force: bool) -> Result<(
             Ok(())
         }
         Err(error) => {
-            // invalid_grant 常见于该账号 home 内 CLI 已抢先轮换：再吸一次 auth.json，token 变了则重试一次
+            // invalid_grant：其它源可能已轮换 RT，再收割一次同账号最新凭据后重试
             let normalized = error.to_ascii_lowercase();
             if normalized.contains("invalid_grant") || normalized.contains("401") {
-                if adopt_live_tokens_from_account_home(account).unwrap_or(false) {
+                let previous_rt = refresh_token.clone();
+                if adopt_best_live_credentials(account).unwrap_or(false) {
                     if let Some(rotated) = account.refresh_token.clone() {
-                        if rotated != refresh_token {
+                        if rotated != previous_rt {
+                            // 若新 adopt 的 access 已可用，不必再 refresh
+                            if !force && access_still_usable(account.expires_at, now_ts()) {
+                                return Ok(());
+                            }
                             let token = grok_oauth::refresh_token(
                                 &rotated,
                                 account.token_endpoint.as_deref(),
@@ -1914,6 +2219,10 @@ async fn refresh_credentials(account: &mut GrokAccount, force: bool) -> Result<(
                             apply_refreshed_token(account, token);
                             return Ok(());
                         }
+                    }
+                    // RT 未变但 access 已更新且可用
+                    if !force && access_still_usable(account.expires_at, now_ts()) {
+                        return Ok(());
                     }
                 }
             }
@@ -2419,10 +2728,12 @@ mod tests {
         account_from_auth_object, accounts_match_for_upsert, acquire_secret_lock,
         apply_refreshed_token, auth_entry_matches_account, auth_registry_entry, auth_registry_for,
         default_grok_home, ensure_secret_dir, load_account_from_path, load_index_from_paths,
-        parse_auth_registry, quota_from_payload, quota_remaining_metrics, remove_account,
+        access_still_usable, find_matching_auth_entry_in_registry, parse_auth_registry,
+        pick_best_live_credential, quota_from_payload, quota_remaining_metrics, remove_account,
         remove_matching_auth_scope, resolve_account_id_from_registry, save_account_locked,
-        should_retry_quota_after_unauthorized, string_field,
-        write_account_to_auth_path_if_token_matches, write_account_to_official_auth_path,
+        should_retry_quota_after_unauthorized, string_field, GrokCredSource,
+        LiveCredentialCandidate, write_account_to_auth_path_if_token_matches,
+        write_account_to_official_auth_path,
     };
     use crate::models::grok::{
         GrokAccount, GrokAccountView, GrokAuthMode, GrokProductUsage, GrokQuota,
@@ -2727,7 +3038,43 @@ mod tests {
             serde_json::to_value(crate::models::grok::GrokAccountView::from(&sample_account()))
                 .expect("serialize redacted account");
         let error = parse_auth_registry(&redacted).expect_err("redacted export must be rejected");
-        assert!(error.contains("脱敏导出不含登录凭据"));
+        assert!(
+            error.contains("缺少登录凭据") || error.contains("未识别"),
+            "unexpected error: {error}"
+        );
+        let import_error = super::import_from_json(
+            &serde_json::to_string(&vec![redacted]).expect("serialize redacted list"),
+        )
+        .expect_err("redacted list must be rejected");
+        assert!(
+            import_error.contains("缺少登录凭据"),
+            "unexpected import error: {import_error}"
+        );
+    }
+
+    #[test]
+    fn full_export_json_can_be_reimported() {
+        let account = sample_account();
+        let exported = serde_json::to_string_pretty(&vec![&account]).expect("serialize export");
+        let value: Value = serde_json::from_str(&exported).expect("parse export");
+        let accounts: Vec<GrokAccount> =
+            serde_json::from_value(value.clone()).expect("deserialize export as GrokAccount list");
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].access_token, account.access_token);
+        assert_eq!(accounts[0].refresh_token, account.refresh_token);
+        super::validate_importable_account(&accounts[0])
+            .expect("export credentials must be importable");
+        // 导出数组应被识别为 Cockpit 完整导出格式
+        assert!(
+            matches!(
+                super::try_import_cockpit_export(&value),
+                Some(Err(_)) | Some(Ok(_))
+            ),
+            "export array should match cockpit export parser"
+        );
+        let via_registry = parse_auth_registry(&serde_json::to_value(&account).expect("to value"))
+            .expect("full account object should parse");
+        assert_eq!(via_registry.access_token, account.access_token);
     }
 
     #[test]
@@ -2870,6 +3217,55 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn removing_bound_account_auto_unbinds_instances() {
+        use crate::models::{
+            codex::CodexAppSpeed, DefaultInstanceSettings, InstanceLaunchMode, InstanceProfile,
+            InstanceStore,
+        };
+
+        let _env_lock = crate::modules::test_support::env_lock()
+            .lock()
+            .expect("lock test environment");
+        let temp = TestDir::new();
+        let _environment = EnvironmentGuard::new(&temp.0);
+        let account = sample_account();
+        save_account_locked(&account).expect("save account fixture");
+
+        let store = InstanceStore {
+            instances: vec![InstanceProfile {
+                id: "inst-333".to_string(),
+                name: "333".to_string(),
+                user_data_dir: temp.0.join("inst-333").to_string_lossy().to_string(),
+                working_dir: None,
+                extra_args: String::new(),
+                bind_account_id: Some(account.id.clone()),
+                launch_mode: InstanceLaunchMode::Cli,
+                app_speed: CodexAppSpeed::Standard,
+                created_at: 1,
+                last_launched_at: None,
+                last_pid: None,
+            }],
+            default_settings: DefaultInstanceSettings {
+                bind_account_id: Some(account.id.clone()),
+                follow_local_account: false,
+                ..DefaultInstanceSettings::default()
+            },
+        };
+        crate::modules::grok_instance::save_instance_store(&store).expect("save instance store");
+
+        remove_account(&account.id).expect("remove bound account should auto-unbind");
+
+        assert!(super::load_account(&account.id).is_none());
+        let next = crate::modules::grok_instance::load_instance_store().expect("reload store");
+        assert!(next.default_settings.bind_account_id.is_none());
+        assert!(next.default_settings.follow_local_account);
+        assert_eq!(next.instances.len(), 1);
+        assert!(next.instances[0].bind_account_id.is_none());
+        assert_eq!(next.instances[0].name, "333");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_secret_directory_and_reclaimed_lock_are_private() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -2908,6 +3304,86 @@ mod tests {
         );
         drop(lock);
         assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn pick_best_prefers_newer_usable_official_over_stale_store() {
+        let now = 1_700_000_000_i64;
+        let store = LiveCredentialCandidate {
+            source: GrokCredSource::Store,
+            access_token: "store-access".into(),
+            refresh_token: Some("store-rt".into()),
+            expires_at: Some(now + 30), // 即将过期，视为不可直接用
+            expires_at_raw: None,
+            observed_at: now - 1000,
+            entry: None,
+            path: None,
+        };
+        let official = LiveCredentialCandidate {
+            source: GrokCredSource::OfficialHome,
+            access_token: "official-access".into(),
+            refresh_token: Some("official-rt".into()),
+            expires_at: Some(now + 3600),
+            expires_at_raw: None,
+            observed_at: now - 10,
+            entry: None,
+            path: None,
+        };
+        let managed = LiveCredentialCandidate {
+            source: GrokCredSource::ManagedHome,
+            access_token: "managed-access".into(),
+            refresh_token: Some("managed-rt".into()),
+            expires_at: Some(now + 1800),
+            expires_at_raw: None,
+            observed_at: now - 100,
+            entry: None,
+            path: None,
+        };
+        let candidates = vec![store, managed, official];
+        let best = pick_best_live_credential(&candidates, now).expect("best");
+        assert_eq!(best.access_token, "official-access");
+        assert_eq!(best.source, GrokCredSource::OfficialHome);
+        assert!(access_still_usable(best.expires_at, now));
+    }
+
+    #[test]
+    fn find_matching_auth_entry_requires_same_account_identity() {
+        let account = sample_account();
+        // 两个合法 xAI registry 键：只能命中 principal/user/email 一致的那条
+        let registry = json!({
+            "https://auth.x.ai::client-a": {
+                "email": "other@example.com",
+                "principal_id": "other-principal",
+                "user_id": "other-user",
+                "key": "other-access",
+                "refresh_token": "other-rt",
+                "expires_at": "2099-01-01T00:00:00Z"
+            },
+            "https://auth.x.ai::client-b": {
+                "email": "person@example.com",
+                "principal_id": "principal-1",
+                "user_id": "user-1",
+                "key": "same-access",
+                "refresh_token": "same-rt",
+                "expires_at": "2099-01-01T00:00:00Z"
+            }
+        });
+        let entry = find_matching_auth_entry_in_registry(&registry, &account)
+            .expect("should match same principal/user");
+        assert_eq!(string_field(entry, "key").as_deref(), Some("same-access"));
+        assert_ne!(string_field(entry, "key").as_deref(), Some("other-access"));
+
+        let stranger = GrokAccount {
+            email: "nobody@example.com".into(),
+            principal_id: Some("nope".into()),
+            user_id: Some("nope".into()),
+            access_token: "unrelated".into(),
+            ..sample_account()
+        };
+        assert!(
+            find_matching_auth_entry_in_registry(&registry, &stranger).is_none(),
+            "must not adopt another account's credentials"
+        );
     }
 
     #[test]

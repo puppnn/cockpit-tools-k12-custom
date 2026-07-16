@@ -183,6 +183,10 @@ fn default_max_retry_interval_ms() -> u64 {
     30 * 1000
 }
 
+fn default_max_concurrent_image_requests() -> u16 {
+    1
+}
+
 fn default_legacy_request_read_timeout_ms() -> u64 {
     60 * 1000
 }
@@ -503,6 +507,8 @@ pub struct CodexLocalAccessCollection {
     pub debug_logs: bool,
     #[serde(default)]
     pub immediate_sse_response: bool,
+    #[serde(default = "default_max_concurrent_image_requests")]
+    pub max_concurrent_image_requests: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bound_oauth_account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

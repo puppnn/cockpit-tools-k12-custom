@@ -267,6 +267,36 @@ pub fn update_default_settings(
     Ok(updated)
 }
 
+/// 删除账号时调用：清除默认实例与多开实例上对该账号的绑定。
+pub fn unbind_account(account_id: &str) -> Result<Vec<String>, String> {
+    let account_id = account_id.trim();
+    if account_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let _guard = STORE_LOCK.lock().map_err(|_| "获取 Grok 实例锁失败")?;
+    let mut store = load_instance_store()?;
+    let mut unbound_names: Vec<String> = Vec::new();
+
+    if store.default_settings.bind_account_id.as_deref() == Some(account_id) {
+        store.default_settings.bind_account_id = None;
+        // 解绑后恢复跟随本地，避免默认实例空绑定且不跟随
+        store.default_settings.follow_local_account = true;
+        unbound_names.push("默认实例".to_string());
+    }
+
+    for instance in store.instances.iter_mut() {
+        if instance.bind_account_id.as_deref() == Some(account_id) {
+            instance.bind_account_id = None;
+            unbound_names.push(instance.name.clone());
+        }
+    }
+
+    if !unbound_names.is_empty() {
+        save_instance_store(&store)?;
+    }
+    Ok(unbound_names)
+}
+
 pub fn delete_instance(instance_id: &str) -> Result<(), String> {
     let _guard = STORE_LOCK.lock().map_err(|_| "获取 Grok 实例锁失败")?;
     let mut store = load_instance_store()?;

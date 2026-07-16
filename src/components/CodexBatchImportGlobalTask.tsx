@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, X } from 'lucide-react';
 import {
   selectPrimaryJob,
   useCodexBatchImportTaskStore,
@@ -18,6 +18,7 @@ export function CodexBatchImportGlobalTask({ onOpenCodex }: CodexBatchImportGlob
   // (that triggers useSyncExternalStore infinite loops).
   const jobsMap = useCodexBatchImportTaskStore((s) => s.jobs);
   const requestReopen = useCodexBatchImportTaskStore((s) => s.requestReopen);
+  const clearJob = useCodexBatchImportTaskStore((s) => s.clear);
   const primary = useCodexBatchImportTaskStore(selectPrimaryJob);
 
   const jobs = useMemo(
@@ -130,6 +131,17 @@ export function CodexBatchImportGlobalTask({ onOpenCodex }: CodexBatchImportGlob
                 <FileText size={14} />
                 <span>{t('codex.batchImport.reopen', '查看任务')}</span>
               </button>
+              {!job.busy && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => clearJob(job.taskId)}
+                  title={t('codex.batchImport.dismissTask', '丢弃任务')}
+                >
+                  <X size={14} />
+                  <span>{t('codex.batchImport.dismissTask', '丢弃')}</span>
+                </button>
+              )}
             </div>
           </div>
         ))}

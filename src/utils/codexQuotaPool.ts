@@ -1,15 +1,22 @@
 import type { CodexAccount } from '../types/codex';
 import {
-  getCodexEffectiveQuotaPercentages,
   getCodexPlanFilterKey,
+  getCodexQuotaWindows,
 } from '../types/codex';
 import { sortCodexPlanFilterKeys } from './codexAccountOverview';
+
+export interface CodexQuotaPoolWindow {
+  key: string;
+  label: string;
+  percentage: number;
+  accountCount: number;
+  windowMinutes: number;
+}
 
 export interface CodexQuotaPoolItem {
   key: string;
   count: number;
-  hourly: number;
-  weekly: number;
+  windows: CodexQuotaPoolWindow[];
 }
 
 export interface CodexQuotaPoolSummary {
@@ -19,14 +26,38 @@ export interface CodexQuotaPoolSummary {
 }
 
 function createQuotaPoolItem(key: CodexQuotaPoolItem['key']): CodexQuotaPoolItem {
-  return { key, count: 0, hourly: 0, weekly: 0 };
+  return { key, count: 0, windows: [] };
 }
 
 function addAccountToQuotaPool(target: CodexQuotaPoolItem, account: CodexAccount): void {
-  const percentages = getCodexEffectiveQuotaPercentages(account.quota);
   target.count += 1;
-  target.hourly += percentages.hourly ?? 0;
-  target.weekly += percentages.weekly ?? 0;
+  const seenWindowKeys = new Set<string>();
+  getCodexQuotaWindows(account.quota).forEach((window) => {
+    const key = window.label.trim().toLowerCase();
+    const windowMinutes =
+      window.windowMinutes ?? (window.id === 'secondary' ? 7 * 24 * 60 : 5 * 60);
+    let pooledWindow = target.windows.find((item) => item.key === key);
+    if (!pooledWindow) {
+      pooledWindow = {
+        key,
+        label: window.label,
+        percentage: 0,
+        accountCount: 0,
+        windowMinutes,
+      };
+      target.windows.push(pooledWindow);
+    }
+    pooledWindow.percentage += window.percentage;
+    pooledWindow.windowMinutes = Math.min(pooledWindow.windowMinutes, windowMinutes);
+    if (!seenWindowKeys.has(key)) {
+      pooledWindow.accountCount += 1;
+      seenWindowKeys.add(key);
+    }
+  });
+  target.windows.sort(
+    (left, right) =>
+      left.windowMinutes - right.windowMinutes || left.label.localeCompare(right.label),
+  );
 }
 
 export function summarizeCodexQuotaPool(accounts: CodexAccount[]): CodexQuotaPoolSummary {
@@ -51,4 +82,11 @@ export function summarizeCodexQuotaPool(accounts: CodexAccount[]): CodexQuotaPoo
 
 export function formatCodexQuotaPoolPercent(value: number): string {
   return `${Math.max(0, Math.round(value))}%`;
+}
+
+export function formatCodexQuotaPoolWindowLabel(
+  label: string,
+  weeklyLabel: string,
+): string {
+  return label === 'Weekly' ? weeklyLabel : label;
 }

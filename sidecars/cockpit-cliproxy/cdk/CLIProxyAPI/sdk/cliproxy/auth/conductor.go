@@ -5279,3 +5279,59 @@ func (m *Manager) HttpRequest(ctx context.Context, auth *Auth, req *http.Request
 	}
 	return exec.HttpRequest(ctx, auth, req)
 }
+
+// SelectAuth selects one credential through the configured scheduling strategy.
+func (m *Manager) SelectAuth(ctx context.Context, provider, model string, opts cliproxyexecutor.Options) (*Auth, error) {
+	if m == nil {
+		return nil, &Error{Code: "provider_not_found", Message: "manager is nil"}
+	}
+	selected, _, errPick := m.pickNext(ctx, provider, model, opts, nil)
+	if errPick != nil {
+		return nil, errPick
+	}
+	return selected, nil
+}
+
+// SelectAuthByKind selects one credential of the required kind through the
+// configured scheduling strategy. Credentials of other kinds are skipped so
+// callers can force OAuth-only backends such as Codex Alpha Search.
+func (m *Manager) SelectAuthByKind(ctx context.Context, provider, model, requiredKind string, opts cliproxyexecutor.Options) (*Auth, error) {
+	if m == nil {
+		return nil, &Error{Code: "provider_not_found", Message: "manager is nil"}
+	}
+	requiredKind = normalizeAuthKind(requiredKind)
+	if requiredKind == "" {
+		return nil, &Error{Code: "invalid_auth_kind", Message: "required auth kind is invalid", HTTPStatus: http.StatusBadRequest}
+	}
+
+	homeMode := m.HomeEnabled()
+	homeAuthCount := homeAuthCountFromMetadata(opts.Metadata)
+	tried := make(map[string]struct{})
+	for {
+		pickOpts := opts
+		if homeMode {
+			pickOpts = withHomeAuthCount(opts, homeAuthCount)
+		}
+		selected, _, errPick := m.pickNext(ctx, provider, model, pickOpts, tried)
+		if errPick != nil {
+			return nil, errPick
+		}
+		if selected == nil {
+			return nil, &Error{Code: "auth_not_found", Message: "selector returned no auth"}
+		}
+		if selected.AuthKind() == requiredKind {
+			return selected, nil
+		}
+		authID := strings.TrimSpace(selected.ID)
+		if authID == "" {
+			return nil, &Error{Code: "auth_not_found", Message: "selected auth has no ID"}
+		}
+		if _, alreadyTried := tried[authID]; alreadyTried {
+			return nil, &Error{Code: "auth_not_found", Message: "selector repeatedly returned an ineligible auth"}
+		}
+		tried[authID] = struct{}{}
+		if homeMode {
+			homeAuthCount++
+		}
+	}
+}

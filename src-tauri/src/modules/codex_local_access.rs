@@ -112,6 +112,7 @@ const DEFAULT_SESSION_AFFINITY_TTL_MS: i64 = 60 * 60 * 1000;
 const MAX_RETRY_INTERVAL_MIN_MS: u64 = 0;
 const MAX_RETRY_INTERVAL_MAX_MS: u64 = 30 * 1000;
 const DEFAULT_MAX_RETRY_INTERVAL_MS: u64 = 30 * 1000;
+const MAX_CONCURRENT_IMAGE_REQUESTS_PER_ACCOUNT: u16 = 16;
 const LOCAL_ACCESS_TIMEOUT_MIN_MS: u64 = 1_000;
 const LOCAL_ACCESS_TIMEOUT_MAX_MS: u64 = 600_000;
 const LEGACY_STREAM_TOTAL_TIMEOUT_MAX_MS: u64 = 30 * 60 * 1000;
@@ -654,6 +655,15 @@ fn request_uses_responses_lite(request: &ParsedRequest) -> bool {
         .headers
         .keys()
         .any(|name| name.eq_ignore_ascii_case(CODEX_RESPONSES_LITE_HEADER))
+}
+
+fn request_body_uses_responses_lite(request: &ParsedRequest) -> bool {
+    request_uses_responses_lite(request)
+        || parse_request_body_json(&request.body)
+            .as_ref()
+            .and_then(|body| body.get("model"))
+            .and_then(Value::as_str)
+            .is_some_and(codex_protocol::codex_model_uses_responses_lite)
 }
 
 #[derive(Debug, Clone)]
@@ -2612,7 +2622,9 @@ fn build_image_generation_tool(
 
 fn should_inject_image_generation_tool(model: &str) -> bool {
     let normalized = model.trim().to_ascii_lowercase();
-    !normalized.is_empty() && !normalized.ends_with("spark")
+    !normalized.is_empty()
+        && !normalized.ends_with("spark")
+        && !codex_protocol::codex_model_uses_responses_lite(&normalized)
 }
 
 fn is_image_gen_function_name(name: &str) -> bool {
@@ -2716,6 +2728,36 @@ fn remove_hosted_image_generation_tool_from_object(object: &mut Map<String, Valu
     if remove_tool_choice {
         object.remove("tool_choice");
         changed = true;
+    }
+
+    changed
+}
+
+fn remove_hosted_image_generation_capabilities_from_object(
+    object: &mut Map<String, Value>,
+) -> bool {
+    let mut changed = remove_hosted_image_generation_tool_from_object(object);
+
+    if let Some(Value::Array(input)) = object.get_mut("input") {
+        let before = input.len();
+        input.retain_mut(|item| {
+            let Some(item_object) = item.as_object_mut() else {
+                return true;
+            };
+            if item_object.get("type").and_then(Value::as_str) != Some("additional_tools") {
+                return true;
+            }
+            changed |= remove_hosted_image_generation_capabilities_from_object(item_object);
+            !item_object
+                .get("tools")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+        });
+        changed |= input.len() != before;
+    }
+
+    if let Some(Value::Object(response)) = object.get_mut("response") {
+        changed |= remove_hosted_image_generation_capabilities_from_object(response);
     }
 
     changed
@@ -2847,8 +2889,17 @@ fn request_image_generation_mode(
     collection_mode: CodexLocalAccessImageGenerationMode,
     headers: &HashMap<String, String>,
 ) -> CodexLocalAccessImageGenerationMode {
+    // Collection-level hard disable always wins.
     if collection_mode == CodexLocalAccessImageGenerationMode::Disabled {
         return CodexLocalAccessImageGenerationMode::Disabled;
+    }
+    // Responses Lite cannot host image_generation in chat/responses payloads.
+    // Keep image endpoints available via ImagesOnly.
+    if headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case(CODEX_RESPONSES_LITE_HEADER))
+    {
+        return CodexLocalAccessImageGenerationMode::ImagesOnly;
     }
     let value = headers
         .get(CODEX_LOCAL_ACCESS_DISABLE_HOSTED_IMAGE_GENERATION_HEADER)
@@ -4053,6 +4104,10 @@ fn prepare_gateway_request_with_default_service_tier(
     let original_request_body = request.body.clone();
     let (mut responses_body, stream, requested_model) =
         build_responses_body_from_chat_completions(&body_value)?;
+    codex_protocol::normalize_responses_body_for_codex_with_lite(
+        &mut responses_body,
+        request_uses_responses_lite(&request),
+    );
     if !request_has_service_tier {
         apply_default_service_tier_if_missing(&mut responses_body, default_service_tier);
     }
@@ -6550,6 +6605,13 @@ fn open_local_access_logs_db_once(
         "request_kind",
         "request_kind TEXT NOT NULL DEFAULT 'other'",
     )?;
+    if include_service_tier_column {
+        ensure_request_logs_column(
+            &conn,
+            "service_tier",
+            "service_tier TEXT NOT NULL DEFAULT ''",
+        )?;
+    }
     ensure_request_logs_column(&conn, "success", "success INTEGER NOT NULL DEFAULT 0")?;
     ensure_request_logs_column(&conn, "http_status", "http_status INTEGER")?;
     ensure_request_logs_column(
@@ -9502,12 +9564,26 @@ fn build_lan_base_url(port: u16) -> Option<String> {
 }
 
 fn sidecar_config_fingerprint(config_content: &str, manifest_content: &str) -> String {
+    let stable_config_content = stable_sidecar_config_for_fingerprint(config_content);
     let stable_manifest_content = stable_sidecar_manifest_for_fingerprint(manifest_content);
     let mut hasher = Sha1::new();
-    hasher.update(config_content.as_bytes());
+    hasher.update(stable_config_content.as_bytes());
     hasher.update(b"\n--manifest--\n");
     hasher.update(stable_manifest_content.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+fn stable_sidecar_config_for_fingerprint(config_content: &str) -> String {
+    let Ok(mut config) = serde_json::from_str::<Value>(config_content) else {
+        return config_content.to_string();
+    };
+    if let Some(config) = config.as_object_mut() {
+        // CLIProxyAPI watches the config file and applies payload defaults to new
+        // requests. Excluding this hot-reloadable field keeps active streams alive
+        // when the API service speed changes.
+        config.remove("payload");
+    }
+    serde_json::to_string(&config).unwrap_or_else(|_| config_content.to_string())
 }
 
 fn stable_sidecar_manifest_for_fingerprint(manifest_content: &str) -> String {
@@ -10316,6 +10392,8 @@ fn sidecar_auth_json_for_account(
         "plan_type": account.plan_type.clone(),
         "excluded_models": excluded_models,
         "disable_cooling": collection.disable_cooling,
+        // Enable upstream Codex Responses WebSocket executor for OAuth accounts.
+        "websockets": true,
     });
     if account_is_access_token_only(account) {
         value["auth_mode"] = json!("personal_access_token");
@@ -11202,6 +11280,7 @@ async fn prepare_sidecar_launch_config_in_dir(
         })).collect::<Vec<_>>(),
         "debugLogs": collection.debug_logs,
         "immediateSseResponse": collection.immediate_sse_response,
+        "maxConcurrentImageRequests": collection.max_concurrent_image_requests,
     });
 
     let mut config = Map::new();
@@ -12074,6 +12153,9 @@ fn build_runtime_account(
     runtime_account.bound_oauth_account_id = bound_oauth_account_id;
     runtime_account.api_model_catalog = supported_codex_model_ids();
     runtime_account.api_wire_api = Some("responses".to_string());
+    // Local relay now exposes GET /v1/responses WebSocket upgrade. Advertise
+    // the capability so Codex profiles use WS instead of always falling back.
+    runtime_account.api_supports_websockets = true;
     runtime_account
 }
 
@@ -13910,8 +13992,14 @@ fn sanitize_collection_structure(
 ) -> Result<bool, String> {
     let mut changed = false;
 
-    // 保留 ImagesOnly / Disabled：1.3.1 绑定 OAuth 本地网关会使用 ImagesOnly，
-    // 强制 Enabled 会破坏 chat 禁注入 /images 可生图 的兼容路径。
+    // v1.3.4 起已移除集合级 image_generation 禁用 UI。
+    // 遗留 Disabled / ImagesOnly 会继续从 sidecar manifest 过滤 gpt-image-2，
+    // 但静态 Codex catalog 仍包含该模型，造成 Codex 可点生图、网关却 model_not_available。
+    // 请求级控制仍保留：Responses Lite 头与 x-agtools-disable-image-generation。
+    if collection.image_generation_mode != CodexLocalAccessImageGenerationMode::Enabled {
+        collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Enabled;
+        changed = true;
+    }
 
     if collection.port == 0 {
         collection.port = allocate_initial_local_port(bind_host_for_collection(collection))?;
@@ -14208,6 +14296,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 restrict_free_accounts: true,
                 debug_logs: true,
                 immediate_sse_response: false,
+                max_concurrent_image_requests: 1,
                 bound_oauth_account_id: None,
                 bound_oauth_quota_reserve: None,
                 account_ids: Vec::new(),
@@ -15627,6 +15716,7 @@ fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, Str
         restrict_free_accounts: true,
         debug_logs: true,
         immediate_sse_response: false,
+        max_concurrent_image_requests: 1,
         bound_oauth_account_id: None,
         bound_oauth_quota_reserve: None,
         account_ids: Vec::new(),
@@ -18269,6 +18359,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         restrict_free_accounts: true,
         debug_logs: true,
         immediate_sse_response: false,
+        max_concurrent_image_requests: 1,
         bound_oauth_account_id: None,
         bound_oauth_quota_reserve: None,
         account_ids: Vec::new(),
@@ -18710,6 +18801,7 @@ pub async fn update_local_access_routing_options(
     max_retry_interval_ms: u64,
     disable_cooling: bool,
     immediate_sse_response: bool,
+    max_concurrent_image_requests: u16,
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded().await?;
 
@@ -18745,6 +18837,8 @@ pub async fn update_local_access_routing_options(
         max_retry_interval_ms.clamp(MAX_RETRY_INTERVAL_MIN_MS, MAX_RETRY_INTERVAL_MAX_MS);
     collection.disable_cooling = disable_cooling;
     collection.immediate_sse_response = immediate_sse_response;
+    collection.max_concurrent_image_requests =
+        max_concurrent_image_requests.clamp(1, MAX_CONCURRENT_IMAGE_REQUESTS_PER_ACCOUNT);
     collection.updated_at = now_ms();
     save_collection_to_disk(&collection)?;
 
@@ -21784,7 +21878,12 @@ fn build_account_scoped_upstream_body<'a>(
     let remove_all_image_capabilities =
         !image_generation_tools_allowed(image_generation_mode, request_kind);
     if remove_all_image_capabilities {
-        if !remove_image_generation_capabilities_from_object(body_obj) {
+        let changed = if image_generation_mode == CodexLocalAccessImageGenerationMode::ImagesOnly {
+            remove_hosted_image_generation_capabilities_from_object(body_obj)
+        } else {
+            remove_image_generation_capabilities_from_object(body_obj)
+        };
+        if !changed {
             return Ok(Cow::Borrowed(body));
         }
         return serde_json::to_vec(&body_value)
@@ -23636,6 +23735,7 @@ struct WebSocketImageGenerationFilter {
     account: CodexAccount,
     fallback_mode: CodexLocalAccessImageGenerationMode,
     request_headers: HashMap<String, String>,
+    responses_lite: bool,
 }
 
 async fn current_websocket_image_generation_mode(
@@ -23655,36 +23755,88 @@ fn filter_websocket_client_message(
     message: Message,
     account: &CodexAccount,
     image_generation_mode: CodexLocalAccessImageGenerationMode,
+    responses_lite: bool,
 ) -> Result<Message, String> {
+    fn filter_payload(
+        body: &[u8],
+        account: &CodexAccount,
+        image_generation_mode: CodexLocalAccessImageGenerationMode,
+        responses_lite: bool,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let mut body_value = parse_request_body_json(body);
+        let message_uses_responses_lite = responses_lite
+            || body_value
+                .as_ref()
+                .and_then(|value| {
+                    value
+                        .get("model")
+                        .or_else(|| value.pointer("/response/model"))
+                })
+                .and_then(Value::as_str)
+                .is_some_and(codex_protocol::codex_model_uses_responses_lite);
+        let lite_filtered = if message_uses_responses_lite {
+            match body_value.as_mut() {
+                Some(body_value) => {
+                    if codex_protocol::filter_responses_lite_tools(body_value) {
+                        Some(serde_json::to_vec(body_value).map_err(|error| {
+                            format!(
+                                "序列化 WebSocket Responses Lite 工具过滤结果失败: {}",
+                                error
+                            )
+                        })?)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let source = lite_filtered.as_deref().unwrap_or(body);
+        let effective_image_generation_mode = if message_uses_responses_lite
+            && image_generation_mode == CodexLocalAccessImageGenerationMode::Enabled
+        {
+            CodexLocalAccessImageGenerationMode::ImagesOnly
+        } else {
+            image_generation_mode
+        };
+        let account_filtered = build_account_scoped_upstream_body(
+            "/responses",
+            source,
+            account,
+            effective_image_generation_mode,
+            CodexLocalAccessRequestKind::Text,
+        )?;
+        match account_filtered {
+            Cow::Borrowed(_) => Ok(lite_filtered),
+            Cow::Owned(filtered) => Ok(Some(filtered)),
+        }
+    }
+
     match message {
         Message::Text(text) => {
             let body = text.to_string().into_bytes();
-            let filtered = build_account_scoped_upstream_body(
-                "/responses",
-                &body,
-                account,
-                image_generation_mode,
-                CodexLocalAccessRequestKind::Text,
-            )?;
-            if matches!(&filtered, Cow::Borrowed(_)) {
+            let Some(filtered) =
+                filter_payload(&body, account, image_generation_mode, responses_lite)?
+            else {
                 return Ok(Message::Text(text));
-            }
-            let filtered = String::from_utf8(filtered.into_owned())
+            };
+            let filtered = String::from_utf8(filtered)
                 .map_err(|error| format!("过滤 WebSocket 文本图片工具后不是 UTF-8: {}", error))?;
             Ok(Message::Text(filtered.into()))
         }
         Message::Binary(bytes) => {
-            let filtered = build_account_scoped_upstream_body(
-                "/responses",
+            let Some(filtered) = filter_payload(
                 bytes.as_ref(),
                 account,
                 image_generation_mode,
-                CodexLocalAccessRequestKind::Text,
-            )?;
-            if matches!(&filtered, Cow::Borrowed(_)) {
+                responses_lite,
+            )?
+            else {
                 return Ok(Message::Binary(bytes));
-            }
-            Ok(Message::Binary(filtered.into_owned().into()))
+            };
+            Ok(Message::Binary(filtered.into()))
         }
         other => Ok(other),
     }
@@ -23757,7 +23909,12 @@ async fn bridge_websocket_streams(
                     .map_err(|e| format!("读取 WebSocket 客户端消息失败: {}", e))?;
                 if let Some(filter) = image_filter.as_ref() {
                     let mode = current_websocket_image_generation_mode(filter).await;
-                    message = filter_websocket_client_message(message, &filter.account, mode)?;
+                    message = filter_websocket_client_message(
+                        message,
+                        &filter.account,
+                        mode,
+                        filter.responses_lite,
+                    )?;
                 }
                 let should_close = matches!(message, Message::Close(_));
                 upstream_write
@@ -23855,6 +24012,7 @@ async fn handle_websocket_connection(
                     account: success.account.clone(),
                     fallback_mode: collection.image_generation_mode,
                     request_headers: parsed.headers.clone(),
+                    responses_lite: request_body_uses_responses_lite(&parsed),
                 }),
             )
             .await?;
@@ -24790,8 +24948,8 @@ mod tests {
         build_codex_client_models_response, build_collection_base_url, build_images_api_payload,
         build_local_access_api_key, build_local_models_response,
         build_model_provider_gateway_test_collection, build_ordered_account_ids,
-        build_request_routing_hint, build_upstream_websocket_url, calculate_usage_cost_usd,
-        calendar_stats_window_starts, canonical_model_for_client_model,
+        build_request_routing_hint, build_runtime_account, build_upstream_websocket_url,
+        calculate_usage_cost_usd, calendar_stats_window_starts, canonical_model_for_client_model,
         classify_upstream_error_category, cleanup_profile_takeover_without_backup,
         cleanup_provider_gateway_profile_model_overrides, codex_price,
         collect_local_access_profile_takeover_dirs_from_store, compare_routing_candidates,
@@ -24830,6 +24988,7 @@ mod tests {
         resolve_supported_model_alias, resolve_upstream_target,
         restore_config_toml_from_takeover_backup, sanitize_collection_structure,
         sanitize_collection_with_accounts, scutil_proxy_map,
+        selected_account_ids_have_image_generation_capacity,
         should_retry_single_account_upstream_status, should_treat_response_as_stream,
         should_try_next_account, sidecar_account_manifest_value,
         sidecar_account_quota_snapshot_value, sidecar_api_key_account_scope_values,
@@ -24943,9 +25102,7 @@ mod tests {
             let request = String::from_utf8_lossy(&request[..bytes_read]);
             assert!(request.contains("POST http://wakeup.invalid/test"));
             stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
-                )
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
                 .await
                 .unwrap();
         });
@@ -25019,6 +25176,7 @@ mod tests {
             restrict_free_accounts: true,
             debug_logs: true,
             immediate_sse_response: false,
+            max_concurrent_image_requests: 1,
             bound_oauth_account_id: None,
             bound_oauth_quota_reserve: None,
             account_ids,
@@ -26143,6 +26301,31 @@ wire_api = "responses"
     }
 
     #[test]
+    fn sidecar_fingerprint_ignores_hot_reloadable_payload_defaults() {
+        let manifest = r#"{"accounts":[],"routingStrategy":"auto"}"#;
+        let standard = r#"{"host":"127.0.0.1","port":58393}"#;
+        let priority = r#"{
+          "host": "127.0.0.1",
+          "port": 58393,
+          "payload": {"default":[{"models":[{"name":"gpt-*","protocol":"openai/responses"}],"params":{"service_tier":"priority"}}]}
+        }"#;
+        let other_port = r#"{
+          "host": "127.0.0.1",
+          "port": 58394,
+          "payload": {"default":[{"models":[{"name":"gpt-*","protocol":"openai/responses"}],"params":{"service_tier":"priority"}}]}
+        }"#;
+
+        assert_eq!(
+            sidecar_config_fingerprint(standard, manifest),
+            sidecar_config_fingerprint(priority, manifest),
+        );
+        assert_ne!(
+            sidecar_config_fingerprint(priority, manifest),
+            sidecar_config_fingerprint(other_port, manifest),
+        );
+    }
+
+    #[test]
     fn sidecar_fingerprint_ignores_dynamic_quota_snapshot_changes() {
         let config = r#"{"host":"127.0.0.1","port":58393}"#;
         let manifest_available_high = r#"{
@@ -26705,6 +26888,21 @@ wire_api = "responses"
             auth_json.get("expired").and_then(Value::as_i64),
             Some(4_102_444_800i64)
         );
+        assert_eq!(
+            auth_json.get("websockets").and_then(Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn build_runtime_account_enables_websockets_for_local_api_service() {
+        let account = build_runtime_account(
+            "http://127.0.0.1:1455/v1".to_string(),
+            "agt_codex_test".to_string(),
+            None,
+        );
+        assert!(account.api_supports_websockets);
+        assert_eq!(account.api_wire_api.as_deref(), Some("responses"));
     }
 
     #[test]
@@ -27483,6 +27681,40 @@ wire_api = "responses"
                 .expect("aggregate after correction");
         assert_eq!(after_correction.attempt_count, 1);
         assert_eq!(after_correction.possible_billable_count, 0);
+
+        drop(conn);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn request_log_db_adds_service_tier_to_existing_schema() {
+        let dir = make_temp_dir("codex-local-access-service-tier-migration");
+        let db_path = dir.join("request_logs.sqlite");
+        let conn = open_local_access_logs_db_once(&db_path, false).expect("open legacy logs db");
+        conn.execute(
+            "INSERT INTO request_logs (event_key, timestamp, request_id) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["legacy-event", 1_700_000_000_000_i64, "legacy-request"],
+        )
+        .expect("insert legacy request log");
+        let legacy_column_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name = 'service_tier'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect legacy schema");
+        assert_eq!(legacy_column_count, 0);
+        drop(conn);
+
+        let conn = open_local_access_logs_db_once(&db_path, true).expect("migrate logs db");
+        let migrated: (String, String) = conn
+            .query_row(
+                "SELECT request_id, service_tier FROM request_logs WHERE event_key = ?1",
+                ["legacy-event"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read migrated request log");
+        assert_eq!(migrated, ("legacy-request".to_string(), String::new()));
 
         drop(conn);
         let _ = fs::remove_dir_all(dir);
@@ -29088,6 +29320,60 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
+    fn chat_completions_conversion_enforces_responses_lite_tools() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/chat/completions".to_string(),
+            headers: HashMap::new(),
+            body: br#"{
+                "model":"gpt-5.6-sol",
+                "messages":[{"role":"user","content":"hello"}],
+                "tools":[
+                    {"type":"function","function":{"name":"lookup","parameters":{}}},
+                    {"type":"function","function":{"name":"image_gen.imagegen","parameters":{}}},
+                    {"type":"custom","name":"apply_patch"},
+                    {"type":"tool_search","execution":"client"},
+                    {"type":"tool_search"},
+                    {"type":"web_search"},
+                    {"type":"image_generation"},
+                    {"type":"namespace","name":"mcp__root"}
+                ],
+                "tool_choice":{"type":"web_search"}
+            }"#
+            .to_vec(),
+        };
+
+        let (prepared, _) = prepare_gateway_request(request).expect("request should map");
+        let mapped_body: Value =
+            serde_json::from_slice(&prepared.body).expect("mapped body should be json");
+        assert_eq!(
+            mapped_body
+                .get("parallel_tool_calls")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            mapped_body
+                .get("tools")
+                .and_then(Value::as_array)
+                .map(|tools| {
+                    tools
+                        .iter()
+                        .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["function", "function", "custom", "tool_search"])
+        );
+        assert!(mapped_body.get("tool_choice").is_none());
+        assert!(mapped_body
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| tools.iter().any(|tool| {
+                tool.get("name").and_then(Value::as_str) == Some("image_gen.imagegen")
+            })));
+    }
+
+    #[test]
     fn legacy_responses_requests_inject_default_priority_service_tier() {
         let cases = [
             (
@@ -29599,6 +29885,60 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
+    fn responses_lite_models_never_reinject_hosted_tools() {
+        let request = ParsedRequest {
+            method: "POST".to_string(),
+            target: "/v1/responses".to_string(),
+            headers: HashMap::from([(
+                "x-openai-internal-codex-responses-lite".to_string(),
+                String::new(),
+            )]),
+            body: br#"{
+                "model":"gpt-5.6-sol",
+                "input":"hello",
+                "tools":[
+                    {"type":"function","name":"lookup"},
+                    {"type":"function","name":"image_gen.imagegen"},
+                    {"type":"custom","name":"apply_patch"},
+                    {"type":"tool_search","execution":"client"},
+                    {"type":"image_generation"},
+                    {"type":"web_search"},
+                    {"type":"namespace","name":"mcp__root"}
+                ]
+            }"#
+            .to_vec(),
+        };
+
+        let (prepared, _) = prepare_gateway_request(request).expect("request should map");
+        let account = test_account_with_plan("plus");
+        let mapped = build_account_scoped_upstream_body(
+            "/responses",
+            &prepared.body,
+            &account,
+            CodexLocalAccessImageGenerationMode::ImagesOnly,
+            CodexLocalAccessRequestKind::Text,
+        )
+        .expect("Responses Lite body should build");
+        let parsed: Value = serde_json::from_slice(mapped.as_ref()).expect("body should be json");
+        assert_eq!(
+            parsed.get("tools").and_then(Value::as_array).map(|tools| {
+                tools
+                    .iter()
+                    .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+            }),
+            Some(vec!["function", "function", "custom", "tool_search"])
+        );
+        assert!(parsed
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| tools.iter().any(|tool| {
+                tool.get("type").and_then(Value::as_str) == Some("function")
+                    && tool.get("name").and_then(Value::as_str) == Some("image_gen.imagegen")
+            })));
+    }
+
+    #[test]
     fn disabled_image_generation_mode_removes_declared_tool_and_choice() {
         let account = test_account_with_plan("plus");
         let body = br#"{
@@ -29715,6 +30055,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 message,
                 &account,
                 CodexLocalAccessImageGenerationMode::Disabled,
+                false,
             )
             .expect("WebSocket follow-up payload should filter");
             let parsed = match filtered {
@@ -29728,6 +30069,57 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                     .and_then(Value::as_str),
                 Some("keep")
             );
+        }
+    }
+
+    #[test]
+    fn websocket_followup_messages_filter_responses_lite_tools() {
+        let account = test_account_with_plan("plus");
+        let payload = r#"{
+            "type":"response.create",
+            "response":{
+                "model":"gpt-5.6-sol",
+                "tools":[
+                    {"type":"function","name":"keep_function"},
+                    {"type":"custom","name":"keep_custom"},
+                    {"type":"tool_search","execution":"client"},
+                    {"type":"image_generation"},
+                    {"type":"web_search"},
+                    {"type":"namespace","name":"mcp__root"}
+                ],
+                "tool_choice":{"type":"image_generation"}
+            }
+        }"#;
+
+        for message in [
+            Message::Text(payload.into()),
+            Message::Binary(payload.as_bytes().to_vec().into()),
+        ] {
+            let filtered = filter_websocket_client_message(
+                message,
+                &account,
+                CodexLocalAccessImageGenerationMode::Enabled,
+                false,
+            )
+            .expect("Responses Lite WebSocket follow-up payload should filter");
+            let parsed = match filtered {
+                Message::Text(text) => serde_json::from_str::<Value>(&text).unwrap(),
+                Message::Binary(bytes) => serde_json::from_slice::<Value>(&bytes).unwrap(),
+                _ => panic!("expected data frame"),
+            };
+            assert_eq!(
+                parsed
+                    .pointer("/response/tools")
+                    .and_then(Value::as_array)
+                    .map(|tools| {
+                        tools
+                            .iter()
+                            .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                    }),
+                Some(vec!["function", "custom", "tool_search"])
+            );
+            assert!(parsed.pointer("/response/tool_choice").is_none());
         }
     }
 
@@ -29814,6 +30206,16 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             request_image_generation_mode(CodexLocalAccessImageGenerationMode::Enabled, &headers),
             CodexLocalAccessImageGenerationMode::Enabled
         );
+
+        headers.insert(
+            "X-OpenAI-Internal-Codex-Responses-Lite".to_string(),
+            String::new(),
+        );
+        assert_eq!(
+            request_image_generation_mode(CodexLocalAccessImageGenerationMode::Enabled, &headers),
+            CodexLocalAccessImageGenerationMode::ImagesOnly
+        );
+        headers.remove("X-OpenAI-Internal-Codex-Responses-Lite");
 
         headers.insert(
             CODEX_LOCAL_ACCESS_DISABLE_HOSTED_IMAGE_GENERATION_HEADER.to_string(),
@@ -31302,7 +31704,7 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
     }
 
     #[test]
-    fn sanitize_collection_preserves_saved_image_generation_mode() {
+    fn sanitize_collection_migrates_legacy_image_generation_mode_to_enabled() {
         for mode in [
             CodexLocalAccessImageGenerationMode::ImagesOnly,
             CodexLocalAccessImageGenerationMode::Disabled,
@@ -31310,11 +31712,55 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
             let mut collection = test_local_access_collection(Vec::new());
             collection.image_generation_mode = mode;
 
-            let _ = sanitize_collection_with_accounts(&mut collection, &[])
+            let (changed, _) = sanitize_collection_with_accounts(&mut collection, &[])
                 .expect("collection should sanitize");
 
-            assert_eq!(collection.image_generation_mode, mode);
+            assert!(
+                changed,
+                "legacy image generation mode {mode:?} should be migrated"
+            );
+            assert_eq!(
+                collection.image_generation_mode,
+                CodexLocalAccessImageGenerationMode::Enabled
+            );
         }
+    }
+
+    #[test]
+    fn legacy_disabled_image_mode_no_longer_blocks_image_capacity_after_sanitize() {
+        let mut paid = test_account_with_plan("plus");
+        paid.id = "oauth-plus".to_string();
+        let accounts = vec![paid.clone()];
+
+        let mut collection = test_local_access_collection(vec![paid.id.clone()]);
+        collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Disabled;
+
+        assert!(
+            !selected_account_ids_have_image_generation_capacity(
+                &collection.account_ids,
+                collection.image_generation_mode,
+                Some(accounts.as_slice()),
+                None,
+            ),
+            "disabled mode should hide image capacity before migration"
+        );
+
+        let (changed, _) = sanitize_collection_with_accounts(&mut collection, &accounts)
+            .expect("collection should sanitize");
+        assert!(changed);
+        assert_eq!(
+            collection.image_generation_mode,
+            CodexLocalAccessImageGenerationMode::Enabled
+        );
+        assert!(
+            selected_account_ids_have_image_generation_capacity(
+                &collection.account_ids,
+                collection.image_generation_mode,
+                Some(accounts.as_slice()),
+                None,
+            ),
+            "plus OAuth pool should expose image capacity after migration"
+        );
     }
 
     #[test]

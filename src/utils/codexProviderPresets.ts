@@ -267,13 +267,15 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
     id: "minimax",
     name: "MiniMax",
     baseUrls: ["https://api.minimaxi.com/v1"],
-    website: "https://www.minimaxi.com/",
+    modelCatalog: ["MiniMax-M3", "MiniMax-M2.7"],
+    website: "https://platform.minimaxi.com/docs",
   },
   {
     id: "minimax_en",
     name: "MiniMax en",
     baseUrls: ["https://api.minimax.io/v1"],
-    website: "https://www.minimax.io/",
+    modelCatalog: ["MiniMax-M3", "MiniMax-M2.7"],
+    website: "https://platform.minimax.io/docs",
   },
   {
     id: "bailing",

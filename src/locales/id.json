@@ -639,7 +639,7 @@
       "themeDark": "Gelap",
       "themeSystem": "Sistem",
       "uiScale": "Skala Antarmuka",
-      "uiScaleDesc": "Sesuaikan skala antarmuka",
+      "uiScaleDesc": "Sesuaikan skala antarmuka (⌘+/⌘- atau Ctrl+/Ctrl-, ⌘0/Ctrl+0 reset)",
       "accountManagement": "Akun",
       "autoRefresh": "Penyegaran Otomatis Kuota Antigravity IDE",
       "codexAutoRefresh": "Penyegaran Otomatis Kuota Codex",
@@ -1242,7 +1242,11 @@
         "tooMany": "Anda dapat menambahkan maksimal {{max}} tag"
       },
       "notesLabel": "Catatan",
-      "notesPlaceholder": "Masukkan catatan. Kosongkan untuk menghapus"
+      "notesPlaceholder": "Masukkan catatan. Kosongkan untuk menghapus",
+      "confirmGlobalDelete": "Hapus tag \"{{targetTag}}\" dari semua akun? Tindakan ini tidak dapat dibatalkan.",
+      "globalDeleteHint": "Hapus tag ini secara global",
+      "globalDeleteFailed": "Gagal menghapus tag secara global",
+      "globalRenameHint": "Ganti nama tag ini secara global"
     },
     "groupByTag": "Kelompokkan berdasarkan tag",
     "untagged": "Tanpa Tag",
@@ -1964,6 +1968,7 @@
         "requestsDetail": "OK {{success}} / Gagal {{failed}} / Batal {{canceled}} / Hulu {{upstreamFailed}} / Belum lengkap {{incomplete}}",
         "tokens": "Token",
         "tokensDetail": "Masuk {{input}} / Keluar {{output}}",
+        "cached": "Tembolok",
         "specialTokens": "Cache / Penalaran",
         "specialTokensDetail": "Cache {{cached}} / Penalaran {{reasoning}}",
         "avgLatency": "Latensi rata-rata",
@@ -2352,7 +2357,10 @@
       "refreshFailedBadge": "Gagal menyegarkan",
       "generic": "Penyegaran kuota gagal, silakan coba lagi nanti",
       "deactivatedWorkspace": "Workspace dinonaktifkan, ganti akun atau otorisasi ulang",
-      "requestFailedManualRetry": "Periksa jaringan. Kuota terbaru belum diambil. Segarkan untuk mencoba lagi."
+      "requestFailedManualRetry": "Periksa jaringan. Kuota terbaru belum diambil. Segarkan untuk mencoba lagi.",
+      "httpStatusSummary": "Kesalahan API {{status}}",
+      "viewDetails": "Detail",
+      "detailTitle": "Detail error"
     },
     "plan": {
       "free": "FREE​",
@@ -3374,6 +3382,7 @@
         "disableCooling": "Matikan cooldown",
         "saveOptions": "Simpan Opsi",
         "immediateSseResponse": "SSE 200 langsung",
+        "maxConcurrentImageRequests": "Permintaan gambar per akun",
         "optionsSaved": "Opsi routing tersimpan"
       },
       "validation": {
@@ -3535,7 +3544,10 @@
       "checkAccounts": "Periksa akun",
       "importAndAddToApiService": "Impor + API",
       "importAndAddToApiServiceSuccess": "Diimpor dan ditambahkan ke layanan API",
-      "addToApiServiceFailed": "Diimpor, tetapi penambahan ke layanan API gagal: {{error}}"
+      "addToApiServiceFailed": "Diimpor, tetapi penambahan ke layanan API gagal: {{error}}",
+      "cancelAndDismiss": "Batalkan dan buang",
+      "bulkTagsLabel": "Tag setelah impor",
+      "bulkTagsPlaceholder": "Opsional; pisahkan dengan koma atau spasi"
     },
     "autoRepairMode": {
       "label": "Logika perbaikan otomatis",
@@ -3581,7 +3593,10 @@
       "chipTags": "Tag",
       "chipSearch": "Cari",
       "chipPlan": "Paket",
-      "chipFolder": "Direktori"
+      "chipFolder": "Direktori",
+      "authError": "Auth gagal",
+      "zeroQuota": "Kuota 0%",
+      "expired": "Kedaluwarsa"
     },
     "accessTokenImport": {
       "nameRequired": "Masukkan nama akun",
@@ -3647,7 +3662,9 @@
       "serverListLead": "Pilih target sinkronisasi",
       "serverCount": "{{count}} server",
       "autoSyncBadge": "Mobil"
-    }
+    },
+    "exportAuthFailed": "Ekspor gagal",
+    "exportAuthFailedTitle": "Ekspor semua akun auth gagal"
   },
   "codebuddy": {
     "title": "Akun CodeBuddy",
@@ -4946,7 +4963,12 @@
       "streakDays": "{{days}} hari",
       "streakRewardCountdown": "{{days}} hari lagi untuk hadiah bonus",
       "streakRewardToday": "Hadiah bonus tersedia hari ini!",
-      "recentDates": "Terbaru: "
+      "recentDates": "Terbaru: ",
+      "claimed": "Diklaim",
+      "queryFailed": "Kueri gagal",
+      "retry": "Coba lagi",
+      "inactive": "Tidak tersedia",
+      "inactiveHint": "Check-in tidak aktif untuk akun ini"
     }
   },
   "mfaVault": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Tempel JSON",
-      "pasteDesc": "Tempel auth.json resmi dari Grok CLI. Kredensial hanya diproses oleh backend lokal. Cockpit hanya mengekspor metadata yang disamarkan dan tidak dapat memulihkan login.",
+      "pasteDesc": "Tempel auth.json Grok CLI resmi, atau JSON akun lengkap yang diekspor aplikasi ini (bisa diimpor ulang). Kredensial hanya diproses lokal.",
       "pastePlaceholder": "Tempel JSON akun Grok",
       "pasteAction": "Impor JSON",
-      "localDesc": "Impor akun saat ini dari ~/.grok/auth.json bawaan. Saat memilih berkas, gunakan auth.json resmi dari Grok CLI.",
+      "localDesc": "Impor dari ~/.grok/auth.json, atau pilih auth.json resmi / JSON ekspor lengkap aplikasi ini.",
       "localClient": "Impor dari Grok CLI lokal",
       "apiKeyTab": "Kunci API",
-      "apiKeyDesc": "Tempel xAI API Key (XAI_API_KEY resmi). Diinjeksikan saat peluncuran. Bisa juga tempel auth.json resmi untuk OAuth.",
+      "apiKeyDesc": "Tempel kunci API xAI (XAI_API_KEY / xai-… resmi). Diinjeksikan sebagai variabel lingkungan saat CLI diluncurkan; tidak menimpa login OAuth resmi.",
       "apiKeyPlaceholder": "tempel xai-…",
       "apiKeyAction": "Tambah API Key"
     },

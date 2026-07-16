@@ -835,6 +835,26 @@ func TestApplyCodexHeadersPassesThroughResponsesLiteHeader(t *testing.T) {
 	}
 }
 
+func TestCodexUpstreamHeadersPreserveEmptyResponsesLiteHeader(t *testing.T) {
+	ctx := contextWithGinHeaders(map[string]string{codexResponsesLiteHeaderName: ""})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://example.com/responses", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+
+	applyCodexHeaders(req, nil, "oauth-token", true, nil)
+	values, ok := req.Header[http.CanonicalHeaderKey(codexResponsesLiteHeaderName)]
+	if !ok || len(values) != 1 || values[0] != "" {
+		t.Fatalf("HTTP Responses Lite header = %#v, present=%v; want one empty value", values, ok)
+	}
+
+	wsHeaders := applyCodexWebsocketHeaders(ctx, http.Header{}, nil, "oauth-token", nil)
+	values, ok = wsHeaders[http.CanonicalHeaderKey(codexResponsesLiteHeaderName)]
+	if !ok || len(values) != 1 || values[0] != "" {
+		t.Fatalf("WebSocket Responses Lite header = %#v, present=%v; want one empty value", values, ok)
+	}
+}
+
 func TestApplyCodexHeadersDoesNotInjectResponsesLiteHeader(t *testing.T) {
 	for _, path := range []string{"/responses", "/responses/compact"} {
 		t.Run(path, func(t *testing.T) {
@@ -845,8 +865,10 @@ func TestApplyCodexHeadersDoesNotInjectResponsesLiteHeader(t *testing.T) {
 
 			applyCodexHeaders(req, nil, "oauth-token", path == "/responses", nil)
 
-			if got := req.Header.Get(codexResponsesLiteHeaderName); got != "" {
-				t.Fatalf("%s = %q, want empty", codexResponsesLiteHeaderName, got)
+			for key, values := range req.Header {
+				if strings.EqualFold(key, codexResponsesLiteHeaderName) {
+					t.Fatalf("ordinary request created %s with values %#v", key, values)
+				}
 			}
 		})
 	}

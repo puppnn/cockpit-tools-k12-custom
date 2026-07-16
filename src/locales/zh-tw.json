@@ -588,7 +588,7 @@
       "themeDark": "深色 (Dark)",
       "themeSystem": "跟隨系統",
       "uiScale": "介面縮放",
-      "uiScaleDesc": "調整介面縮放比例",
+      "uiScaleDesc": "調整介面縮放比例（⌘+/⌘- 縮放，⌘0 重設）",
       "accountManagement": "帳號管理",
       "autoRefresh": "Antigravity IDE 自動刷新配額",
       "codexAutoRefresh": "Codex 自動刷新配額",
@@ -1195,7 +1195,11 @@
         "tooMany": "最多只能新增 {{max}} 個標籤"
       },
       "notesLabel": "備註",
-      "notesPlaceholder": "輸入備註，留空表示不設定"
+      "notesPlaceholder": "輸入備註，留空表示不設定",
+      "confirmGlobalDelete": "確定要從所有帳號中全域刪除標籤 \"{{targetTag}}\" 嗎？此操作無法復原。",
+      "globalDeleteHint": "全域刪除此標籤",
+      "globalDeleteFailed": "全域刪除失敗",
+      "globalRenameHint": "全域重新命名此標籤"
     },
     "groupByTag": "依標籤分組",
     "untagged": "未標記",
@@ -1800,10 +1804,10 @@
       "reauthEmailLabel": "重新授權帳號"
     },
     "token": {
-      "desc": "貼上 auth.json、帳號 JSON 或 refresh_token。",
-      "placeholder": "範例：每行一個 refresh_token，或 {\"refresh_token\":\"rt_...\"}",
+      "desc": "貼上 auth.json、帳號 JSON、Sub2API JSON、accessToken、個人存取權杖 at-… 或 refresh_token。",
+      "placeholder": "範例：session JSON、accessToken、at-… 個人存取權杖、Sub2API JSON，或 {\"personal_access_token\":\"at-...\"}",
       "formatSummary": "必填欄位與範例（點擊展開）",
-      "formatRequired": "支援完整 tokens（id_token + access_token）、單個 refresh_token，或每行一個 refresh_token。僅 refresh_token 會先連線換取完整憑證。",
+      "formatRequired": "支援 session JSON、完整 tokens（id_token + access_token）、Sub2API 匯出 JSON、僅 accessToken、個人存取權杖 at-… / personal_access_token，或僅 refresh_token。僅 refresh_token 會先連線換取完整憑證；無 refresh 的 at-… 按 personal_access_token 形態落盤。",
       "formatSingleLabel": "完整 tokens 範例",
       "formatRefreshOnlyLabel": "僅 refresh_token 範例",
       "formatBatchLabel": "批次範例"
@@ -1914,6 +1918,7 @@
         "requestsDetail": "成功 {{success}} / 失敗 {{failed}} / 取消 {{canceled}} / 上游失敗 {{upstreamFailed}} / 未完成 {{incomplete}}",
         "tokens": "總 Token 數",
         "tokensDetail": "輸入 {{input}} / 輸出 {{output}}",
+        "cached": "快取",
         "specialTokens": "快取 / 思考",
         "specialTokensDetail": "快取 {{cached}} / 思考 {{reasoning}}",
         "avgLatency": "平均延遲",
@@ -2294,7 +2299,10 @@
       "refreshFailedBadge": "重新整理失敗",
       "generic": "配額重新整理失敗，請稍後再試",
       "deactivatedWorkspace": "工作區已停用，請切換帳號或重新授權",
-      "requestFailedManualRetry": "請檢查網路，未取得最新配額。可重新整理重試。"
+      "requestFailedManualRetry": "請檢查網路，未取得最新配額。可重新整理重試。",
+      "httpStatusSummary": "API 傳回錯誤 {{status}}",
+      "viewDetails": "查看詳情",
+      "detailTitle": "錯誤詳情"
     },
     "plan": {
       "free": "FREE",
@@ -3327,6 +3335,7 @@
         "disableCooling": "停用冷卻",
         "saveOptions": "儲存選項",
         "immediateSseResponse": "SSE 立即回傳 200",
+        "maxConcurrentImageRequests": "每個帳戶的圖片請求數",
         "optionsSaved": "調度選項已儲存"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "檢查帳戶",
       "importAndAddToApiService": "導入+API",
       "importAndAddToApiServiceSuccess": "導入並新增至API服務",
-      "addToApiServiceFailed": "已匯入，但新增 API 服務失敗：{{error}}"
+      "addToApiServiceFailed": "已匯入，但新增 API 服務失敗：{{error}}",
+      "cancelAndDismiss": "取消並捨棄任務",
+      "bulkTagsLabel": "匯入後批量打標",
+      "bulkTagsPlaceholder": "可選，多個標籤用逗號或空格分隔"
     },
     "autoRepairMode": {
       "label": "自動修復邏輯",
@@ -3534,7 +3546,10 @@
       "chipTags": "標籤",
       "chipSearch": "搜尋",
       "chipPlan": "方案",
-      "chipFolder": "分組目錄"
+      "chipFolder": "分組目錄",
+      "authError": "授權失敗",
+      "zeroQuota": "0% 額度",
+      "expired": "已過期"
     },
     "accessTokenImport": {
       "nameRequired": "請輸入帳戶名",
@@ -3600,7 +3615,9 @@
       "serverListLead": "選擇同步目標",
       "serverCount": "{{count}} 台",
       "autoSyncBadge": "汽車"
-    }
+    },
+    "exportAuthFailed": "匯出失敗帳號",
+    "exportAuthFailedTitle": "匯出全部授權失敗帳號"
   },
   "githubCopilot": {
     "title": "GitHub Copilot 帳號管理",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} 天",
       "streakRewardCountdown": "再簽 {{days}} 天可得大禮包",
       "streakRewardToday": "今日可獲得大禮包！",
-      "recentDates": "近期簽到："
+      "recentDates": "近期簽到：",
+      "claimed": "已領取",
+      "queryFailed": "狀態查詢失敗",
+      "retry": "重試",
+      "inactive": "不可用",
+      "inactiveHint": "簽到活動未開啟或不適用目前帳號"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "貼上 JSON",
-      "pasteDesc": "貼上 Grok CLI 官方 auth.json；憑證只在本機後端處理。Cockpit 匯出僅含去識別化中繼資料，無法用來還原登入。",
+      "pasteDesc": "貼上官方 Grok CLI auth.json，或本應用匯出的完整帳號 JSON（含憑證，可再匯入還原）。憑證僅在本機處理。",
       "pastePlaceholder": "貼上 Grok 帳號 JSON",
       "pasteAction": "匯入 JSON",
-      "localDesc": "從預設 ~/.grok/auth.json 匯入目前帳號；選擇檔案時請使用 Grok CLI 官方 auth.json。",
+      "localDesc": "從預設 ~/.grok/auth.json 匯入；也可選擇官方 auth.json 或本應用匯出的完整帳號 JSON 檔案。",
       "localClient": "從本機 Grok CLI 匯入",
       "apiKeyTab": "API 金鑰",
-      "apiKeyDesc": "貼上 xAI API Key（官方 XAI_API_KEY）。啟動時注入環境變數；也可貼上官方 auth.json 以 OAuth 匯入。",
+      "apiKeyDesc": "貼上 xAI API Key（官方 XAI_API_KEY / xai-…）。啟動 CLI 時注入為環境變數，不會覆蓋官方 OAuth 登入。",
       "apiKeyPlaceholder": "貼上 xai- 開頭的金鑰",
       "apiKeyAction": "新增 API Key"
     },

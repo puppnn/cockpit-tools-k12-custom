@@ -7,6 +7,69 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.6] - 2026-07-16
+
+### Added
+
+- **Main window UI zoom shortcuts (#1601)**: on macOS use ⌘+/⌘- to zoom and ⌘0 to reset to 100%; on Windows/Linux use Ctrl combinations; steps match Settings → General → UI Scale (90%–150%), persist to `ui_scale`, and survive restarts.
+- **Codex API Service stats show cached tokens**: usage cards display cached token counts alongside input/output. Thanks @JesmonX for #1593.
+- **Codex API Service concurrent image distribution and per-account image limits**: in-flight image generation/edit jobs default to one per account, prefer idle accounts and queue locally; image requests can bypass session affinity; Settings allow 1–16 concurrent image jobs per account. Thanks @phatchau036 for #1578.
+- **Provider presets include MiniMax M3 / M2.7**: Codex and Claude-related presets expose MiniMax-M3 and MiniMax-M2.7 and update docs links. Thanks @octo-patch for #1558.
+
+### Changed
+
+- **Reverted the 1.3.1 multi-task Codex batch-import queue (#1286) and restored the 1.3.0 import dialog flow**: importing local JSON still opens a single-session batch-import modal instead of multi-task queuing or the bottom-right global task strip; “check accounts before import” stays off by default, can be turned on for live list progress, and you select accounts after parse/check finishes; cancel, resume, and minimize with view/dismiss on the accounts page remain available.
+- **Codex session visibility repair runs in the backend for the selected instance before launch**: after switching OAuth / API / API Service, Cockpit no longer relies on a frontend repair progress dialog and reconciles on the next launch of that instance. Thanks @deanjo for #1563.
+- **Codex API Service App Speed payload hot-reloads without restarting the sidecar**: active streams are not interrupted; request logs gain a `service_tier` column with migration for existing databases. Thanks @kin001 for #1587.
+- **Quota pools show real usage windows**: primary windows are no longer always labeled `5h`; aggregation follows the windows reported on each account. Thanks @kin001 for #1587.
+- **Floating card platform dropdown only lists platforms enabled under Platform Layout → Show in menu bar**, keeping layout order. Thanks @happyplum for #1596.
+- **Windows NSIS install mode is current-user only (`currentUser`)**: the app installs under the user local AppData tree so install and auto-update no longer request administrator rights by default, which helps managed/school/enterprise accounts. Thanks @xdd666t for #1602.
+
+### Fixed
+
+- **Fixed Windows close-to-tray destroying the main WebView so floating-card reopen only worked once**: after tray destroy, residual `main` handles are cleared and the window is rebuilt on the UI thread, navigation is deferred until remount, and the main HWND is focused correctly. Thanks @happyplum for #1595.
+- **Fixed tray Quit not actually exiting after the main window was destroyed to tray**: mark an explicit user exit before quit so `ExitRequested` no longer keeps the process alive for tray-only mode. See #1595 / #1600.
+- **Fixed Codex multi-instance create/copy not applying the selected bound account**: after the profile is initialized and before create returns, credentials are written for `bind_account_id` so the new instance does not keep the source account. Thanks @kin001 for #1604 / #1599.
+- **Fixed reused API keys getting duplicated when switching managed providers**: add/edit flows carry the previous provider identity and move the shared key to the newly selected provider while preserving saved labels and timestamps when possible. Thanks @kin001 for #1605 / #1597.
+- **Fixed Grok CLI OAuth accounts looking expired too easily when the official CLI and Cockpit both refresh tokens**: before quota refresh or launch injection, Cockpit now picks the newest **same-account** credentials from the account store, the managed profile `auth.json`, and official `~/.grok/auth.json` (matched by principal / user id / email), prefers a still-valid access token without racing a refresh, and only falls back to refresh or re-auth when nothing usable remains.
+- **Fixed local sidecar build failure after the concurrent-image merge**: session affinity and image-request selectors are combined correctly so Go no longer fails on an unused `affinitySelector`.
+- **Fixed global tag delete in the account tag editor using only a browser `confirm` and being easy to mis-click**: deleting a suggested “existing tag” now opens an in-app confirm dialog (no overlay dismiss) and only then removes the tag from all accounts. See #645.
+- **Fixed Codex account cards collapsing tags too early**: up to eight tags are shown with wrapping before `+N`, so three short tags are no longer forced into a collapsed chip. See #962.
+- **Fixed account timestamps that used 12-hour clocks on some locales and made AM/PM hard to read**: list/create times use a fixed 24-hour format. See #859.
+- **Fixed mixed monospace/system fonts on Codex cards, error text, OTP/mail previews, and session IDs**: UI text sticks to the design-system sans font; mono only where codes need it. See #1089.
+- **Fixed the top error banner still showing after an account was deleted**: successful deletes clear the page-level error message on Antigravity, Codex, and shared provider account pages. See #1160.
+- **Fixed Codex batch-import sticky task bars that could not be cleared after a failed or empty import**: the bar always offers dismiss; running jobs can cancel and dismiss; restoring a session with no selectable accounts clears the leftover task automatically. See #1445.
+- **Fixed the Codex model-provider page with no gap between the select-all row and the provider cards**: selection bar and card grid spacing are restored. See #1164.
+- **Confirmed add-account and other dialogs only close via explicit close/cancel actions, not by clicking the dimmed overlay**, matching the project modal rule and the #999 report.
+- **Codex overview filters gain 0% quota and expired subscription options, and clarify the auth-failure filter label**: multi-select can isolate exhausted OAuth quotas or expired subscriptions alongside existing plan/valid/error filters. See #1156 / #681.
+- **Codex can export all auth-failed accounts in one action** from the overview selection bar (JSON export modal). See #992.
+- **Codex batch import supports optional bulk tags**: enter comma/space-separated tags before import; they are applied to successfully imported accounts. See #1166.
+- **Fixed Codex custom sort mode resetting after switching tabs**: when the custom-sort flag is active, sort mode restores to custom on remount instead of a stale saved sort field. See #1123.
+- **Fixed Antigravity list/card layout forgetting after leaving the page**: view mode always persists, independent of the “remember filters” switch. See #1200.
+- **Portuguese (Brazil) locale keeps full key coverage with native strings** for the new filter/export/import UX keys (and existing parity checks). See #860.
+- **Main window size and position are remembered across restarts and tray reopen**: resize/move are saved; close-to-tray destroy and full quit also snapshot geometry; the next launch and tray recreate restore width/height (and position when available), respecting the existing min size. See #948 / #1132.
+
+---
+## [1.3.5] - 2026-07-16
+
+### Added
+
+- **Codex API Service proxies Responses Lite web search**: the local gateway adds `/v1/alpha/search` (plus a direct-compatible path), schedules an OAuth account, and forwards to ChatGPT Codex alpha search so Lite web.run search works again.
+- **Codex API Service supports Responses WebSocket**: the gateway exposes a `GET /v1/responses` upgrade route; local API Service profiles advertise WebSocket support so the client can use WS instead of always falling back to SSE.
+- **Grok CLI supports full account export and re-import**: export keeps credentials for recovery; add-account tabs match Codex (OAuth · Token / JSON · API Key · Local import) so you can paste official `auth.json` or Cockpit export JSON, or pick a JSON file.
+- **Codex quota error cards show a short summary with a details modal**: cards keep a compact summary (including HTTP status summaries); full error bodies (including HTML/body dumps) open via View Details so long failures no longer blow up the list layout.
+
+### Fixed
+
+- **Fixed model pricing settings that could not be saved**: non-long-context models (such as `gpt-5.4-mini`) may leave the long-context token threshold empty; save is blocked only when the value is invalid, or long-context price tiers are set without a valid threshold. Thanks @andrew05060414 for #1592.
+- **Fixed WorkBuddy daily check-in status not matching the official client**: status queries prefer the official Buddy fuel-station endpoint `checkin-activity-status` (with fallback to `checkin-status`); the UI state machine matches the official available / claimed / inactive flow; accounts with `today_checked_in` show as Claimed, and a successful claim updates local state first then refreshes in the background so success no longer stays Not Checked In or Unavailable.
+- **Fixed deleting a Grok account that was bound to an instance**: delete now clears default/multi-instance bindings automatically, so you no longer need to unbind first.
+- **Fixed legacy “disable image generation” settings that left image gen clickable while the gateway hid `gpt-image-2`**: collection-level `Disabled` / `ImagesOnly` now migrate to `Enabled`, matching the 1.3.4 removal of the disable UI.
+- **Fixed OAuth-backed local API Responses Lite requests that incorrectly injected hosted tools and failed or broke image generation**: HTTP, SSE, and WebSocket paths filter unsupported hosted tools while keeping client-executed tools. Thanks @kin001 for #1577.
+- **Fixed WorkBuddy multi-instance data directories not matching the official layout**: defaults resolve and create the official `~/.workbuddy` config root and `~/.workbuddy/app` Electron userData layout, and start instances with the correct `WORKBUDDY_CONFIG_DIR` / `WORKBUDDY_USER_DATA_DIR`.
+- **Fixed Windows app paths showing the `\\?\` extended prefix**: load, detect, save, and Settings display now strip `\\?\` / `\\?\UNC\` so users see normal drive-letter or UNC paths.
+
+---
 ## [1.3.4] - 2026-07-15
 
 ### Added

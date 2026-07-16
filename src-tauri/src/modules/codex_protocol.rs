@@ -101,12 +101,15 @@ pub fn normalize_responses_body_for_codex_with_lite(
     changed |= ensure_reasoning_include(obj);
     changed |= normalize_responses_input(obj);
     changed |= normalize_codex_builtin_tools(obj);
+    if responses_lite {
+        changed |= filter_responses_lite_tools_in_object(obj);
+    }
     changed |= remove_unsupported_responses_fields(obj);
 
     changed
 }
 
-fn codex_model_uses_responses_lite(model_id: &str) -> bool {
+pub(crate) fn codex_model_uses_responses_lite(model_id: &str) -> bool {
     codex_client_model_catalog()
         .get("model_overrides")
         .and_then(Value::as_array)
@@ -122,6 +125,131 @@ fn codex_model_uses_responses_lite(model_id: &str) -> bool {
                         .unwrap_or(false)
             })
         })
+}
+
+pub(crate) fn filter_responses_lite_tools(body: &mut Value) -> bool {
+    body.as_object_mut()
+        .is_some_and(filter_responses_lite_tools_in_object)
+}
+
+fn responses_lite_tool_allowed(tool: &Value) -> bool {
+    match tool
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|tool_type| tool_type.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("function" | "custom") => true,
+        Some("tool_search") => tool
+            .get("execution")
+            .and_then(Value::as_str)
+            .is_some_and(|execution| execution.trim().eq_ignore_ascii_case("client")),
+        _ => false,
+    }
+}
+
+fn filter_responses_lite_tool_array(value: &mut Value) -> (bool, bool) {
+    let Some(tools) = value.as_array_mut() else {
+        return (false, false);
+    };
+    let before = tools.len();
+    tools.retain(responses_lite_tool_allowed);
+    (tools.len() != before, !tools.is_empty())
+}
+
+fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
+    if let Some(choice_name) = choice.as_str() {
+        let valid = matches!(
+            choice_name.trim().to_ascii_lowercase().as_str(),
+            "auto" | "none" | "required"
+        );
+        return (false, valid);
+    }
+
+    let Some(choice_object) = choice.as_object_mut() else {
+        return (false, false);
+    };
+    let choice_type = choice_object
+        .get("type")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_ascii_lowercase());
+
+    match choice_type.as_deref() {
+        Some("function" | "custom") => return (false, true),
+        Some("tool_search") => {
+            let client_executed = choice_object
+                .get("execution")
+                .and_then(Value::as_str)
+                .is_some_and(|execution| execution.trim().eq_ignore_ascii_case("client"));
+            return (false, client_executed);
+        }
+        _ => {}
+    }
+
+    if choice_type.as_deref() != Some("allowed_tools") {
+        return (false, false);
+    }
+
+    let mut changed = false;
+    let mut has_allowed_tools = false;
+    for key in ["tools", "allowed_tools"] {
+        if let Some(value) = choice_object.get_mut(key) {
+            let (value_changed, value_has_allowed_tools) =
+                filter_responses_lite_tool_array(value);
+            changed |= value_changed;
+            has_allowed_tools |= value_has_allowed_tools;
+        }
+    }
+    (changed, has_allowed_tools)
+}
+
+fn filter_responses_lite_tools_in_object(object: &mut Map<String, Value>) -> bool {
+    let mut changed = false;
+
+    if let Some(tools) = object.get_mut("tools") {
+        changed |= filter_responses_lite_tool_array(tools).0;
+    }
+
+    let remove_tool_choice = object
+        .get_mut("tool_choice")
+        .map(|choice| {
+            let (choice_changed, choice_valid) = filter_responses_lite_tool_choice(choice);
+            changed |= choice_changed;
+            !choice_valid
+        })
+        .unwrap_or(false);
+    if remove_tool_choice {
+        object.remove("tool_choice");
+        changed = true;
+    }
+
+    if let Some(Value::Array(input)) = object.get_mut("input") {
+        let before = input.len();
+        input.retain_mut(|item| {
+            let Some(item_object) = item.as_object_mut() else {
+                return true;
+            };
+            if !item_object
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|item_type| item_type.eq_ignore_ascii_case("additional_tools"))
+            {
+                return true;
+            }
+            changed |= filter_responses_lite_tools_in_object(item_object);
+            item_object
+                .get("tools")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| !tools.is_empty())
+        });
+        changed |= input.len() != before;
+    }
+
+    if let Some(Value::Object(response)) = object.get_mut("response") {
+        changed |= filter_responses_lite_tools_in_object(response);
+    }
+
+    changed
 }
 
 fn build_codex_client_model(model_id: &str, index: usize) -> Value {
@@ -574,6 +702,118 @@ mod tests {
         assert_eq!(
             body.get("parallel_tool_calls").and_then(Value::as_bool),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn responses_lite_keeps_only_supported_tools_in_all_declaration_locations() {
+        let mut body = json!({
+            "model": "gpt-5.6-sol",
+            "input": [
+                {
+                    "type": "additional_tools",
+                    "tools": [
+                        {"type": "function", "name": "additional_function"},
+                        {"type": "custom", "name": "additional_custom"},
+                        {"type": "tool_search", "execution": "client"},
+                        {"type": "image_generation"},
+                        {"type": "web_search"},
+                        {"type": "namespace", "name": "mcp__additional"}
+                    ]
+                },
+                {
+                    "type": "additional_tools",
+                    "tools": [{"type": "image_generation"}]
+                },
+                {"role": "user", "content": "hello"}
+            ],
+            "tools": [
+                {"type": "function", "name": "lookup"},
+                {"type": "custom", "name": "apply_patch"},
+                {"type": "tool_search", "execution": "client"},
+                {"type": "tool_search"},
+                {"type": "tool_search", "execution": "server"},
+                {"type": "image_generation"},
+                {"type": "web_search"},
+                {"type": "namespace", "name": "mcp__root"}
+            ],
+            "tool_choice": {
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [
+                    {"type": "function", "name": "lookup"},
+                    {"type": "custom", "name": "apply_patch"},
+                    {"type": "tool_search", "execution": "client"},
+                    {"type": "image_generation"},
+                    {"type": "web_search"},
+                    {"type": "namespace", "name": "mcp__root"}
+                ]
+            },
+            "response": {
+                "tools": [
+                    {"type": "function", "name": "nested_function"},
+                    {"type": "image_generation"},
+                    {"type": "web_search"}
+                ],
+                "tool_choice": {"type": "image_generation"}
+            }
+        });
+
+        assert!(normalize_responses_body_for_codex(&mut body));
+        for pointer in ["/tools", "/tool_choice/tools", "/input/0/tools"] {
+            assert_eq!(
+                body.pointer(pointer)
+                    .and_then(Value::as_array)
+                    .map(|tools| {
+                        tools
+                            .iter()
+                            .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                    }),
+                Some(vec!["function", "custom", "tool_search"]),
+                "unexpected tools at {pointer}"
+            );
+        }
+        assert_eq!(
+            body.pointer("/response/tools")
+                .and_then(Value::as_array)
+                .map(|tools| {
+                    tools
+                        .iter()
+                        .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["function"])
+        );
+        assert!(body.pointer("/response/tool_choice").is_none());
+        assert_eq!(
+            body.get("input").and_then(Value::as_array).map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn non_lite_responses_keep_official_hosted_tools() {
+        let mut body = json!({
+            "model": "gpt-5.4",
+            "input": "hello",
+            "tools": [
+                {"type": "function", "name": "lookup"},
+                {"type": "image_generation"},
+                {"type": "web_search"},
+                {"type": "namespace", "name": "mcp__root"}
+            ],
+            "tool_choice": {"type": "image_generation"}
+        });
+
+        normalize_responses_body_for_codex(&mut body);
+        assert_eq!(
+            body.get("tools").and_then(Value::as_array).map(Vec::len),
+            Some(4)
+        );
+        assert_eq!(
+            body.pointer("/tool_choice/type").and_then(Value::as_str),
+            Some("image_generation")
         );
     }
 

@@ -481,6 +481,11 @@ pub fn run() {
                 startup_external_import_handled
             ));
 
+            // Restore last main-window size/position before optional startup minimize (#948 / #1132).
+            if let Some(main) = app.get_webview_window("main") {
+                modules::main_window_state::restore_to_window(&main);
+            }
+
             apply_startup_minimized(&app.handle());
 
             Ok(())
@@ -490,6 +495,8 @@ pub fn run() {
                 if window.label() != "main" {
                     return;
                 }
+                // Always snapshot geometry before close / tray-destroy / quit.
+                modules::main_window_state::capture_and_save_from_window_handle(window);
                 let config = modules::config::get_user_config();
 
                 match config.close_behavior {
@@ -518,6 +525,13 @@ pub fn run() {
                         let _ = window.emit("window:close_requested", ());
                         info!("[Window] 等待用户选择关闭行为");
                     }
+                }
+            }
+            WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+                if window.label() == "main" {
+                    modules::main_window_state::capture_and_save_from_window_handle_debounced(
+                        window,
+                    );
                 }
             }
             _ => {}

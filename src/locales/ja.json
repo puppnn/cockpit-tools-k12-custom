@@ -591,7 +591,7 @@
       "themeDark": "ダーク",
       "themeSystem": "システム設定に従う",
       "uiScale": "UIスケール",
-      "uiScaleDesc": "インターフェースの表示倍率を調整",
+      "uiScaleDesc": "画面の拡大率を調整（⌘+/⌘- または Ctrl+/Ctrl-、⌘0/Ctrl+0 でリセット）",
       "accountManagement": "アカウント管理",
       "autoRefresh": "Antigravity IDE 自動更新クォータ",
       "codexAutoRefresh": "Codex 自動更新クォータ",
@@ -1195,7 +1195,11 @@
         "tooMany": "タグは最大{{max}}件まで追加できます"
       },
       "notesLabel": "メモ",
-      "notesPlaceholder": "メモを入力。空欄でクリア"
+      "notesPlaceholder": "メモを入力。空欄でクリア",
+      "confirmGlobalDelete": "タグ「{{targetTag}}」をすべてのアカウントから削除しますか？この操作は元に戻せません。",
+      "globalDeleteHint": "このタグを全体削除",
+      "globalDeleteFailed": "タグの全体削除に失敗しました",
+      "globalRenameHint": "このタグを全体で名前変更"
     },
     "groupByTag": "タグでグループ化",
     "untagged": "タグなし",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "成功 {{success}} / 失敗 {{failed}} / 取消 {{canceled}} / 上流失敗 {{upstreamFailed}} / 未完了 {{incomplete}}",
         "tokens": "トークン",
         "tokensDetail": "入力 {{input}} / 出力 {{output}}",
+        "cached": "キャッシュ",
         "specialTokens": "キャッシュ / 思考",
         "specialTokensDetail": "キャッシュ {{cached}} / 思考 {{reasoning}}",
         "avgLatency": "平均遅延",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "更新失敗",
       "generic": "クォータの更新に失敗しました。後でもう一度お試しください",
       "deactivatedWorkspace": "ワークスペースが無効です。アカウントを切り替えるか再認証してください",
-      "requestFailedManualRetry": "ネットワークを確認してください。最新のクォータを取得できませんでした。更新して再試行できます。"
+      "requestFailedManualRetry": "ネットワークを確認してください。最新のクォータを取得できませんでした。更新して再試行できます。",
+      "httpStatusSummary": "API エラー {{status}}",
+      "viewDetails": "詳細",
+      "detailTitle": "エラー詳細"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "クールダウン無効",
         "saveOptions": "設定を保存",
         "immediateSseResponse": "即時 SSE 200",
+        "maxConcurrentImageRequests": "アカウントごとの画像リクエスト",
         "optionsSaved": "ルーティング設定を保存しました"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "小切手口座",
       "importAndAddToApiService": "インポート + API",
       "importAndAddToApiServiceSuccess": "インポートされ、API サービスに追加されました",
-      "addToApiServiceFailed": "インポートされましたが、API サービスへの追加に失敗しました: {{error}}"
+      "addToApiServiceFailed": "インポートされましたが、API サービスへの追加に失敗しました: {{error}}",
+      "cancelAndDismiss": "キャンセルして破棄",
+      "bulkTagsLabel": "取込後にタグ",
+      "bulkTagsPlaceholder": "任意。タグはカンマまたはスペース区切り"
     },
     "autoRepairMode": {
       "label": "自動修復ロジック",
@@ -3534,7 +3546,10 @@
       "chipTags": "タグ",
       "chipSearch": "検索",
       "chipPlan": "プラン",
-      "chipFolder": "フォルダ"
+      "chipFolder": "フォルダ",
+      "authError": "認証失敗",
+      "zeroQuota": "0% 枠",
+      "expired": "期限切れ"
     },
     "accessTokenImport": {
       "nameRequired": "アカウント名を入力",
@@ -3600,7 +3615,9 @@
       "serverListLead": "同期ターゲットを選択",
       "serverCount": "{{count}} 台",
       "autoSyncBadge": "自動"
-    }
+    },
+    "exportAuthFailed": "失敗を書き出し",
+    "exportAuthFailedTitle": "認証失敗アカウントをすべて書き出す"
   },
   "githubCopilot": {
     "title": "GitHub Copilot アカウント管理",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}}日",
       "streakRewardCountdown": "ボーナス報酬まであと{{days}}日",
       "streakRewardToday": "本日はボーナス報酬を受け取れます！",
-      "recentDates": "最近: "
+      "recentDates": "最近: ",
+      "claimed": "受取済み",
+      "queryFailed": "照会失敗",
+      "retry": "再試行",
+      "inactive": "利用不可",
+      "inactiveHint": "このアカウントではチェックインが無効です"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "JSON を貼り付け",
-      "pasteDesc": "Grok CLI 公式の auth.json を貼り付けます。認証情報はローカルバックエンド内だけで処理されます。Cockpit のエクスポートはマスク済みメタデータのみで、ログインの復元には使えません。",
+      "pasteDesc": "公式 Grok CLI の auth.json、または本アプリが書き出した完全なアカウント JSON（再インポート可）を貼り付けます。資格情報はローカルのみ。",
       "pastePlaceholder": "Grok アカウントの JSON を貼り付け",
       "pasteAction": "JSON をインポート",
-      "localDesc": "既定の ~/.grok/auth.json から現在のアカウントをインポートします。ファイルを選ぶ場合は Grok CLI 公式の auth.json を使用してください。",
+      "localDesc": "既定の ~/.grok/auth.json から取り込みます。公式 auth.json または本アプリの完全エクスポート JSON も選択できます。",
       "localClient": "ローカルの Grok CLI からインポート",
       "apiKeyTab": "APIキー",
-      "apiKeyDesc": "xAI API キー（公式 XAI_API_KEY）を貼り付けます。起動時に環境変数へ注入します。公式 auth.json の貼り付けも可能です。",
+      "apiKeyDesc": "xAI API キー（公式 XAI_API_KEY / xai-…）を貼り付けます。CLI 起動時に環境変数へ注入し、公式 OAuth ログインは上書きしません。",
       "apiKeyPlaceholder": "xai- で始まるキー",
       "apiKeyAction": "API Key を追加"
     },

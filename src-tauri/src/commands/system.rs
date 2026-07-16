@@ -1214,30 +1214,38 @@ fn apply_general_config_updates(
             }
         };
     }
-    trim_string_field!("opencode_app_path", opencode_app_path);
-    trim_string_field!("antigravity_app_path", antigravity_app_path);
-    trim_string_field!("codex_app_path", codex_app_path);
-    trim_string_field!("claude_app_path", claude_app_path);
+    macro_rules! normalize_app_path_field {
+        ($key:literal, $field:ident) => {
+            if updates.contains_key($key) {
+                next.$field =
+                    modules::process::normalize_windows_user_facing_path(&next.$field);
+            }
+        };
+    }
+    normalize_app_path_field!("opencode_app_path", opencode_app_path);
+    normalize_app_path_field!("antigravity_app_path", antigravity_app_path);
+    normalize_app_path_field!("codex_app_path", codex_app_path);
+    normalize_app_path_field!("claude_app_path", claude_app_path);
     trim_string_field!("claude_app_scan_roots", claude_app_scan_roots);
-    trim_string_field!("codex_specified_app_path", codex_specified_app_path);
-    trim_string_field!("zed_app_path", zed_app_path);
-    trim_string_field!("vscode_app_path", vscode_app_path);
-    trim_string_field!("windsurf_app_path", windsurf_app_path);
-    trim_string_field!("kiro_app_path", kiro_app_path);
-    trim_string_field!("cursor_app_path", cursor_app_path);
-    trim_string_field!("codebuddy_app_path", codebuddy_app_path);
-    trim_string_field!("codebuddy_cn_app_path", codebuddy_cn_app_path);
-    trim_string_field!("qoder_app_path", qoder_app_path);
-    trim_string_field!("zcode_app_path", zcode_app_path);
-    trim_string_field!("trae_app_path", trae_app_path);
-    trim_string_field!("trae_solo_app_path", trae_solo_app_path);
-    trim_string_field!("trae_cn_app_path", trae_cn_app_path);
-    trim_string_field!("trae_solo_cn_app_path", trae_solo_cn_app_path);
+    normalize_app_path_field!("codex_specified_app_path", codex_specified_app_path);
+    normalize_app_path_field!("zed_app_path", zed_app_path);
+    normalize_app_path_field!("vscode_app_path", vscode_app_path);
+    normalize_app_path_field!("windsurf_app_path", windsurf_app_path);
+    normalize_app_path_field!("kiro_app_path", kiro_app_path);
+    normalize_app_path_field!("cursor_app_path", cursor_app_path);
+    normalize_app_path_field!("codebuddy_app_path", codebuddy_app_path);
+    normalize_app_path_field!("codebuddy_cn_app_path", codebuddy_cn_app_path);
+    normalize_app_path_field!("qoder_app_path", qoder_app_path);
+    normalize_app_path_field!("zcode_app_path", zcode_app_path);
+    normalize_app_path_field!("trae_app_path", trae_app_path);
+    normalize_app_path_field!("trae_solo_app_path", trae_solo_app_path);
+    normalize_app_path_field!("trae_cn_app_path", trae_cn_app_path);
+    normalize_app_path_field!("trae_solo_cn_app_path", trae_solo_cn_app_path);
     trim_string_field!("trae_app_scan_roots", trae_app_scan_roots);
     trim_string_field!("trae_solo_app_scan_roots", trae_solo_app_scan_roots);
     trim_string_field!("trae_cn_app_scan_roots", trae_cn_app_scan_roots);
     trim_string_field!("trae_solo_cn_app_scan_roots", trae_solo_cn_app_scan_roots);
-    trim_string_field!("workbuddy_app_path", workbuddy_app_path);
+    normalize_app_path_field!("workbuddy_app_path", workbuddy_app_path);
 
     if updates.contains_key("auto_switch_scope_mode") {
         let normalized = next.auto_switch_scope_mode.trim();
@@ -2521,30 +2529,68 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
             user_config.codex_startup_wakeup_delay_seconds,
         ),
         floating_card_confirm_on_close: user_config.floating_card_confirm_on_close,
-        opencode_app_path: user_config.opencode_app_path,
-        antigravity_app_path: user_config.antigravity_app_path,
-        codex_app_path: user_config.codex_app_path,
-        claude_app_path: user_config.claude_app_path,
+        opencode_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.opencode_app_path,
+        ),
+        antigravity_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.antigravity_app_path,
+        ),
+        codex_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.codex_app_path,
+        ),
+        claude_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.claude_app_path,
+        ),
         claude_app_scan_roots: user_config.claude_app_scan_roots,
-        codex_specified_app_path: user_config.codex_specified_app_path,
-        zed_app_path: user_config.zed_app_path,
-        vscode_app_path: user_config.vscode_app_path,
-        windsurf_app_path: user_config.windsurf_app_path,
-        kiro_app_path: user_config.kiro_app_path,
-        cursor_app_path: user_config.cursor_app_path,
-        codebuddy_app_path: user_config.codebuddy_app_path,
-        codebuddy_cn_app_path: user_config.codebuddy_cn_app_path,
-        qoder_app_path: user_config.qoder_app_path,
-        zcode_app_path: user_config.zcode_app_path,
-        trae_app_path: user_config.trae_app_path,
-        trae_solo_app_path: user_config.trae_solo_app_path,
-        trae_cn_app_path: user_config.trae_cn_app_path,
-        trae_solo_cn_app_path: user_config.trae_solo_cn_app_path,
+        codex_specified_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.codex_specified_app_path,
+        ),
+        zed_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.zed_app_path,
+        ),
+        vscode_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.vscode_app_path,
+        ),
+        windsurf_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.windsurf_app_path,
+        ),
+        kiro_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.kiro_app_path,
+        ),
+        cursor_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.cursor_app_path,
+        ),
+        codebuddy_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.codebuddy_app_path,
+        ),
+        codebuddy_cn_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.codebuddy_cn_app_path,
+        ),
+        qoder_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.qoder_app_path,
+        ),
+        zcode_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.zcode_app_path,
+        ),
+        trae_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.trae_app_path,
+        ),
+        trae_solo_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.trae_solo_app_path,
+        ),
+        trae_cn_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.trae_cn_app_path,
+        ),
+        trae_solo_cn_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.trae_solo_cn_app_path,
+        ),
         trae_app_scan_roots: user_config.trae_app_scan_roots,
         trae_solo_app_scan_roots: user_config.trae_solo_app_scan_roots,
         trae_cn_app_scan_roots: user_config.trae_cn_app_scan_roots,
         trae_solo_cn_app_scan_roots: user_config.trae_solo_cn_app_scan_roots,
-        workbuddy_app_path: user_config.workbuddy_app_path,
+        workbuddy_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.workbuddy_app_path,
+        ),
         opencode_sync_on_switch: user_config.opencode_sync_on_switch,
         opencode_auth_overwrite_on_switch: user_config.opencode_auth_overwrite_on_switch,
         ghcp_opencode_sync_on_switch: user_config.ghcp_opencode_sync_on_switch,
@@ -2967,29 +3013,46 @@ pub fn save_general_config(
 ) -> Result<(), String> {
     let normalized_language = language.to_lowercase();
     let language_for_broadcast = normalized_language.clone();
-    let normalized_opencode_path = opencode_app_path.trim().to_string();
-    let normalized_antigravity_path = antigravity_app_path.trim().to_string();
-    let normalized_codex_path = codex_app_path.trim().to_string();
-    let normalized_vscode_path = vscode_app_path.trim().to_string();
+    let normalized_opencode_path =
+        modules::process::normalize_windows_user_facing_path(&opencode_app_path);
+    let normalized_antigravity_path =
+        modules::process::normalize_windows_user_facing_path(&antigravity_app_path);
+    let normalized_codex_path =
+        modules::process::normalize_windows_user_facing_path(&codex_app_path);
+    let normalized_vscode_path =
+        modules::process::normalize_windows_user_facing_path(&vscode_app_path);
     let normalized_codex_wsl_config_dir =
         codex_wsl_config_dir.map(|value| value.trim().to_string());
-    let normalized_claude_path = claude_app_path.map(|value| value.trim().to_string());
+    let normalized_claude_path = claude_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
     let normalized_claude_app_scan_roots =
         claude_app_scan_roots.map(|value| value.trim().to_string());
-    let normalized_codex_specified_app_path =
-        codex_specified_app_path.map(|value| value.trim().to_string());
-    let normalized_zed_path = zed_app_path.map(|value| value.trim().to_string());
-    let normalized_windsurf_path = windsurf_app_path.map(|value| value.trim().to_string());
-    let normalized_kiro_path = kiro_app_path.map(|value| value.trim().to_string());
-    let normalized_cursor_path = cursor_app_path.map(|value| value.trim().to_string());
-    let normalized_codebuddy_path = codebuddy_app_path.map(|value| value.trim().to_string());
-    let normalized_codebuddy_cn_path = codebuddy_cn_app_path.map(|value| value.trim().to_string());
-    let normalized_qoder_path = qoder_app_path.map(|value| value.trim().to_string());
-    let normalized_zcode_path = zcode_app_path.map(|value| value.trim().to_string());
-    let normalized_trae_path = trae_app_path.map(|value| value.trim().to_string());
-    let normalized_trae_solo_path = trae_solo_app_path.map(|value| value.trim().to_string());
-    let normalized_trae_cn_path = trae_cn_app_path.map(|value| value.trim().to_string());
-    let normalized_trae_solo_cn_path = trae_solo_cn_app_path.map(|value| value.trim().to_string());
+    let normalized_codex_specified_app_path = codex_specified_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_zed_path =
+        zed_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_windsurf_path = windsurf_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_kiro_path =
+        kiro_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_cursor_path =
+        cursor_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_codebuddy_path = codebuddy_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_codebuddy_cn_path = codebuddy_cn_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_qoder_path =
+        qoder_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_zcode_path =
+        zcode_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_trae_path =
+        trae_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_trae_solo_path = trae_solo_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_trae_cn_path =
+        trae_cn_app_path.map(|value| modules::process::normalize_windows_user_facing_path(&value));
+    let normalized_trae_solo_cn_path = trae_solo_cn_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
     let normalized_trae_app_scan_roots = trae_app_scan_roots.map(|value| value.trim().to_string());
     let normalized_trae_solo_app_scan_roots =
         trae_solo_app_scan_roots.map(|value| value.trim().to_string());
@@ -2997,7 +3060,8 @@ pub fn save_general_config(
         trae_cn_app_scan_roots.map(|value| value.trim().to_string());
     let normalized_trae_solo_cn_app_scan_roots =
         trae_solo_cn_app_scan_roots.map(|value| value.trim().to_string());
-    let normalized_workbuddy_path = workbuddy_app_path.map(|value| value.trim().to_string());
+    let normalized_workbuddy_path = workbuddy_app_path
+        .map(|value| modules::process::normalize_windows_user_facing_path(&value));
 
     let close_behavior_value = match close_behavior.as_str() {
         "minimize" => CloseWindowBehavior::Minimize,
@@ -3515,7 +3579,7 @@ pub fn save_tray_platform_layout(
 
 #[tauri::command]
 pub fn set_app_path(app: String, path: String) -> Result<(), String> {
-    let normalized_path = path.trim().to_string();
+    let normalized_path = modules::process::normalize_windows_user_facing_path(&path);
     config::patch_user_config(move |current| {
         match app.as_str() {
             "antigravity" | "antigravity_ide" | "antigravity_legacy" => {
@@ -3841,9 +3905,14 @@ pub fn save_floating_card_position(x: i32, y: i32) -> Result<(), String> {
     Ok(())
 }
 
+/// Must run window recreate on the UI/main thread. Sync invoke handlers run on a
+/// worker pool; building a WebView there hangs on Windows after tray destroy.
 #[tauri::command]
-pub fn show_main_window_and_navigate(app: tauri::AppHandle, page: String) -> Result<(), String> {
-    modules::floating_card_window::show_main_window_and_navigate(&app, &page)
+pub async fn show_main_window_and_navigate(
+    app: tauri::AppHandle,
+    page: String,
+) -> Result<(), String> {
+    modules::floating_card_window::show_main_window_and_navigate_async(app, page).await
 }
 
 #[tauri::command]

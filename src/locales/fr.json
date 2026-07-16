@@ -588,7 +588,7 @@
       "themeDark": "Sombre",
       "themeSystem": "Système",
       "uiScale": "Échelle de l'interface",
-      "uiScaleDesc": "Ajuster l'échelle de l'interface",
+      "uiScaleDesc": "Ajuster l’échelle de l’interface (⌘+/⌘- ou Ctrl+/Ctrl-, ⌘0/Ctrl+0 réinitialiser)",
       "accountManagement": "Gestion des comptes",
       "autoRefresh": "Actualisation automatique du quota Antigravity IDE",
       "codexAutoRefresh": "Actualisation automatique du quota Codex",
@@ -1195,7 +1195,11 @@
         "tooMany": "Vous pouvez ajouter jusqu'à {{max}} tags"
       },
       "notesLabel": "Notes​",
-      "notesPlaceholder": "Saisissez une note. Laissez vide pour effacer"
+      "notesPlaceholder": "Saisissez une note. Laissez vide pour effacer",
+      "confirmGlobalDelete": "Supprimer le tag « {{targetTag}} » de tous les comptes ? Cette action est irréversible.",
+      "globalDeleteHint": "Supprimer ce tag globalement",
+      "globalDeleteFailed": "Échec de la suppression globale du tag",
+      "globalRenameHint": "Renommer ce tag globalement"
     },
     "groupByTag": "Grouper par tag",
     "untagged": "Sans tag",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Échec {{failed}} / Annul. {{canceled}} / Amont {{upstreamFailed}} / Incomp. {{incomplete}}",
         "tokens": "Jetons",
         "tokensDetail": "Entrée {{input}} / Sortie {{output}}",
+        "cached": "Mémoire cache",
         "specialTokens": "Cache / Réflexion",
         "specialTokensDetail": "Cache {{cached}} / Réflexion {{reasoning}}",
         "avgLatency": "Latence moy.",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Échec de l’actualisation",
       "generic": "Échec de l’actualisation du quota, veuillez réessayer plus tard",
       "deactivatedWorkspace": "L’espace de travail est désactivé, changez de compte ou réautorisez",
-      "requestFailedManualRetry": "Vérifiez le réseau. Le quota le plus récent n’a pas été récupéré. Actualisez pour réessayer."
+      "requestFailedManualRetry": "Vérifiez le réseau. Le quota le plus récent n’a pas été récupéré. Actualisez pour réessayer.",
+      "httpStatusSummary": "Erreur API {{status}}",
+      "viewDetails": "Détails",
+      "detailTitle": "Détail de l'erreur"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Désactiver cooldown",
         "saveOptions": "Enregistrer",
         "immediateSseResponse": "SSE 200 immédiat",
+        "maxConcurrentImageRequests": "Requêtes d'images par compte",
         "optionsSaved": "Options de routage enregistrées"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Chèques comptes",
       "importAndAddToApiService": "Importation + API",
       "importAndAddToApiServiceSuccess": "Importé et ajouté au service API",
-      "addToApiServiceFailed": "Importé, mais l'ajout au service API a échoué : {{error}}"
+      "addToApiServiceFailed": "Importé, mais l'ajout au service API a échoué : {{error}}",
+      "cancelAndDismiss": "Annuler et ignorer",
+      "bulkTagsLabel": "Tags après import",
+      "bulkTagsPlaceholder": "Facultatif ; tags séparés par virgule/espace"
     },
     "autoRepairMode": {
       "label": "Logique auto",
@@ -3534,7 +3546,10 @@
       "chipTags": "Étiquettes",
       "chipSearch": "Recherche",
       "chipPlan": "Offre",
-      "chipFolder": "Dossier"
+      "chipFolder": "Dossier",
+      "authError": "Échec d’auth",
+      "zeroQuota": "Quota 0%",
+      "expired": "Expiré"
     },
     "accessTokenImport": {
       "nameRequired": "Saisir un nom de compte",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Choisir la cible de synchronisation",
       "serverCount": "{{count}} serveurs",
       "autoSyncBadge": "Automatique"
-    }
+    },
+    "exportAuthFailed": "Exporter échecs",
+    "exportAuthFailedTitle": "Exporter tous les comptes en échec d’auth"
   },
   "githubCopilot": {
     "title": "Gestion des comptes GitHub Copilot",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} jours",
       "streakRewardCountdown": "Encore {{days}} jours avant la récompense bonus",
       "streakRewardToday": "Récompense bonus disponible aujourd’hui !",
-      "recentDates": "Récent : "
+      "recentDates": "Récent : ",
+      "claimed": "Réclamé",
+      "queryFailed": "Échec de la requête",
+      "retry": "Réessayer",
+      "inactive": "Indisponible",
+      "inactiveHint": "Le check-in n'est pas actif pour ce compte"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Coller du JSON",
-      "pasteDesc": "Collez le fichier auth.json officiel de Grok CLI. Les identifiants sont traités uniquement par le backend local. Cockpit n'exporte que des métadonnées masquées, inutilisables pour restaurer une connexion.",
+      "pasteDesc": "Collez l'auth.json officiel Grok CLI ou un JSON de compte complet exporté par cette app (réimportable). Identifiants traités localement.",
       "pastePlaceholder": "Coller le JSON du compte Grok",
       "pasteAction": "Importer le JSON",
-      "localDesc": "Importez le compte actuel depuis ~/.grok/auth.json. Pour choisir un fichier, utilisez le fichier auth.json officiel de Grok CLI.",
+      "localDesc": "Importez depuis ~/.grok/auth.json, ou choisissez un auth.json officiel / un JSON d'export complet de cette app.",
       "localClient": "Importer depuis Grok CLI local",
       "apiKeyTab": "Clé API",
-      "apiKeyDesc": "Collez une clé API xAI (XAI_API_KEY officiel). Injectée au lancement. auth.json officiel aussi accepté pour OAuth.",
+      "apiKeyDesc": "Collez une clé API xAI (XAI_API_KEY / xai-… officiel). Injectée en variable d’environnement au lancement du CLI ; n’écrase pas la connexion OAuth officielle.",
       "apiKeyPlaceholder": "coller xai-…",
       "apiKeyAction": "Ajouter la clé"
     },

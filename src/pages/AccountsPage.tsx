@@ -347,11 +347,8 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     initialFilterPersistenceEnabled,
   )
 
-  // View mode
+  // View mode — always remember layout independently of filter-memory switch (#1200)
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (!initialFilterPersistenceEnabled) {
-      return 'grid'
-    }
     const saved = readAccountsOverviewFilterField<unknown>(
       ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE,
       ANTIGRAVITY_FILTER_FIELD_VIEW_MODE,
@@ -890,19 +887,13 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
   }, [loadPersistedOverviewFilters, resetOverviewFilters])
 
   useEffect(() => {
-    if (!filterPersistenceEnabled) {
-      removeAccountsOverviewFilterField(
-        ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE,
-        ANTIGRAVITY_FILTER_FIELD_VIEW_MODE,
-      )
-      return
-    }
+    // Always persist layout mode so switching tabs does not reset list/card view (#1200)
     writeAccountsOverviewFilterField(
       ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE,
       ANTIGRAVITY_FILTER_FIELD_VIEW_MODE,
       viewMode,
     )
-  }, [filterPersistenceEnabled, viewMode])
+  }, [viewMode])
 
   useEffect(() => {
     if (!filterPersistenceEnabled) {
@@ -1737,6 +1728,8 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
       })
       setDeleteConfirm(null)
       setDeleteConfirmError(null)
+      // 删除成功后清掉页顶红色报错（#1160）
+      setMessage(null)
     } catch (error) {
       setDeleteConfirmError(
         t('messages.actionFailed', {

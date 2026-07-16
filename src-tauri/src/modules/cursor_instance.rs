@@ -921,11 +921,11 @@ pub fn focus_cursor_instance(
 }
 
 fn normalize_custom_path(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
+    let normalized = modules::process::normalize_windows_user_facing_path(value);
+    if normalized.is_empty() {
         None
     } else {
-        Some(trimmed.to_string())
+        Some(normalized)
     }
 }
 
@@ -1077,19 +1077,22 @@ fn path_looks_like_cursor(path: &Path) -> bool {
 fn normalize_cursor_path_for_config(path: &Path) -> String {
     #[cfg(target_os = "macos")]
     {
-        return normalize_macos_app_root(path)
-            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        return normalize_macos_app_root(path).unwrap_or_else(|| {
+            modules::process::normalize_windows_user_facing_path(&path.to_string_lossy())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     {
-        path.to_string_lossy().to_string()
+        modules::process::normalize_windows_user_facing_path(&path.to_string_lossy())
     }
 }
 
 pub fn detect_and_save_cursor_launch_path(force: bool) -> Option<String> {
     let current = modules::config::get_user_config();
-    if !force && normalize_custom_path(&current.cursor_app_path).is_some() {
-        return Some(current.cursor_app_path);
+    if !force {
+        if let Some(configured) = normalize_custom_path(&current.cursor_app_path) {
+            return Some(configured);
+        }
     }
 
     let detected = detect_cursor_exec_path()?;

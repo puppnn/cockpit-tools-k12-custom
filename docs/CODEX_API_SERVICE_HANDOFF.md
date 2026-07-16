@@ -90,11 +90,18 @@ profile, especially for WSL.
 - Model aliases and filters affect both model discovery and request rewriting.
   Update both paths together and test an alias plus a rejected model.
 - Image behavior is separately configurable: enabled, images-only, or disabled.
-  Image requests and image tool injection have their own validation path.
+  Image requests and image tool injection have their own validation path. The
+  sidecar tracks in-flight image jobs by selected auth. `maxConcurrentImageRequests`
+  configures the number of job slots per account (default `1`, range `1-16`).
+  It selects an eligible account with the fewest jobs and queues later image
+  requests locally until a slot is released when a request ends.
+  Image requests bypass session-affinity cache so a prior text/image request
+  cannot pin new image jobs to an already busy account.
 - `immediateSseResponse` is disabled by default. In sidecar mode it commits a
   `200 OK` SSE response with an ignored `: accepted` comment before the upstream
-  stream opens. Once HTTP headers are committed, upstream-open failures are sent
-  as SSE error data and cannot change the HTTP status.
+  stream opens. This also applies to streaming image generation and edits. Once
+  HTTP headers are committed, upstream-open failures are sent as SSE `error`
+  events and cannot change the HTTP status.
 
 ## Persistent Artifacts And Logs
 

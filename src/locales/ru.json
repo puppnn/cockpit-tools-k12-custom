@@ -588,7 +588,7 @@
       "themeDark": "Темная",
       "themeSystem": "Системная",
       "uiScale": "Масштаб интерфейса",
-      "uiScaleDesc": "Настройте масштаб интерфейса",
+      "uiScaleDesc": "Масштаб интерфейса (⌘+/⌘- или Ctrl+/Ctrl-, ⌘0/Ctrl+0 сброс)",
       "defaultTerminal": "Терминал по умолчанию",
       "defaultTerminalDesc": "Терминал, используемый при открытии CLI",
       "terminalSystem": "Системный по умолчанию",
@@ -1195,7 +1195,11 @@
         "tooMany": "Можно добавить не более {{max}} тегов"
       },
       "notesLabel": "Заметка",
-      "notesPlaceholder": "Введите заметку. Оставьте пустым, чтобы очистить"
+      "notesPlaceholder": "Введите заметку. Оставьте пустым, чтобы очистить",
+      "confirmGlobalDelete": "Удалить тег «{{targetTag}}» из всех аккаунтов? Это действие нельзя отменить.",
+      "globalDeleteHint": "Удалить этот тег глобально",
+      "globalDeleteFailed": "Не удалось глобально удалить тег",
+      "globalRenameHint": "Переименовать этот тег глобально"
     },
     "groupByTag": "Группировать по тегу",
     "untagged": "Без тега",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "ОК {{success}} / Ошибка {{failed}} / Отмена {{canceled}} / Источник {{upstreamFailed}} / Неполн. {{incomplete}}",
         "tokens": "Токены",
         "tokensDetail": "Вход {{input}} / Выход {{output}}",
+        "cached": "Кэш",
         "specialTokens": "Кэш / Размышления",
         "specialTokensDetail": "Кэш {{cached}} / Размышления {{reasoning}}",
         "avgLatency": "Средняя задержка",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Сбой обновления",
       "generic": "Не удалось обновить квоту, попробуйте позже",
       "deactivatedWorkspace": "Рабочее пространство деактивировано, переключите аккаунт или авторизуйтесь заново",
-      "requestFailedManualRetry": "Проверьте сеть. Не удалось получить актуальную квоту. Обновите, чтобы повторить попытку."
+      "requestFailedManualRetry": "Проверьте сеть. Не удалось получить актуальную квоту. Обновите, чтобы повторить попытку.",
+      "httpStatusSummary": "Ошибка API {{status}}",
+      "viewDetails": "Подробнее",
+      "detailTitle": "Сведения об ошибке"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Отключить cooldown",
         "saveOptions": "Сохранить параметры",
         "immediateSseResponse": "Немедленный SSE 200",
+        "maxConcurrentImageRequests": "Запросы изображений на аккаунт",
         "optionsSaved": "Параметры маршрута сохранены"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Проверить счета",
       "importAndAddToApiService": "Импорт + API",
       "importAndAddToApiServiceSuccess": "Импортировано и добавлено в сервис API.",
-      "addToApiServiceFailed": "Импортировано, но не удалось добавить в службу API: {{error}}."
+      "addToApiServiceFailed": "Импортировано, но не удалось добавить в службу API: {{error}}.",
+      "cancelAndDismiss": "Отменить и закрыть",
+      "bulkTagsLabel": "Теги после импорта",
+      "bulkTagsPlaceholder": "Необязательно; через запятую или пробел"
     },
     "autoRepairMode": {
       "label": "Логика автоисправления",
@@ -3534,7 +3546,10 @@
       "chipTags": "Теги",
       "chipSearch": "Поиск",
       "chipPlan": "План",
-      "chipFolder": "Папка"
+      "chipFolder": "Папка",
+      "authError": "Ошибка auth",
+      "zeroQuota": "Квота 0%",
+      "expired": "Истёк"
     },
     "accessTokenImport": {
       "nameRequired": "Введите имя аккаунта",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Выберите цель синхронизации",
       "serverCount": "{{count}} серверов",
       "autoSyncBadge": "Авто"
-    }
+    },
+    "exportAuthFailed": "Экспорт сбоев",
+    "exportAuthFailedTitle": "Экспорт всех аккаунтов с ошибкой auth"
   },
   "githubCopilot": {
     "title": "Управление аккаунтами GitHub Copilot",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} дней",
       "streakRewardCountdown": "До бонусной награды осталось {{days}} дней",
       "streakRewardToday": "Бонусная награда доступна сегодня!",
-      "recentDates": "Недавние: "
+      "recentDates": "Недавние: ",
+      "claimed": "Получено",
+      "queryFailed": "Сбой запроса",
+      "retry": "Повтор",
+      "inactive": "Недоступно",
+      "inactiveHint": "Чек-ин недоступен для этого аккаунта"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Вставить JSON",
-      "pasteDesc": "Вставьте официальный auth.json из Grok CLI. Учётные данные обрабатываются только локальным сервером. Cockpit экспортирует лишь скрытые метаданные, по которым нельзя восстановить вход.",
+      "pasteDesc": "Вставьте официальный auth.json Grok CLI или полный JSON аккаунта, экспортированный этим приложением (можно импортировать снова). Учётные данные только локально.",
       "pastePlaceholder": "Вставить JSON аккаунта Grok",
       "pasteAction": "Импортировать JSON",
-      "localDesc": "Импортируйте текущий аккаунт из стандартного ~/.grok/auth.json. При выборе файла используйте официальный auth.json из Grok CLI.",
+      "localDesc": "Импорт из ~/.grok/auth.json или выберите официальный auth.json / полный JSON экспорта этого приложения.",
       "localClient": "Импортировать из локального Grok CLI",
       "apiKeyTab": "Ключ API",
-      "apiKeyDesc": "Вставьте xAI API key (официальный XAI_API_KEY). Подставляется при запуске. Можно также вставить официальный auth.json для OAuth.",
+      "apiKeyDesc": "Вставьте ключ xAI API (официальный XAI_API_KEY / xai-…). Подставляется как переменная окружения при запуске CLI и не перезаписывает официальный OAuth-вход.",
       "apiKeyPlaceholder": "вставьте xai-…",
       "apiKeyAction": "Добавить API Key"
     },

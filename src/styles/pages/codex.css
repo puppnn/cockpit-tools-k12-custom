@@ -1452,6 +1452,49 @@
   min-height: 32px;
 }
 
+/* Full-width row below the original toolbar; does not alter toolbar flex layout */
+.codex-batch-import-tags-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 0;
+  min-width: 0;
+}
+
+.codex-batch-import-tags-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.codex-batch-import-tags-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.codex-batch-import-tags-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.codex-batch-import-tags-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .codex-batch-import-task {
   display: flex;
   align-items: center;
@@ -2535,7 +2578,7 @@
 }
 
 .codex-ssh-panel__item-meta code {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   font-size: 11.5px;
   padding: 1px 6px;
   border-radius: 6px;
@@ -2747,6 +2790,7 @@
 .codex-account-card .account-email {
   flex: 1;
   min-width: 0;
+  font-family: var(--font-sans);
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary);
@@ -3903,16 +3947,79 @@
 }
 
 .codex-accounts-page .quota-error-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  max-width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.2);
   color: #b91c1c;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.35;
+}
+
+.codex-accounts-page .quota-error-inline > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.codex-accounts-page .quota-error-inline-text {
+  flex: 1 1 120px;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.codex-accounts-page .quota-error-inline .quota-error-action {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.codex-quota-error-detail-modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.codex-quota-error-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.codex-quota-error-detail-account {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.codex-quota-error-detail-text {
+  margin: 0;
+  padding: 12px;
+  max-height: min(52vh, 480px);
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
 }
 
 .codex-accounts-page .quota-error-inline.quota-refresh-notice {
@@ -4554,6 +4661,7 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-top: -4px;
+  max-width: 100%;
 }
 
 .codex-accounts-page .tag-pill {
@@ -4564,6 +4672,10 @@
   font-weight: 500;
   border-radius: 4px;
   border: 1px solid var(--border-light);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .codex-accounts-page .tag-pill.more {
@@ -6008,8 +6120,7 @@
 
 .codex-account-note-otp-preview strong {
   color: var(--text-primary);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 18px;
   letter-spacing: 0;
 }
@@ -6068,8 +6179,7 @@
 .codex-account-note-mail-preview__code strong {
   display: inline-block;
   color: var(--text-primary);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 18px;
   font-weight: 750;
   letter-spacing: 0;
@@ -7818,7 +7928,7 @@
 .codex-provider-manager-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 .codex-provider-manager-page .toolbar {
@@ -7834,10 +7944,19 @@
   max-width: 720px;
 }
 
+/* 全选行与供应商卡片之间保留间距（#1164） */
+.codex-provider-manager-page .codex-overview-selection-bar {
+  margin-bottom: 4px;
+}
+
+.codex-provider-manager-page .codex-provider-grid {
+  margin-top: 4px;
+}
+
 .codex-provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .codex-provider-grid.compact .codex-provider-card {
@@ -12615,7 +12734,7 @@
 }
 
 .codex-session-row__session-id {
-  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .codex-session-row__copy-button {

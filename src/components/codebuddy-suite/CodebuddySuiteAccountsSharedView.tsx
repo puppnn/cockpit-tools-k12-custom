@@ -18,6 +18,7 @@ import {
   Globe,
   KeyRound,
   Database,
+  FileText,
   Copy,
   Check,
   RotateCw,
@@ -127,6 +128,16 @@ export interface CodebuddySuiteAccountsPlatformConfig<
   tokenSubmitLabelDefault?: string;
   tokenInputSecret?: boolean;
   tokenControl?: ReactNode;
+  /** 是否显示独立的「粘贴 JSON」页签（与 Token/API Key 页签分离） */
+  showPasteJsonTab?: boolean;
+  pasteJsonTabLabelKey?: string;
+  pasteJsonTabLabelDefault?: string;
+  pasteJsonDescKey?: string;
+  pasteJsonDescDefault?: string;
+  pasteJsonPlaceholderKey?: string;
+  pasteJsonPlaceholderDefault?: string;
+  pasteJsonSubmitLabelKey?: string;
+  pasteJsonSubmitLabelDefault?: string;
   importLocalDescKey: string;
   importLocalDescDefault: string;
   importLocalClientKey: string;
@@ -1272,7 +1283,11 @@ export function CodebuddySuiteAccountsSharedView<
         createPortal(
           <div className="modal-overlay account-add-modal-overlay">
             <div
-              className={`modal-content ghcp-add-modal ${platformConfig.pageClassName}-add-modal`}
+              className={`modal-content ghcp-add-modal ${platformConfig.pageClassName}-add-modal${
+                platformConfig.showPasteJsonTab
+                  ? " suite-account-add-modal-wide"
+                  : ""
+              }`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="modal-header">
@@ -1301,31 +1316,76 @@ export function CodebuddySuiteAccountsSharedView<
                 </button>
               </div>
               {!platformConfig.reauthorizingAccount && (
-                <div className="modal-tabs">
+                <div
+                  className={`modal-tabs${
+                    platformConfig.showPasteJsonTab
+                      ? " modal-tabs-four"
+                      : ""
+                  }`}
+                >
                   <button
                     className={`modal-tab ${addTab === "oauth" ? "active" : ""}`}
                     onClick={() => openAddModal("oauth")}
                   >
-                    <Globe size={14} />{" "}
-                    {t("common.shared.addModal.oauth", "授权登录")}
+                    <Globe size={14} />
+                    <span className="modal-tab-label">
+                      {t("common.shared.addModal.oauth", "授权登录")}
+                    </span>
                   </button>
-                  <button
-                    className={`modal-tab ${addTab === "token" ? "active" : ""}`}
-                    onClick={() => openAddModal("token")}
-                  >
-                    <KeyRound size={14} />
-                    {t(
-                      platformConfig.tokenTabLabelKey ||
-                        "common.shared.addModal.token",
-                      platformConfig.tokenTabLabelDefault || "Token / JSON",
-                    )}
-                  </button>
+                  {/* 与 Codex 一致：OAuth | Token / JSON | API Key | 本地导入 */}
+                  {platformConfig.showPasteJsonTab ? (
+                    <>
+                      <button
+                        className={`modal-tab ${addTab === "paste" ? "active" : ""}`}
+                        onClick={() => openAddModal("paste")}
+                      >
+                        <FileText size={14} />
+                        <span className="modal-tab-label">
+                          {t(
+                            platformConfig.pasteJsonTabLabelKey ||
+                              "common.shared.addModal.token",
+                            platformConfig.pasteJsonTabLabelDefault ||
+                              "Token / JSON",
+                          )}
+                        </span>
+                      </button>
+                      <button
+                        className={`modal-tab ${addTab === "token" ? "active" : ""}`}
+                        onClick={() => openAddModal("token")}
+                      >
+                        <KeyRound size={14} />
+                        <span className="modal-tab-label">
+                          {t(
+                            platformConfig.tokenTabLabelKey ||
+                              "common.shared.addModal.apiKey",
+                            platformConfig.tokenTabLabelDefault || "API Key",
+                          )}
+                        </span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className={`modal-tab ${addTab === "token" ? "active" : ""}`}
+                      onClick={() => openAddModal("token")}
+                    >
+                      <KeyRound size={14} />
+                      <span className="modal-tab-label">
+                        {t(
+                          platformConfig.tokenTabLabelKey ||
+                            "common.shared.addModal.token",
+                          platformConfig.tokenTabLabelDefault || "Token / JSON",
+                        )}
+                      </span>
+                    </button>
+                  )}
                   <button
                     className={`modal-tab ${addTab === "json" ? "active" : ""}`}
                     onClick={() => openAddModal("json")}
                   >
                     <Database size={14} />
-                    {t("common.shared.addModal.import", "本地导入")}
+                    <span className="modal-tab-label">
+                      {t("common.shared.addModal.import", "本地导入")}
+                    </span>
                   </button>
                 </div>
               )}
@@ -1660,6 +1720,46 @@ export function CodebuddySuiteAccountsSharedView<
                         platformConfig.tokenSubmitLabelKey ||
                           "common.shared.token.import",
                         platformConfig.tokenSubmitLabelDefault || "Import",
+                      )}
+                    </button>
+                  </div>
+                )}
+                {platformConfig.showPasteJsonTab && addTab === "paste" && (
+                  <div className="add-section token-section">
+                    <p className="section-desc">
+                      {t(
+                        platformConfig.pasteJsonDescKey ||
+                          "common.shared.import.pasteDesc",
+                        platformConfig.pasteJsonDescDefault ||
+                          "粘贴官方 auth.json，或本应用导出的完整账号 JSON（含凭据，可再导入恢复）。",
+                      )}
+                    </p>
+                    <textarea
+                      className="token-input"
+                      value={tokenInput}
+                      onChange={(e) => setTokenInput(e.target.value)}
+                      placeholder={t(
+                        platformConfig.pasteJsonPlaceholderKey ||
+                          "common.shared.import.pastePlaceholder",
+                        platformConfig.pasteJsonPlaceholderDefault ||
+                          "粘贴账号 JSON...",
+                      )}
+                    />
+                    <button
+                      className="btn btn-primary btn-full"
+                      onClick={handleTokenImport}
+                      disabled={importing || !tokenInput.trim()}
+                    >
+                      {importing ? (
+                        <RefreshCw size={16} className="loading-spinner" />
+                      ) : (
+                        <Download size={16} />
+                      )}
+                      {t(
+                        platformConfig.pasteJsonSubmitLabelKey ||
+                          "common.shared.token.import",
+                        platformConfig.pasteJsonSubmitLabelDefault ||
+                          "导入 JSON",
                       )}
                     </button>
                   </div>

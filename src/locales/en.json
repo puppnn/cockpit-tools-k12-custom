@@ -952,7 +952,7 @@
       "themeDark": "Dark",
       "themeSystem": "System",
       "uiScale": "UI Scale",
-      "uiScaleDesc": "Adjust interface scale",
+      "uiScaleDesc": "Adjust interface scale (⌘+/⌘- or Ctrl+/Ctrl-, ⌘0/Ctrl+0 reset)",
       "accountManagement": "Account",
       "autoRefresh": "Antigravity IDE Auto Refresh Quota",
       "codexAutoRefresh": "Codex Auto Refresh Quota",
@@ -1394,7 +1394,11 @@
         "tooMany": "You can add up to {{max}} tags"
       },
       "notesLabel": "Notes",
-      "notesPlaceholder": "Enter notes. Leave empty to clear"
+      "notesPlaceholder": "Enter notes. Leave empty to clear",
+      "confirmGlobalDelete": "Remove tag \"{{targetTag}}\" from all accounts? This cannot be undone.",
+      "globalDeleteHint": "Delete this tag globally",
+      "globalDeleteFailed": "Failed to delete tag globally",
+      "globalRenameHint": "Rename this tag globally"
     },
     "groupByTag": "Group by tags",
     "untagged": "Untagged",
@@ -2017,9 +2021,9 @@
     },
     "token": {
       "desc": "Paste auth.json, account JSON, Sub2API JSON, accessToken, personal access token at-…, or refresh_token.",
-      "placeholder": "Example: session JSON, accessToken, at-… PAT, Sub2API JSON, or {\"personal_access_token\":\"at-...\"}",
+      "placeholder": "Example: session JSON, accessToken, at-… personal access token, Sub2API JSON, or {\"personal_access_token\":\"at-...\"}",
       "formatSummary": "Required fields and examples",
-      "formatRequired": "Supports session JSON, full tokens (id_token + access_token), Sub2API export JSON, accessToken only, personal access tokens (at-… / personal_access_token), or refresh_token only. refresh_token-only imports exchange online first; at-… without refresh is stored as personal_access_token.",
+      "formatRequired": "Supports session JSON, full tokens (id_token + access_token), Sub2API export JSON, accessToken only, personal access token at-… / personal_access_token, or refresh_token only. refresh_token alone exchanges online for full credentials; at-… without refresh is stored as personal_access_token.",
       "formatSingleLabel": "Full tokens",
       "formatRefreshOnlyLabel": "session / accessToken / at- / refresh_token examples",
       "formatBatchLabel": "Batch example"
@@ -2295,6 +2299,7 @@
         "requestsDetail": "OK {{success}} / Fail {{failed}} / Cancel {{canceled}} / Upstream {{upstreamFailed}} / Incomplete {{incomplete}}",
         "tokens": "Tokens",
         "tokensDetail": "Input {{input}} / Output {{output}}",
+        "cached": "Cache",
         "estimatedCost": "Estimated Value",
         "estimatedCostDetail": "Accumulated from each request's price snapshot",
         "specialTokens": "Cache / Reasoning",
@@ -2890,7 +2895,10 @@
       "refreshFailedBadge": "Refresh failed",
       "generic": "Quota refresh failed, please try again later",
       "deactivatedWorkspace": "Workspace is deactivated, switch account or re-authorize",
-      "requestFailedManualRetry": "Check your network. The latest quota was not fetched. Refresh to try again."
+      "requestFailedManualRetry": "Check your network. The latest quota was not fetched. Refresh to try again.",
+      "httpStatusSummary": "API error {{status}}",
+      "viewDetails": "Details",
+      "detailTitle": "Error details"
     },
     "plan": {
       "free": "FREE",
@@ -3553,6 +3561,7 @@
         "disableCooling": "Disable Cooldown",
         "saveOptions": "Save Options",
         "immediateSseResponse": "Immediate SSE 200",
+        "maxConcurrentImageRequests": "Image requests per account",
         "optionsSaved": "Routing options saved"
       },
       "timeouts": {
@@ -3694,6 +3703,7 @@
       "taskPreview": "{{total}} preview item(s) ready",
       "reopen": "View task",
       "dismissTask": "Dismiss",
+      "cancelAndDismiss": "Cancel and dismiss task",
       "queueCount": "{{count}} jobs in queue",
       "queued": "Queued",
       "batchLabel": "Batch {{index}}",
@@ -3703,7 +3713,9 @@
       "checkAccounts": "Check accounts",
       "importAndAddToApiService": "Import + API",
       "importAndAddToApiServiceSuccess": "Imported and added to API service",
-      "addToApiServiceFailed": "Imported, but adding to API service failed: {{error}}"
+      "addToApiServiceFailed": "Imported, but adding to API service failed: {{error}}",
+      "bulkTagsLabel": "Tags after import",
+      "bulkTagsPlaceholder": "Optional; separate tags with commas or spaces"
     },
     "autoRepairMode": {
       "label": "Auto Repair Logic",
@@ -3737,7 +3749,10 @@
       "chipTags": "Tags",
       "chipSearch": "Search",
       "chipPlan": "Plan",
-      "chipFolder": "Folder"
+      "chipFolder": "Folder",
+      "authError": "Auth failed",
+      "zeroQuota": "0% quota",
+      "expired": "Expired"
     },
     "accessTokenImport": {
       "nameRequired": "Enter an account name",
@@ -3803,7 +3818,9 @@
       "serverListLead": "Pick sync target",
       "serverCount": "{{count}}",
       "autoSyncBadge": "Auto"
-    }
+    },
+    "exportAuthFailed": "Export failed",
+    "exportAuthFailedTitle": "Export all auth-failed accounts"
   },
   "codebuddy": {
     "title": "CodeBuddy Account",
@@ -4990,6 +5007,7 @@
       "button": "Check In",
       "button.loading": "Checking in...",
       "done": "Done",
+      "claimed": "Claimed",
       "success": "Check-in successful! {{days}} day streak",
       "failure": "Check-in failed: {{message}}",
       "failure.network": "Network error, please try again later",
@@ -5000,6 +5018,10 @@
       "checkAll": "Check In All",
       "noAccounts": "No accounts",
       "querying": "Loading...",
+      "queryFailed": "Status check failed",
+      "retry": "Retry",
+      "inactive": "Unavailable",
+      "inactiveHint": "Check-in is not active for this account",
       "streakDays": "{{days}} days",
       "streakRewardCountdown": "{{days}} more days for bonus reward",
       "streakRewardToday": "Bonus reward available today!",
@@ -5225,13 +5247,13 @@
     },
     "import": {
       "pasteTab": "Paste JSON",
-      "pasteDesc": "Paste the official Grok CLI auth.json. Credentials are processed only by the local backend. Cockpit exports redacted metadata only and cannot restore a sign-in.",
+      "pasteDesc": "Paste official Grok CLI auth.json, or a full account JSON exported by this app (includes credentials and can be re-imported). Credentials stay local.",
       "pastePlaceholder": "Paste Grok account JSON",
       "pasteAction": "Import JSON",
-      "localDesc": "Import the current account from the default ~/.grok/auth.json. When choosing a file, use the official Grok CLI auth.json.",
+      "localDesc": "Import from default ~/.grok/auth.json, or choose an official auth.json / full export JSON file from this app.",
       "localClient": "Import from Local Grok CLI",
       "apiKeyTab": "API Key",
-      "apiKeyDesc": "Paste an xAI API key (official XAI_API_KEY). It is injected at launch. You can also paste official auth.json for OAuth import.",
+      "apiKeyDesc": "Paste an xAI API key (official XAI_API_KEY / xai-…). Injected as an env var at CLI launch; does not overwrite official OAuth login.",
       "apiKeyPlaceholder": "xai-...",
       "apiKeyAction": "Add API Key"
     },

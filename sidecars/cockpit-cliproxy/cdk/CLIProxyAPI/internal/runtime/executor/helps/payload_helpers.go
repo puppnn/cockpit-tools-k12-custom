@@ -8,13 +8,34 @@ import (
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
-const DisableImageGenerationHeader = "X-Agtools-Disable-Image-Generation"
+const (
+	DisableImageGenerationHeader = "X-Agtools-Disable-Image-Generation"
+	CodexResponsesLiteHeader     = "X-OpenAI-Internal-Codex-Responses-Lite"
+)
+
+// IsCodexResponsesLiteRequest reports whether a feature-marker header is
+// present or any model is marked Responses Lite in the Codex catalog. Header
+// presence is authoritative even when its value is empty.
+func IsCodexResponsesLiteRequest(headers http.Header, modelIDs ...string) bool {
+	for name := range headers {
+		if strings.EqualFold(strings.TrimSpace(name), CodexResponsesLiteHeader) {
+			return true
+		}
+	}
+	for _, modelID := range modelIDs {
+		if registry.CodexClientModelUsesResponsesLite(modelID) {
+			return true
+		}
+	}
+	return false
+}
 
 func EffectiveDisableImageGenerationMode(cfg *config.Config, headers http.Header) config.DisableImageGenerationMode {
 	mode := config.DisableImageGenerationOff
@@ -35,6 +56,13 @@ func EffectiveDisableImageGenerationMode(cfg *config.Config, headers http.Header
 }
 
 func ShouldInjectImageGenerationTool(cfg *config.Config, requestPath string, headers http.Header) bool {
+	return ShouldInjectImageGenerationToolForModel(cfg, "", requestPath, headers)
+}
+
+func ShouldInjectImageGenerationToolForModel(cfg *config.Config, model, requestPath string, headers http.Header) bool {
+	if IsCodexResponsesLiteRequest(headers, model) {
+		return false
+	}
 	mode := EffectiveDisableImageGenerationMode(cfg, headers)
 	return mode == config.DisableImageGenerationOff ||
 		(mode == config.DisableImageGenerationChat && isImagesEndpointRequestPath(requestPath))
@@ -88,11 +116,7 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 	}
 
 	if cfg == nil {
-		headerImageGeneration := disableImageGenerationModeFromHeader(headers)
-		if shouldFilterImageGenerationPayload(headerImageGeneration, requestPath) {
-			out = removeImageGenerationToolsFromPayloadWithRoot(out, root)
-		}
-		return out
+		return applyFinalPayloadGuards(out, cfg, root, model, requestedModel, requestPath, headers)
 	}
 
 	rules := cfg.Payload
@@ -233,13 +257,136 @@ func ApplyPayloadConfigWithRequest(cfg *config.Config, model, protocol, fromProt
 			}
 		}
 	}
-	// disable-image-generation is a hard request/output gate and must win over
-	// payload overrides that may have restored image_generation.
+	return applyFinalPayloadGuards(out, cfg, root, model, requestedModel, requestPath, headers)
+}
+
+func applyFinalPayloadGuards(payload []byte, cfg *config.Config, root, model, requestedModel, requestPath string, headers http.Header) []byte {
+	out := payload
+	// These request-level gates must win over payload overrides that may have
+	// restored unsupported tools.
 	effectiveImageGeneration := EffectiveDisableImageGenerationMode(cfg, headers)
 	if shouldFilterImageGenerationPayload(effectiveImageGeneration, requestPath) {
 		out = removeImageGenerationToolsFromPayloadWithRoot(out, root)
 	}
+	// Responses Lite only accepts a small tool allowlist.
+	//
+	// Catalog Lite models always get the filter (including stripping any hosted
+	// image_generation that payload rules may have reintroduced).
+	//
+	// Non-catalog requests that only carry the Lite feature header can still be
+	// upgraded to full Responses for image generation (OAuth image_gen namespace
+	// / API-key hosted image tools). Skip the allowlist filter in that case so
+	// those tools survive until the executor decides. Hosted injection for Lite
+	// is blocked separately by ShouldInjectImageGenerationToolForModel.
+	if IsCodexResponsesLiteRequest(headers, model, requestedModel) {
+		catalogLite := registry.CodexClientModelUsesResponsesLite(model) ||
+			registry.CodexClientModelUsesResponsesLite(requestedModel)
+		if catalogLite || !payloadDeclaresImageGenerationToolsWithRoot(out, root) {
+			out = filterResponsesLiteToolsFromPayloadWithRoot(out, root)
+		}
+	}
 	return out
+}
+
+// payloadDeclaresImageGenerationToolsWithRoot reports whether the payload
+// already includes hosted image_generation tools, image_gen namespaces, or
+// image_gen.imagegen function tools that should not be stripped before the
+// executor decides whether to stay on Responses Lite.
+func payloadDeclaresImageGenerationToolsWithRoot(payload []byte, root string) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	objectPath := strings.TrimSpace(root)
+	if payloadDeclaresImageGenerationToolsInObject(payload, objectPath) {
+		return true
+	}
+	// Nested request wrappers used by some translators.
+	requestPath := appendPayloadPathPart(objectPath, "request")
+	if gjson.GetBytes(payload, requestPath).IsObject() &&
+		payloadDeclaresImageGenerationToolsInObject(payload, requestPath) {
+		return true
+	}
+	return false
+}
+
+func payloadDeclaresImageGenerationToolsInObject(payload []byte, objectPath string) bool {
+	if toolArrayDeclaresImageGeneration(gjson.GetBytes(payload, appendPayloadPathPart(objectPath, "tools"))) {
+		return true
+	}
+	if toolValueDeclaresImageGeneration(gjson.GetBytes(payload, appendPayloadPathPart(objectPath, "tool_choice"))) {
+		return true
+	}
+
+	inputPath := appendPayloadPathPart(objectPath, "input")
+	input := gjson.GetBytes(payload, inputPath)
+	if input.IsArray() {
+		for index, item := range input.Array() {
+			if !strings.EqualFold(strings.TrimSpace(item.Get("type").String()), "additional_tools") {
+				continue
+			}
+			itemPath := appendPayloadPathPart(inputPath, strconv.Itoa(index))
+			if payloadDeclaresImageGenerationToolsInObject(payload, itemPath) {
+				return true
+			}
+		}
+	}
+
+	responsePath := appendPayloadPathPart(objectPath, "response")
+	if gjson.GetBytes(payload, responsePath).IsObject() &&
+		payloadDeclaresImageGenerationToolsInObject(payload, responsePath) {
+		return true
+	}
+	return false
+}
+
+func toolArrayDeclaresImageGeneration(tools gjson.Result) bool {
+	if !tools.IsArray() {
+		return false
+	}
+	for _, tool := range tools.Array() {
+		if toolValueDeclaresImageGeneration(tool) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolValueDeclaresImageGeneration(tool gjson.Result) bool {
+	if !tool.Exists() {
+		return false
+	}
+	if tool.Type == gjson.String {
+		name := strings.ToLower(strings.TrimSpace(tool.String()))
+		return name == "image_generation" || name == "image_gen.imagegen"
+	}
+	if !tool.IsObject() {
+		return false
+	}
+
+	toolType := strings.ToLower(strings.TrimSpace(tool.Get("type").String()))
+	name := strings.ToLower(strings.TrimSpace(tool.Get("name").String()))
+	functionName := strings.ToLower(strings.TrimSpace(tool.Get("function.name").String()))
+
+	switch toolType {
+	case "image_generation", "image_gen", "image_gen.imagegen":
+		return true
+	case "namespace":
+		if name == "image_gen" {
+			return true
+		}
+	case "function", "custom", "tool":
+		if name == "image_generation" || name == "image_gen.imagegen" || name == "imagegen" ||
+			functionName == "image_generation" || functionName == "image_gen.imagegen" || functionName == "imagegen" {
+			return true
+		}
+	}
+	if name == "image_generation" || name == "image_gen.imagegen" || name == "image_gen" {
+		return true
+	}
+	if nested := tool.Get("tools"); nested.IsArray() && toolArrayDeclaresImageGeneration(nested) {
+		return true
+	}
+	return false
 }
 
 func isImagesEndpointRequestPath(path string) bool {
@@ -784,6 +931,142 @@ func removeToolTypeFromPayloadWithRoot(payload []byte, root string, toolType str
 	}
 	toolsPath := buildPayloadPath(root, "tools")
 	return removeToolTypeFromToolsArray(payload, toolsPath, toolType)
+}
+
+// filterResponsesLiteToolsFromPayloadWithRoot enforces the Responses Lite tool
+// allowlist wherever Responses request metadata can declare tools. Historical
+// response metadata is nested under response, while dynamically loaded tools
+// are carried by input items of type additional_tools.
+func filterResponsesLiteToolsFromPayloadWithRoot(payload []byte, root string) []byte {
+	if len(payload) == 0 {
+		return payload
+	}
+	return filterResponsesLiteToolsFromObject(payload, strings.TrimSpace(root))
+}
+
+func filterResponsesLiteToolsFromObject(payload []byte, objectPath string) []byte {
+	out, _, _ := filterResponsesLiteToolsArray(payload, appendPayloadPathPart(objectPath, "tools"))
+	out = filterResponsesLiteToolChoice(out, appendPayloadPathPart(objectPath, "tool_choice"))
+
+	inputPath := appendPayloadPathPart(objectPath, "input")
+	input := gjson.GetBytes(out, inputPath)
+	if input.IsArray() {
+		items := input.Array()
+		for index := len(items) - 1; index >= 0; index-- {
+			if !strings.EqualFold(strings.TrimSpace(items[index].Get("type").String()), "additional_tools") {
+				continue
+			}
+			itemPath := appendPayloadPathPart(inputPath, strconv.Itoa(index))
+			out = filterResponsesLiteToolsFromObject(out, itemPath)
+			tools := gjson.GetBytes(out, appendPayloadPathPart(itemPath, "tools"))
+			if !tools.IsArray() || len(tools.Array()) == 0 {
+				if updated, errDel := sjson.DeleteBytes(out, itemPath); errDel == nil {
+					out = updated
+				}
+			}
+		}
+	}
+
+	responsePath := appendPayloadPathPart(objectPath, "response")
+	if response := gjson.GetBytes(out, responsePath); response.IsObject() {
+		out = filterResponsesLiteToolsFromObject(out, responsePath)
+	}
+	return out
+}
+
+func filterResponsesLiteToolsArray(payload []byte, toolsPath string) ([]byte, bool, bool) {
+	tools := gjson.GetBytes(payload, toolsPath)
+	if !tools.IsArray() {
+		return payload, false, false
+	}
+
+	changed := false
+	filtered := []byte(`[]`)
+	for _, tool := range tools.Array() {
+		if !responsesLiteToolAllowed(tool) {
+			changed = true
+			continue
+		}
+		updated, errSet := sjson.SetRawBytes(filtered, "-1", []byte(tool.Raw))
+		if errSet != nil {
+			return payload, false, len(tools.Array()) > 0
+		}
+		filtered = updated
+	}
+	if !changed {
+		return payload, false, len(tools.Array()) > 0
+	}
+	updated, errSet := sjson.SetRawBytes(payload, toolsPath, filtered)
+	if errSet != nil {
+		return payload, false, len(tools.Array()) > 0
+	}
+	return updated, true, len(gjson.ParseBytes(filtered).Array()) > 0
+}
+
+func responsesLiteToolAllowed(tool gjson.Result) bool {
+	if !tool.IsObject() {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(tool.Get("type").String())) {
+	case "function", "custom":
+		return true
+	case "tool_search":
+		return strings.EqualFold(strings.TrimSpace(tool.Get("execution").String()), "client")
+	default:
+		return false
+	}
+}
+
+func filterResponsesLiteToolChoice(payload []byte, toolChoicePath string) []byte {
+	choice := gjson.GetBytes(payload, toolChoicePath)
+	if !choice.Exists() {
+		return payload
+	}
+	if choice.Type == gjson.String {
+		switch strings.ToLower(strings.TrimSpace(choice.String())) {
+		case "auto", "none", "required":
+			return payload
+		default:
+			return deletePayloadPath(payload, toolChoicePath)
+		}
+	}
+	if !choice.IsObject() {
+		return deletePayloadPath(payload, toolChoicePath)
+	}
+
+	choiceType := strings.ToLower(strings.TrimSpace(choice.Get("type").String()))
+	switch choiceType {
+	case "function", "custom":
+		return payload
+	case "tool_search":
+		if responsesLiteToolAllowed(choice) {
+			return payload
+		}
+		return deletePayloadPath(payload, toolChoicePath)
+	case "allowed_tools":
+		updated := payload
+		hasAllowedTools := false
+		for _, relativePath := range []string{"tools", "allowed_tools", "allowed_tools.tools"} {
+			path := appendPayloadPathPart(toolChoicePath, relativePath)
+			var hasTools bool
+			updated, _, hasTools = filterResponsesLiteToolsArray(updated, path)
+			hasAllowedTools = hasAllowedTools || hasTools
+		}
+		if hasAllowedTools {
+			return updated
+		}
+		return deletePayloadPath(updated, toolChoicePath)
+	default:
+		return deletePayloadPath(payload, toolChoicePath)
+	}
+}
+
+func deletePayloadPath(payload []byte, path string) []byte {
+	updated, errDel := sjson.DeleteBytes(payload, path)
+	if errDel != nil {
+		return payload
+	}
+	return updated
 }
 
 // removeImageGenerationToolsFromPayloadWithRoot removes all image-generation tool

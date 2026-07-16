@@ -17,6 +17,7 @@ import {
   queryModelProviderUsage,
   type ModelProviderUsageSummary,
 } from './modelProviderUsageService';
+import { moveCodexProviderApiKey } from '../utils/codexModelProviderApiKeyMove';
 
 export interface CodexModelProviderApiKey {
   id: string;
@@ -52,6 +53,7 @@ export type CodexModelProviderUsageSummary = ModelProviderUsageSummary;
 
 interface UpsertFromCredentialInput {
   providerId?: string | null;
+  previousProviderId?: string | null;
   providerName?: string | null;
   apiBaseUrl: string;
   apiKey: string;
@@ -817,7 +819,15 @@ export async function upsertCodexModelProviderFromCredential(
     provider.sourceTag = sanitizeName(input.sourceTag ?? '') || undefined;
   }
 
-  ensureApiKeyOnProvider(provider, apiKey, input.apiKeyName);
+  const moveResult = moveCodexProviderApiKey(
+    providers,
+    input.previousProviderId,
+    provider.id,
+    apiKey,
+  );
+  if (moveResult === 'not_moved' || moveResult === 'name_conflict') {
+    ensureApiKeyOnProvider(provider, apiKey, input.apiKeyName);
+  }
   provider.baseUrl = apiBaseUrl;
   provider.modelCatalog =
     normalizeModelCatalog(input.modelCatalog) ??

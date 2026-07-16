@@ -588,7 +588,7 @@
       "themeDark": "Escuro",
       "themeSystem": "Sistema",
       "uiScale": "Escala da interface",
-      "uiScaleDesc": "Ajuste a escala da interface",
+      "uiScaleDesc": "Ajustar a escala da interface (⌘+/⌘- ou Ctrl+/Ctrl-, ⌘0/Ctrl+0 redefinir)",
       "defaultTerminal": "Terminal Padrão",
       "defaultTerminalDesc": "O terminal usado ao abrir o CLI",
       "terminalSystem": "Padrão do Sistema",
@@ -1195,7 +1195,11 @@
         "tooMany": "Você pode adicionar até {{max}} tags"
       },
       "notesLabel": "Observações",
-      "notesPlaceholder": "Digite observações. Deixe em branco para limpar"
+      "notesPlaceholder": "Digite observações. Deixe em branco para limpar",
+      "confirmGlobalDelete": "Remover a tag \"{{targetTag}}\" de todas as contas? Esta ação não pode ser desfeita.",
+      "globalDeleteHint": "Excluir esta tag globalmente",
+      "globalDeleteFailed": "Falha ao excluir a tag globalmente",
+      "globalRenameHint": "Renomear esta tag globalmente"
     },
     "groupByTag": "Agrupar por tag",
     "untagged": "Sem tag",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Falha {{failed}} / Canc. {{canceled}} / Origem {{upstreamFailed}} / Incomp. {{incomplete}}",
         "tokens": "Tokens totais",
         "tokensDetail": "Entrada {{input}} / Saída {{output}}",
+        "cached": "Em cache",
         "specialTokens": "Cache / Raciocínio",
         "specialTokensDetail": "Cache {{cached}} / Raciocínio {{reasoning}}",
         "avgLatency": "Latência média",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Falha ao atualizar",
       "generic": "Falha ao atualizar a cota, tente novamente mais tarde",
       "deactivatedWorkspace": "Workspace desativado, troque de conta ou reautorize",
-      "requestFailedManualRetry": "Verifique a rede. A cota mais recente não foi obtida. Atualize para tentar novamente."
+      "requestFailedManualRetry": "Verifique a rede. A cota mais recente não foi obtida. Atualize para tentar novamente.",
+      "httpStatusSummary": "Erro da API {{status}}",
+      "viewDetails": "Detalhes",
+      "detailTitle": "Detalhe do erro"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Desativar cooldown",
         "saveOptions": "Salvar opções",
         "immediateSseResponse": "SSE 200 imediato",
+        "maxConcurrentImageRequests": "Solicitações de imagem por conta",
         "optionsSaved": "Opções de rota salvas"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Verifique contas",
       "importAndAddToApiService": "Importação + API",
       "importAndAddToApiServiceSuccess": "Importado e adicionado ao serviço API",
-      "addToApiServiceFailed": "Importado, mas falha ao adicionar ao serviço API: {{error}}"
+      "addToApiServiceFailed": "Importado, mas falha ao adicionar ao serviço API: {{error}}",
+      "cancelAndDismiss": "Cancelar e descartar",
+      "bulkTagsLabel": "Tags após importar",
+      "bulkTagsPlaceholder": "Opcional; separe com vírgulas ou espaços"
     },
     "autoRepairMode": {
       "label": "Lógica de reparo automático",
@@ -3534,7 +3546,10 @@
       "chipTags": "Etiquetas",
       "chipSearch": "Busca",
       "chipPlan": "Plano",
-      "chipFolder": "Pasta"
+      "chipFolder": "Pasta",
+      "authError": "Falha de auth",
+      "zeroQuota": "Cota 0%",
+      "expired": "Expirado"
     },
     "accessTokenImport": {
       "nameRequired": "Informe um nome de conta",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Escolha o destino de sincronização",
       "serverCount": "{{count}} servidores",
       "autoSyncBadge": "Automático"
-    }
+    },
+    "exportAuthFailed": "Exportar falhas",
+    "exportAuthFailedTitle": "Exportar todas as contas com falha de auth"
   },
   "githubCopilot": {
     "title": "Gerenciamento de contas do GitHub Copilot",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} dias",
       "streakRewardCountdown": "Faltam {{days}} dias para a recompensa bônus",
       "streakRewardToday": "Recompensa bônus disponível hoje!",
-      "recentDates": "Recentes: "
+      "recentDates": "Recentes: ",
+      "claimed": "Resgatado",
+      "queryFailed": "Falha na consulta",
+      "retry": "Tentar de novo",
+      "inactive": "Indisponível",
+      "inactiveHint": "Check-in inativo nesta conta"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Colar JSON",
-      "pasteDesc": "Cole o auth.json oficial do Grok CLI. As credenciais são processadas apenas pelo backend local. O Cockpit exporta somente metadados ocultos, que não restauram um login.",
+      "pasteDesc": "Cole o auth.json oficial do Grok CLI ou um JSON completo exportado por este app (reimportável). Credenciais ficam no dispositivo.",
       "pastePlaceholder": "Colar JSON da conta Grok",
       "pasteAction": "Importar JSON",
-      "localDesc": "Importe a conta atual do ~/.grok/auth.json padrão. Ao escolher um arquivo, use o auth.json oficial do Grok CLI.",
+      "localDesc": "Importe de ~/.grok/auth.json ou escolha auth.json oficial / JSON de exportação completa deste app.",
       "localClient": "Importar do Grok CLI local",
       "apiKeyTab": "Chave API",
-      "apiKeyDesc": "Cole uma API key xAI (XAI_API_KEY oficial). Injetada na inicialização. Também pode colar auth.json oficial para OAuth.",
+      "apiKeyDesc": "Cole uma API key xAI (XAI_API_KEY / xai-… oficial). Injetada como variável de ambiente ao iniciar o CLI; não sobrescreve o login OAuth oficial.",
       "apiKeyPlaceholder": "colar xai-…",
       "apiKeyAction": "Adicionar API Key"
     },

@@ -701,11 +701,11 @@ fn spawn_command_with_trace(cmd: &mut Command) -> std::io::Result<std::process::
 }
 
 fn normalize_custom_path(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
+    let normalized = modules::process::normalize_windows_user_facing_path(value);
+    if normalized.is_empty() {
         None
     } else {
-        Some(trimmed.to_string())
+        Some(normalized)
     }
 }
 
@@ -1327,11 +1327,13 @@ fn detect_claude_exec_path() -> Option<PathBuf> {
 fn normalize_claude_path_for_config(path: &Path) -> String {
     #[cfg(target_os = "macos")]
     {
-        normalize_macos_app_root(path).unwrap_or_else(|| path.to_string_lossy().to_string())
+        normalize_macos_app_root(path).unwrap_or_else(|| {
+            modules::process::normalize_windows_user_facing_path(&path.to_string_lossy())
+        })
     }
     #[cfg(not(target_os = "macos"))]
     {
-        path.to_string_lossy().to_string()
+        modules::process::normalize_windows_user_facing_path(&path.to_string_lossy())
     }
 }
 
@@ -1345,14 +1347,14 @@ pub fn detect_and_save_claude_launch_path(force: bool) -> Option<String> {
         let custom = normalize_custom_path(&current.claude_app_path)?;
         return resolve_windows_claude_launch_target(&custom)
             .ok()
-            .map(|_| current.claude_app_path);
+            .map(|_| custom);
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         if !force {
-            if normalize_custom_path(&current.claude_app_path).is_some() {
-                return Some(current.claude_app_path);
+            if let Some(configured) = normalize_custom_path(&current.claude_app_path) {
+                return Some(configured);
             }
         }
 

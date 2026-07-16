@@ -588,7 +588,7 @@
       "themeDark": "Ciemny",
       "themeSystem": "Systemowy",
       "uiScale": "Skala interfejsu",
-      "uiScaleDesc": "Dostosuj skalę interfejsu",
+      "uiScaleDesc": "Dostosuj skalę interfejsu (⌘+/⌘- lub Ctrl+/Ctrl-, ⌘0/Ctrl+0 reset)",
       "defaultTerminal": "Domyślny terminal",
       "defaultTerminalDesc": "Terminal używany podczas otwierania CLI",
       "terminalSystem": "Domyślny systemowy",
@@ -1195,7 +1195,11 @@
         "tooMany": "Możesz dodać maksymalnie {{max}} tagów"
       },
       "notesLabel": "Notatka",
-      "notesPlaceholder": "Wpisz notatkę. Pozostaw puste, aby wyczyścić"
+      "notesPlaceholder": "Wpisz notatkę. Pozostaw puste, aby wyczyścić",
+      "confirmGlobalDelete": "Usunąć tag \"{{targetTag}}\" ze wszystkich kont? Tej operacji nie można cofnąć.",
+      "globalDeleteHint": "Usuń ten tag globalnie",
+      "globalDeleteFailed": "Nie udało się globalnie usunąć tagu",
+      "globalRenameHint": "Zmień globalnie nazwę tego tagu"
     },
     "groupByTag": "Grupuj według taga",
     "untagged": "Bez taga",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Błąd {{failed}} / Anul. {{canceled}} / Źródło {{upstreamFailed}} / Niepeł. {{incomplete}}",
         "tokens": "Tokeny",
         "tokensDetail": "Wejście {{input}} / Wyjście {{output}}",
+        "cached": "Pamięć podręczna",
         "specialTokens": "Cache / Rozumowanie",
         "specialTokensDetail": "Cache {{cached}} / Rozumowanie {{reasoning}}",
         "avgLatency": "Śr. opóźnienie",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Odświeżenie nieudane",
       "generic": "Odświeżenie limitu nie powiodło się, spróbuj ponownie później",
       "deactivatedWorkspace": "Obszar roboczy jest wyłączony, przełącz konto lub ponownie autoryzuj",
-      "requestFailedManualRetry": "Sprawdź sieć. Nie pobrano najnowszego limitu. Odśwież i spróbuj ponownie."
+      "requestFailedManualRetry": "Sprawdź sieć. Nie pobrano najnowszego limitu. Odśwież i spróbuj ponownie.",
+      "httpStatusSummary": "Błąd API {{status}}",
+      "viewDetails": "Szczegóły",
+      "detailTitle": "Szczegóły błędu"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Wyłącz cooldown",
         "saveOptions": "Zapisz opcje",
         "immediateSseResponse": "Natychmiastowe SSE 200",
+        "maxConcurrentImageRequests": "Żądania obrazów na konto",
         "optionsSaved": "Opcje routingu zapisane"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Sprawdź konta",
       "importAndAddToApiService": "Importuj + API",
       "importAndAddToApiServiceSuccess": "Zaimportowano i dodano do usługi API",
-      "addToApiServiceFailed": "Zaimportowano, ale dodanie do usługi API nie powiodło się: {{error}}"
+      "addToApiServiceFailed": "Zaimportowano, ale dodanie do usługi API nie powiodło się: {{error}}",
+      "cancelAndDismiss": "Anuluj i odrzuć",
+      "bulkTagsLabel": "Tagi po imporcie",
+      "bulkTagsPlaceholder": "Opcjonalnie; oddziel przecinkami lub spacjami"
     },
     "autoRepairMode": {
       "label": "Logika autonaprawy",
@@ -3534,7 +3546,10 @@
       "chipTags": "Tagi",
       "chipSearch": "Szukaj",
       "chipPlan": "Taryfa",
-      "chipFolder": "Katalog"
+      "chipFolder": "Katalog",
+      "authError": "Błąd auth",
+      "zeroQuota": "0% limitu",
+      "expired": "Wygasło"
     },
     "accessTokenImport": {
       "nameRequired": "Podaj nazwę konta",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Wybierz cel synchronizacji",
       "serverCount": "{{count}} serwerów",
       "autoSyncBadge": "Automatyczny"
-    }
+    },
+    "exportAuthFailed": "Eksport błędów",
+    "exportAuthFailedTitle": "Eksportuj konta z błędem auth"
   },
   "githubCopilot": {
     "title": "Zarządzanie kontami GitHub Copilot",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} dni",
       "streakRewardCountdown": "Do nagrody bonusowej pozostało {{days}} dni",
       "streakRewardToday": "Nagroda bonusowa dostępna dzisiaj!",
-      "recentDates": "Ostatnie: "
+      "recentDates": "Ostatnie: ",
+      "claimed": "Odebrano",
+      "queryFailed": "Zapytanie nieudane",
+      "retry": "Ponów",
+      "inactive": "Niedostępne",
+      "inactiveHint": "Check-in nieaktywny dla tego konta"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Wklej JSON",
-      "pasteDesc": "Wklej oficjalny plik auth.json z Grok CLI. Poświadczenia są przetwarzane wyłącznie przez lokalny backend. Cockpit eksportuje tylko ukryte metadane, które nie pozwalają odtworzyć logowania.",
+      "pasteDesc": "Wklej oficjalny auth.json Grok CLI lub pełny JSON konta wyeksportowany z tej aplikacji (możliwy reimport). Dane logowania tylko lokalnie.",
       "pastePlaceholder": "Wklej JSON konta Grok",
       "pasteAction": "Importuj JSON",
-      "localDesc": "Zaimportuj bieżące konto z domyślnego ~/.grok/auth.json. Przy wyborze pliku użyj oficjalnego auth.json z Grok CLI.",
+      "localDesc": "Import z ~/.grok/auth.json albo wybierz oficjalny auth.json / pełny JSON eksportu z tej aplikacji.",
       "localClient": "Importuj z lokalnego Grok CLI",
       "apiKeyTab": "Klucz API",
-      "apiKeyDesc": "Wklej klucz API xAI (oficjalny XAI_API_KEY). Wstrzykiwany przy starcie. Możesz też wkleić oficjalny auth.json (OAuth).",
+      "apiKeyDesc": "Wklej klucz API xAI (oficjalny XAI_API_KEY / xai-…). Wstrzykiwany jako zmienna środowiskowa przy starcie CLI; nie nadpisuje oficjalnego logowania OAuth.",
       "apiKeyPlaceholder": "wklej xai-…",
       "apiKeyAction": "Dodaj API Key"
     },

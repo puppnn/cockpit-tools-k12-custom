@@ -59,6 +59,7 @@ pub mod kiro_oauth;
 pub mod linux_updater;
 pub mod logger;
 pub mod macos_native_menu;
+pub mod main_window_state;
 pub mod oauth;
 pub mod oauth_pending_state;
 pub mod oauth_server;

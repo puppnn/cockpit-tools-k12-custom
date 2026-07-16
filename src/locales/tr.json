@@ -591,7 +591,7 @@
       "themeDark": "Koyu",
       "themeSystem": "Sistem",
       "uiScale": "Arayüz ölçeği",
-      "uiScaleDesc": "Arayüz ölçeğini ayarlayın",
+      "uiScaleDesc": "Arayüz ölçeğini ayarla (⌘+/⌘- veya Ctrl+/Ctrl-, ⌘0/Ctrl+0 sıfırla)",
       "accountManagement": "Hesap Yönetimi",
       "autoRefresh": "Antigravity IDE kota otomatik yenileme",
       "codexAutoRefresh": "Codex kota otomatik yenileme",
@@ -1195,7 +1195,11 @@
         "tooMany": "En fazla {{max}} etiket ekleyebilirsiniz"
       },
       "notesLabel": "Not",
-      "notesPlaceholder": "Not girin. Temizlemek için boş bırakın"
+      "notesPlaceholder": "Not girin. Temizlemek için boş bırakın",
+      "confirmGlobalDelete": "\"{{targetTag}}\" etiketi tüm hesaplardan kaldırılsın mı? Bu işlem geri alınamaz.",
+      "globalDeleteHint": "Bu etiketi genel olarak sil",
+      "globalDeleteFailed": "Etiket genel olarak silinemedi",
+      "globalRenameHint": "Bu etiketi genel olarak yeniden adlandır"
     },
     "groupByTag": "Etikete göre grupla",
     "untagged": "Etiketsiz",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Hata {{failed}} / İptal {{canceled}} / Kaynak {{upstreamFailed}} / Eksik {{incomplete}}",
         "tokens": "Tokenlar",
         "tokensDetail": "Girdi {{input}} / Çıktı {{output}}",
+        "cached": "Önbellek",
         "specialTokens": "Önbellek / Akıl yürütme",
         "specialTokensDetail": "Önbellek {{cached}} / Akıl yürütme {{reasoning}}",
         "avgLatency": "Ort. gecikme",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Yenileme başarısız",
       "generic": "Kota yenileme başarısız, lütfen daha sonra tekrar deneyin",
       "deactivatedWorkspace": "Çalışma alanı devre dışı, hesap değiştirin veya yeniden yetkilendirin",
-      "requestFailedManualRetry": "Ağı kontrol edin. En güncel kota alınamadı. Yenileyip tekrar deneyin."
+      "requestFailedManualRetry": "Ağı kontrol edin. En güncel kota alınamadı. Yenileyip tekrar deneyin.",
+      "httpStatusSummary": "API hatası {{status}}",
+      "viewDetails": "Ayrıntılar",
+      "detailTitle": "Hata ayrıntısı"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Cooldown kapat",
         "saveOptions": "Seçenekleri kaydet",
         "immediateSseResponse": "Anında SSE 200",
+        "maxConcurrentImageRequests": "Hesap başına görsel isteği",
         "optionsSaved": "Yönlendirme seçenekleri kaydedildi"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Hesapları kontrol et",
       "importAndAddToApiService": "İçe Aktarma + API",
       "importAndAddToApiServiceSuccess": "İçe aktarıldı ve API hizmetine eklendi",
-      "addToApiServiceFailed": "İçe aktarıldı ancak API hizmetine ekleme işlemi başarısız oldu: {{error}}"
+      "addToApiServiceFailed": "İçe aktarıldı ancak API hizmetine ekleme işlemi başarısız oldu: {{error}}",
+      "cancelAndDismiss": "İptal et ve kapat",
+      "bulkTagsLabel": "İçe aktarma sonrası etiket",
+      "bulkTagsPlaceholder": "İsteğe bağlı; virgül veya boşlukla ayırın"
     },
     "autoRepairMode": {
       "label": "Otomatik onarım mantığı",
@@ -3534,7 +3546,10 @@
       "chipTags": "Etiket",
       "chipSearch": "Ara",
       "chipPlan": "Abonelik",
-      "chipFolder": "Klasör"
+      "chipFolder": "Klasör",
+      "authError": "Auth hatası",
+      "zeroQuota": "%0 kota",
+      "expired": "Süresi dolmuş"
     },
     "accessTokenImport": {
       "nameRequired": "Hesap adı girin",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Senkronizasyon hedefi seçin",
       "serverCount": "{{count}} sunucu",
       "autoSyncBadge": "Otomatik"
-    }
+    },
+    "exportAuthFailed": "Hataları dışa aktar",
+    "exportAuthFailedTitle": "Tüm auth hatalı hesapları dışa aktar"
   },
   "githubCopilot": {
     "title": "GitHub Copilot Hesap Yönetimi",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} gün",
       "streakRewardCountdown": "Bonus ödüle {{days}} gün kaldı",
       "streakRewardToday": "Bonus ödül bugün kullanılabilir!",
-      "recentDates": "Son: "
+      "recentDates": "Son: ",
+      "claimed": "Alındı",
+      "queryFailed": "Sorgu başarısız",
+      "retry": "Yeniden dene",
+      "inactive": "Kullanılamaz",
+      "inactiveHint": "Bu hesap için check-in etkin değil"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "JSON Yapıştır",
-      "pasteDesc": "Resmi Grok CLI auth.json dosyasını yapıştırın. Kimlik bilgileri yalnızca yerel arka uçta işlenir. Cockpit sadece oturumu geri yükleyemeyen gizlenmiş meta verileri dışa aktarır.",
+      "pasteDesc": "Resmi Grok CLI auth.json veya bu uygulamanın dışa aktardığı tam hesap JSON’unu (yeniden içe aktarılabilir) yapıştırın. Kimlik bilgileri yalnızca yerel.",
       "pastePlaceholder": "Grok hesap JSON'unu yapıştır",
       "pasteAction": "JSON'u İçe Aktar",
-      "localDesc": "Mevcut hesabı varsayılan ~/.grok/auth.json dosyasından içe aktarın. Dosya seçerken resmi Grok CLI auth.json dosyasını kullanın.",
+      "localDesc": "~/.grok/auth.json dosyasından içe aktarın veya resmi auth.json / bu uygulamanın tam dışa aktarma JSON’unu seçin.",
       "localClient": "Yerel Grok CLI'dan İçe Aktar",
       "apiKeyTab": "API Anahtarı",
-      "apiKeyDesc": "xAI API anahtarını yapıştırın (resmi XAI_API_KEY). Başlatmada enjekte edilir. OAuth için resmi auth.json da yapıştırılabilir.",
+      "apiKeyDesc": "xAI API anahtarını yapıştırın (resmi XAI_API_KEY / xai-…). CLI başlatılırken ortam değişkeni olarak enjekte edilir; resmi OAuth oturumunu üzerine yazmaz.",
       "apiKeyPlaceholder": "xai-… yapıştırın",
       "apiKeyAction": "API Key ekle"
     },

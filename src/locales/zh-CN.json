@@ -952,7 +952,7 @@
       "themeDark": "深色 (Dark)",
       "themeSystem": "跟随系统",
       "uiScale": "界面缩放",
-      "uiScaleDesc": "调整界面缩放比例",
+      "uiScaleDesc": "调整界面缩放比例（⌘+/⌘- 缩放，⌘0 重置）",
       "accountManagement": "账号管理",
       "autoRefresh": "Antigravity IDE 自动刷新配额",
       "codexAutoRefresh": "Codex 自动刷新配额",
@@ -1394,7 +1394,11 @@
         "tooMany": "标签数量不能超过 {{max}} 个"
       },
       "notesLabel": "备注",
-      "notesPlaceholder": "输入备注，留空表示不设置"
+      "notesPlaceholder": "输入备注，留空表示不设置",
+      "confirmGlobalDelete": "确定要从所有账号中全局删除标签 \"{{targetTag}}\" 吗？此操作不可逆。",
+      "globalDeleteHint": "全局删除此标签",
+      "globalDeleteFailed": "全局删除失败",
+      "globalRenameHint": "全局重命名此标签"
     },
     "groupByTag": "按标签分组展示",
     "untagged": "默认分组",
@@ -2295,6 +2299,7 @@
         "requestsDetail": "成功 {{success}} / 失败 {{failed}} / 取消 {{canceled}} / 上游失败 {{upstreamFailed}} / 流未完成 {{incomplete}}",
         "tokens": "总 Token 数",
         "tokensDetail": "输入 {{input}} / 输出 {{output}}",
+        "cached": "缓存",
         "estimatedCost": "估算价值",
         "estimatedCostDetail": "按当前请求价格快照累计",
         "specialTokens": "缓存 / 思考",
@@ -2890,7 +2895,10 @@
       "refreshFailedBadge": "刷新失败",
       "generic": "配额刷新失败，请稍后重试",
       "deactivatedWorkspace": "工作区已停用，请切换账号或重新授权",
-      "requestFailedManualRetry": "请检查网络，未获取到最新额度。可刷新重试。"
+      "requestFailedManualRetry": "请检查网络，未获取到最新额度。可刷新重试。",
+      "httpStatusSummary": "API 返回错误 {{status}}",
+      "viewDetails": "查看详情",
+      "detailTitle": "错误详情"
     },
     "plan": {
       "free": "FREE",
@@ -3553,6 +3561,7 @@
         "disableCooling": "禁用冷却",
         "saveOptions": "保存选项",
         "immediateSseResponse": "SSE 立即返回 200",
+        "maxConcurrentImageRequests": "每个账户的图片请求数",
         "optionsSaved": "调度选项已保存"
       },
       "timeouts": {
@@ -3694,6 +3703,7 @@
       "taskPreview": "已生成 {{total}} 条预览",
       "reopen": "查看任务",
       "dismissTask": "丢弃",
+      "cancelAndDismiss": "取消并丢弃任务",
       "queueCount": "队列中 {{count}} 个任务",
       "queued": "排队中",
       "batchLabel": "批次 {{index}}",
@@ -3703,7 +3713,9 @@
       "checkAccounts": "检测账号",
       "importAndAddToApiService": "导入并添加 API",
       "importAndAddToApiServiceSuccess": "已导入并添加到 API 服务",
-      "addToApiServiceFailed": "账号已导入，但添加到 API 服务失败: {{error}}"
+      "addToApiServiceFailed": "账号已导入，但添加到 API 服务失败: {{error}}",
+      "bulkTagsLabel": "导入后批量打标",
+      "bulkTagsPlaceholder": "可选，多个标签用逗号或空格分隔"
     },
     "autoRepairMode": {
       "label": "自动修复逻辑",
@@ -3737,7 +3749,10 @@
       "chipTags": "标签",
       "chipSearch": "搜索",
       "chipPlan": "套餐",
-      "chipFolder": "分组目录"
+      "chipFolder": "分组目录",
+      "authError": "授权失败",
+      "zeroQuota": "0% 额度",
+      "expired": "已过期"
     },
     "accessTokenImport": {
       "nameRequired": "请输入账户名",
@@ -3803,7 +3818,9 @@
       "serverListLead": "选择同步目标",
       "serverCount": "{{count}} 台",
       "autoSyncBadge": "自动同步"
-    }
+    },
+    "exportAuthFailed": "导出失败账号",
+    "exportAuthFailedTitle": "导出全部授权失败账号"
   },
   "codebuddy": {
     "title": "CodeBuddy 账号管理",
@@ -4990,6 +5007,7 @@
       "button": "签到",
       "button.loading": "签到中...",
       "done": "已完成",
+      "claimed": "已领取",
       "success": "签到成功！连续签到 {{days}} 天",
       "failure": "签到失败：{{message}}",
       "failure.network": "网络异常，请稍后重试",
@@ -5000,6 +5018,10 @@
       "checkAll": "一键签到",
       "noAccounts": "暂无账号",
       "querying": "查询中...",
+      "queryFailed": "状态查询失败",
+      "retry": "重试",
+      "inactive": "不可用",
+      "inactiveHint": "签到活动未开启或不适用当前账号",
       "streakDays": "{{days}} 天",
       "streakRewardCountdown": "再签 {{days}} 天获大礼包",
       "streakRewardToday": "今日可获得大礼包!",
@@ -5225,13 +5247,13 @@
     },
     "import": {
       "pasteTab": "粘贴 JSON",
-      "pasteDesc": "粘贴 Grok CLI 官方 auth.json；凭据仅在本机后端处理。Cockpit 导出仅含脱敏元数据，不能用于恢复登录。",
+      "pasteDesc": "粘贴官方 Grok CLI auth.json，或本应用导出的完整账号 JSON（含凭据，可再导入恢复）。凭据仅在本机处理。",
       "pastePlaceholder": "粘贴 Grok 账号 JSON",
       "pasteAction": "导入 JSON",
-      "localDesc": "从默认 ~/.grok/auth.json 导入当前账号；选择文件时应使用 Grok CLI 官方 auth.json。",
+      "localDesc": "从默认 ~/.grok/auth.json 导入；也可选择官方 auth.json 或本应用导出的完整账号 JSON 文件。",
       "localClient": "从本机 Grok CLI 导入",
       "apiKeyTab": "API 密钥",
-      "apiKeyDesc": "粘贴 xAI API Key（官方 XAI_API_KEY）。启动时注入环境变量；也可粘贴官方 auth.json 按 OAuth 导入。",
+      "apiKeyDesc": "粘贴 xAI API Key（官方 XAI_API_KEY / xai-…）。启动 CLI 时注入为环境变量，不会覆盖官方 OAuth 登录。",
       "apiKeyPlaceholder": "粘贴 xai- 开头的密钥",
       "apiKeyAction": "添加 API Key"
     },

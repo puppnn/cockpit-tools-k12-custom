@@ -588,7 +588,7 @@
       "themeDark": "Tmavý",
       "themeSystem": "Systémový",
       "uiScale": "Měřítko rozhraní",
-      "uiScaleDesc": "Upravte měřítko rozhraní",
+      "uiScaleDesc": "Upravit měřítko rozhraní (⌘+/⌘- nebo Ctrl+/Ctrl-, ⌘0/Ctrl+0 reset)",
       "accountManagement": "Správa účtů",
       "autoRefresh": "Automatické obnovení kvóty Antigravity IDE",
       "codexAutoRefresh": "Automatické obnovení kvóty Codex",
@@ -1195,7 +1195,11 @@
         "tooMany": "Můžete přidat až {{max}} štítků"
       },
       "notesLabel": "Poznámka",
-      "notesPlaceholder": "Zadejte poznámku. Ponechte prázdné pro vymazání"
+      "notesPlaceholder": "Zadejte poznámku. Ponechte prázdné pro vymazání",
+      "confirmGlobalDelete": "Odebrat štítek \"{{targetTag}}\" ze všech účtů? Tuto akci nelze vrátit zpět.",
+      "globalDeleteHint": "Globálně smazat tento štítek",
+      "globalDeleteFailed": "Globální smazání štítku se nezdařilo",
+      "globalRenameHint": "Globálně přejmenovat tento štítek"
     },
     "groupByTag": "Seskupit podle štítku",
     "untagged": "Bez štítku",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Chyba {{failed}} / Zruš. {{canceled}} / Zdroj {{upstreamFailed}} / Nedok. {{incomplete}}",
         "tokens": "Tokeny",
         "tokensDetail": "Vstup {{input}} / Výstup {{output}}",
+        "cached": "Mezipaměť",
         "specialTokens": "Cache / Přemýšlení",
         "specialTokensDetail": "Cache {{cached}} / Přemýšlení {{reasoning}}",
         "avgLatency": "Průměrná latence",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Obnovení selhalo",
       "generic": "Obnovení kvóty se nezdařilo, zkuste to prosím později",
       "deactivatedWorkspace": "Pracovní prostor je deaktivovaný, přepněte účet nebo znovu autorizujte",
-      "requestFailedManualRetry": "Zkontrolujte síť. Nejnovější kvóta nebyla načtena. Obnovte a zkuste to znovu."
+      "requestFailedManualRetry": "Zkontrolujte síť. Nejnovější kvóta nebyla načtena. Obnovte a zkuste to znovu.",
+      "httpStatusSummary": "API vrátilo chybu {{status}}",
+      "viewDetails": "Podrobnosti",
+      "detailTitle": "Podrobnosti chyby"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Vypnout cooldown",
         "saveOptions": "Uložit volby",
         "immediateSseResponse": "Okamžitá SSE 200",
+        "maxConcurrentImageRequests": "Požadavky na obrázky na účet",
         "optionsSaved": "Volby směrování uloženy"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Zkontrolujte účty",
       "importAndAddToApiService": "Importovat + API",
       "importAndAddToApiServiceSuccess": "Importováno a přidáno do služby API",
-      "addToApiServiceFailed": "Importováno, ale přidání do služby API se nezdařilo: {{error}}"
+      "addToApiServiceFailed": "Importováno, ale přidání do služby API se nezdařilo: {{error}}",
+      "cancelAndDismiss": "Zrušit a zahodit",
+      "bulkTagsLabel": "Štítky po importu",
+      "bulkTagsPlaceholder": "Volitelné; oddělte čárkou nebo mezerou"
     },
     "autoRepairMode": {
       "label": "Logika auto opravy",
@@ -3534,7 +3546,10 @@
       "chipTags": "Štítky",
       "chipSearch": "Hledat",
       "chipPlan": "Plán",
-      "chipFolder": "Složka"
+      "chipFolder": "Složka",
+      "authError": "Auth selhala",
+      "zeroQuota": "0% kvóta",
+      "expired": "Vypršelo"
     },
     "accessTokenImport": {
       "nameRequired": "Zadejte název účtu",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Vyberte cíl synchronizace",
       "serverCount": "{{count}} serverů",
       "autoSyncBadge": "Automaticky"
-    }
+    },
+    "exportAuthFailed": "Export chyb",
+    "exportAuthFailedTitle": "Exportovat všechny účty s chybou auth"
   },
   "githubCopilot": {
     "title": "Správa účtů GitHub Copilot",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} dní",
       "streakRewardCountdown": "Do bonusové odměny zbývá {{days}} dní",
       "streakRewardToday": "Bonusová odměna je dnes dostupná!",
-      "recentDates": "Nedávno: "
+      "recentDates": "Nedávno: ",
+      "claimed": "Vyzvednuto",
+      "queryFailed": "Dotaz selhal",
+      "retry": "Znovu",
+      "inactive": "Nedostupné",
+      "inactiveHint": "Check-in není pro tento účet aktivní"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Vložit JSON",
-      "pasteDesc": "Vložte oficiální soubor auth.json z Grok CLI. Přihlašovací údaje zpracovává pouze místní backend. Cockpit exportuje jen skrytá metadata, ze kterých nelze obnovit přihlášení.",
+      "pasteDesc": "Vložte oficiální auth.json Grok CLI nebo plný JSON účtu z této aplikace (znovu importovatelný). Přihlašovací údaje jen lokálně.",
       "pastePlaceholder": "Vložit JSON účtu Grok",
       "pasteAction": "Importovat JSON",
-      "localDesc": "Importujte aktuální účet z výchozího ~/.grok/auth.json. Při výběru souboru použijte oficiální auth.json z Grok CLI.",
+      "localDesc": "Import z ~/.grok/auth.json, nebo zvolte oficiální auth.json / plný export JSON z této aplikace.",
       "localClient": "Importovat z místního Grok CLI",
       "apiKeyTab": "Klíč API",
-      "apiKeyDesc": "Vložte xAI API klíč (oficiální XAI_API_KEY). Při spuštění se injektuje. Lze i oficiální auth.json pro OAuth.",
+      "apiKeyDesc": "Vložte xAI API klíč (oficiální XAI_API_KEY / xai-…). Při spuštění CLI se injektuje jako proměnná prostředí a nepřepisuje oficiální OAuth přihlášení.",
       "apiKeyPlaceholder": "vložte xai-…",
       "apiKeyAction": "Přidat API Key"
     },

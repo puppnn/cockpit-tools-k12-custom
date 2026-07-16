@@ -513,3 +513,71 @@ git apply --3way docs/maintenance/patches/cockpit-tools-1.3.2-api-key-routing-us
 
 Preferred recovery remains fetching the complete feature branch from the
 personal fork because it preserves commit history and merge decisions.
+
+## 1.3.3 Responses Lite Tool Compatibility Fix
+
+On 2026-07-15 the first custom 1.3.3 install was rolled back to 1.3.2 after
+Responses Lite requests failed with an unsupported `image_generation` tool.
+The failure was reproduced in the sidecar SSE path with `gpt-5.6-sol`.
+Official 1.3.3 had removed the old image-generation disable projection, while
+the sidecar injected the hosted image tool after payload configuration. The
+Responses Lite endpoint accepts only function tools, custom tools, and
+client-executed `tool_search` tools.
+
+The fix is present in:
+
+- `src-tauri/src/modules/codex_protocol.rs`
+- `src-tauri/src/modules/codex_local_access.rs`
+- `sidecars/cockpit-cliproxy/cdk/CLIProxyAPI/internal/runtime/executor/helps/payload_helpers.go`
+- `sidecars/cockpit-cliproxy/cdk/CLIProxyAPI/internal/runtime/executor/codex_executor.go`
+- `sidecars/cockpit-cliproxy/cdk/CLIProxyAPI/internal/runtime/executor/codex_websockets_executor.go`
+- `sidecars/cockpit-cliproxy/cdk/CLIProxyAPI/sdk/api/handlers/openai/openai_responses_handlers.go`
+
+Lite protection now detects the feature header by presence, including an
+empty value, and also recognizes the catalog models `gpt-5.6-sol`,
+`gpt-5.6-terra`, and `gpt-5.6-luna`. It filters top-level, additional-tool,
+nested-response, Chat Completions conversion, and WebSocket declarations;
+only `function`, `custom`, and `tool_search` with `execution: client` remain.
+Hosted `image_generation` injection is blocked, while ordinary models retain
+their official image-generation behavior and client function tools remain
+available.
+
+Verification:
+
+- `npm run typecheck`: passed.
+- `go test ./...` in `sidecars/cockpit-cliproxy`: passed.
+- Affected nested CLIProxyAPI packages (`helps`, `executor`, and OpenAI
+  handlers): passed.
+- Rust Responses Lite regression set: 7 passed, including Chat Completions,
+  HTTP, WebSocket follow-up/model switching, and hosted-tool preservation.
+- The full Rust library run reached 584 passed; 11 unrelated existing Windows
+  tests failed because of shared config assertions and temporary-file locks.
+- Release build with `src-tauri/tauri.ci.conf.json` and
+  `bundle.createUpdaterArtifacts=false`: passed.
+- Installed API service: version `1.3.3`, port `54548`, unauthenticated
+  `/v1/models` returns 401. Authenticated model listing includes Sol, Terra,
+  Luna, and Spark. Authenticated Sol requests with no tools and with a valid
+  mixed tool declaration both returned HTTP 200 without the prior error.
+
+Final artifacts:
+
+```text
+target/release/bundle/nsis/Cockpit Tools_1.3.3_x64-setup.exe
+sha256: CC6AF19487C153E99A1FBF45FD3A5F3C0A4C6AA8C2D6030F877444229114B42F
+
+target/release/bundle/msi/Cockpit Tools_1.3.3_x64_en-US.msi
+sha256: A25AC6025FF009C1BDD55A490FD3A3F467978B279B5B03DE568D7E00C9FC895E
+
+sidecars/cockpit-cliproxy/bin/cockpit-cliproxy-x86_64-pc-windows-msvc.exe
+sha256: 8F11EBC9519BF6A1D5FF0E6F9DE00199FA622B2EF81384E5D97F3A87C03B3C95
+```
+
+Before installation, the prior 1.3.2 program directory was backed up to:
+
+```text
+target/install-backups/pre-1.3.3-lite-fix-20260715-122735
+```
+
+To roll back, exit Cockpit Tools and restore that directory to
+`%LOCALAPPDATA%\Cockpit Tools`, or reinstall the previously retained 1.3.2
+installer. User configuration and account data were not deleted or replaced.

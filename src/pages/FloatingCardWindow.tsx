@@ -242,6 +242,8 @@ export function FloatingCardWindow() {
     INSTANCE_FLOATING_CARD_WINDOW_LABEL_PREFIX,
   );
   const orderedPlatformIds = usePlatformLayoutStore((state) => state.orderedPlatformIds);
+  // 与平台布局「菜单栏显示」勾选一致（trayPlatformIds）
+  const trayPlatformIds = usePlatformLayoutStore((state) => state.trayPlatformIds);
   const remoteHiddenPlatformIds = useRemoteConfigStore((state) => state.hiddenPlatformIds);
   const fetchRemoteConfigState = useRemoteConfigStore((state) => state.fetchState);
   const { accounts: agAccounts, currentAccountsByTarget: agCurrentAccountsByTarget } = useAccountStore();
@@ -323,23 +325,27 @@ export function FloatingCardWindow() {
   const platformOrder = useMemo(() => {
     const seen = new Set<PlatformId>();
     const ordered: PlatformId[] = [];
+    const trayEnabled = new Set(trayPlatformIds);
 
+    // Prefer layout order, but only platforms enabled for menu bar (菜单栏显示).
     for (const platformId of orderedPlatformIds) {
+      if (!ALL_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
+      if (remoteHiddenPlatformSet.has(platformId)) continue;
+      if (!trayEnabled.has(platformId)) continue;
+      ordered.push(platformId);
+      seen.add(platformId);
+    }
+
+    // Keep tray-enabled platforms that are not yet in orderedPlatformIds.
+    for (const platformId of trayPlatformIds) {
       if (!ALL_PLATFORM_IDS.includes(platformId) || seen.has(platformId)) continue;
       if (remoteHiddenPlatformSet.has(platformId)) continue;
       ordered.push(platformId);
       seen.add(platformId);
     }
 
-    for (const platformId of ALL_PLATFORM_IDS) {
-      if (seen.has(platformId)) continue;
-      if (remoteHiddenPlatformSet.has(platformId)) continue;
-      ordered.push(platformId);
-      seen.add(platformId);
-    }
-
     return ordered;
-  }, [orderedPlatformIds, remoteHiddenPlatformSet]);
+  }, [orderedPlatformIds, remoteHiddenPlatformSet, trayPlatformIds]);
 
   useEffect(() => {
     void fetchRemoteConfigState(false);

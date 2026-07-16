@@ -6618,6 +6618,58 @@ async fn import_codex_candidate(
     }
 }
 
+/// 快速待授权行格式：
+/// `邮箱----账号密码----2FA秘钥----邮件地址`
+/// 也兼容 3 段（无邮件地址）：`邮箱----账号密码----2FA秘钥`
+fn try_parse_pending_oauth_delimited_line(
+    line: &str,
+) -> Option<(String, CodexAccountNoteUpdate)> {
+    let line = normalize_optional_ref(Some(line))?;
+    if !line.contains("----") {
+        return None;
+    }
+    // 避免把 JSON / URL 误判成该格式
+    let trimmed_start = line.trim_start();
+    if trimmed_start.starts_with('{') || trimmed_start.starts_with('[') {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.splitn(4, "----").map(str::trim).collect();
+    if parts.len() < 3 || parts.len() > 4 {
+        return None;
+    }
+
+    let email = parts[0];
+    if email.is_empty() || !email.contains('@') {
+        return None;
+    }
+    // 基础邮箱形态：本地部分与域名均非空
+    let (local, domain) = email.split_once('@')?;
+    if local.is_empty() || domain.is_empty() || !domain.contains('.') {
+        return None;
+    }
+
+    let password = parts.get(1).copied().unwrap_or("").trim();
+    let two_factor = parts.get(2).copied().unwrap_or("").trim();
+    let mail_url = parts.get(3).copied().unwrap_or("").trim();
+
+    // 至少需要密码或 2FA 之一，避免把普通带 ---- 的 token 误导入为待授权
+    if password.is_empty() && two_factor.is_empty() && mail_url.is_empty() {
+        return None;
+    }
+
+    Some((
+        email.to_string(),
+        CodexAccountNoteUpdate {
+            note: None,
+            two_factor_secret: normalize_optional_ref(Some(two_factor)),
+            account_password: normalize_optional_ref(Some(password)),
+            phone_number: None,
+            mail_url: normalize_optional_ref(Some(mail_url)),
+        },
+    ))
+}
+
 async fn import_accounts_from_token_lines(content: &str) -> Result<Vec<CodexAccount>, String> {
     let lines: Vec<String> = content
         .lines()
@@ -6629,7 +6681,16 @@ async fn import_accounts_from_token_lines(content: &str) -> Result<Vec<CodexAcco
     }
 
     let mut accounts = Vec::new();
-    for line in lines {
+    for (index, line) in lines.into_iter().enumerate() {
+        if let Some((email, update)) = try_parse_pending_oauth_delimited_line(&line) {
+            accounts.push(
+                create_pending_oauth_account(email, update).map_err(|err| {
+                    format!("第 {} 行待授权账号导入失败: {}", index + 1, err)
+                })?,
+            );
+            continue;
+        }
+
         let values = match serde_json::from_str::<serde_json::Value>(&line) {
             Ok(serde_json::Value::Array(items)) => items,
             Ok(value) => vec![value],
@@ -8370,9 +8431,10 @@ mod tests {
         resolve_api_provider_config, save_account, save_account_index,
         should_accept_authority_snapshot, sync_account_from_auth_dir,
         sync_api_key_account_from_local_state, sync_managed_projection_from_auth_dir,
-        upsert_account, upsert_account_for_reauth, upsert_account_from_access_token,
-        upsert_account_from_access_token_with_hints, upsert_account_from_auth_tokens,
-        upsert_api_key_account, validate_api_key_credentials, write_account_bundle_to_dir,
+        try_parse_pending_oauth_delimited_line, upsert_account, upsert_account_for_reauth,
+        upsert_account_from_access_token, upsert_account_from_access_token_with_hints,
+        upsert_account_from_auth_tokens, upsert_api_key_account, validate_api_key_credentials,
+        write_account_bundle_to_dir,
         write_api_key_provider_to_config_toml, write_api_provider_to_config_toml,
         write_managed_projection_to_dir, write_quick_config_to_config_toml, ApiProviderConfig,
         CodexAccessTokenImportHints, CodexAccountIndex, CodexAccountSummary, CodexAuthFile,
@@ -9378,6 +9440,61 @@ mod tests {
             persisted.mail_url.as_deref(),
             Some("https://mail.example.test/inbox?mail=dddd")
         );
+    }
+
+    #[test]
+    fn import_pending_oauth_delimited_line_creates_pending_account() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let _env = TestEnvGuard::new("codex-pending-oauth-delimited-import-test");
+        let content = "user+tag@example.com----Pass@word123----BXU33BDMEBDIOAA2AOCFL4NBKVQAQWFY----https://mail.example.test/open.php?mail=user%2Btag%40example.com&pwd=secret&limit=5\nuser2@example.com----pwd2----ABCDEFGHIJKLMNOP";
+        let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+
+        let accounts = runtime
+            .block_on(import_from_json(content))
+            .expect("delimited pending OAuth lines should import");
+
+        assert_eq!(accounts.len(), 2);
+        assert!(accounts.iter().all(is_pending_oauth_account));
+
+        let first = accounts
+            .iter()
+            .find(|item| item.email == "user+tag@example.com")
+            .expect("first account");
+        assert_eq!(first.account_password.as_deref(), Some("Pass@word123"));
+        assert_eq!(
+            first.two_factor_secret.as_deref(),
+            Some("BXU33BDMEBDIOAA2AOCFL4NBKVQAQWFY")
+        );
+        assert_eq!(
+            first.mail_url.as_deref(),
+            Some(
+                "https://mail.example.test/open.php?mail=user%2Btag%40example.com&pwd=secret&limit=5"
+            )
+        );
+        assert!(first.tokens.access_token.is_empty());
+
+        let second = accounts
+            .iter()
+            .find(|item| item.email == "user2@example.com")
+            .expect("second account");
+        assert_eq!(second.account_password.as_deref(), Some("pwd2"));
+        assert_eq!(second.two_factor_secret.as_deref(), Some("ABCDEFGHIJKLMNOP"));
+        assert!(second.mail_url.is_none());
+    }
+
+    #[test]
+    fn try_parse_pending_oauth_delimited_line_rejects_non_email() {
+        assert!(try_parse_pending_oauth_delimited_line(
+            "not-an-email----pwd----SECRET----https://example.com"
+        )
+        .is_none());
+        assert!(try_parse_pending_oauth_delimited_line("rt_only_token").is_none());
+        assert!(try_parse_pending_oauth_delimited_line(
+            r#"{"email":"a@b.com","account_password":"x"}"#
+        )
+        .is_none());
     }
 
     #[test]

@@ -635,7 +635,7 @@
       "themeDark": "داكن (Dark)",
       "themeSystem": "حسب النظام",
       "uiScale": "مقياس الواجهة",
-      "uiScaleDesc": "اضبط مقياس الواجهة",
+      "uiScaleDesc": "ضبط مقياس الواجهة (⌘+/⌘- أو Ctrl+/Ctrl-، ⌘0/Ctrl+0 لإعادة التعيين)",
       "accountManagement": "إدارة الحسابات",
       "autoRefresh": "تحديث تلقائي لحصة Antigravity IDE",
       "codexAutoRefresh": "تحديث تلقائي لحصة Codex",
@@ -1242,7 +1242,11 @@
         "tooMany": "يمكنك إضافة حتى {{max}} أوسمة"
       },
       "notesLabel": "ملاحظات",
-      "notesPlaceholder": "أدخل ملاحظات. اتركه فارغًا للمسح"
+      "notesPlaceholder": "أدخل ملاحظات. اتركه فارغًا للمسح",
+      "confirmGlobalDelete": "هل تريد حذف العلامة \"{{targetTag}}\" من جميع الحسابات؟ لا يمكن التراجع عن هذا الإجراء.",
+      "globalDeleteHint": "حذف هذه العلامة عالميًا",
+      "globalDeleteFailed": "فشل الحذف العالمي للعلامة",
+      "globalRenameHint": "إعادة تسمية هذه العلامة عالميًا"
     },
     "groupByTag": "تجميع حسب العلامة",
     "untagged": "غير موسوم",
@@ -1961,6 +1965,7 @@
         "requestsDetail": "نجاح {{success}} / فشل {{failed}} / إلغاء {{canceled}} / فشل المصدر {{upstreamFailed}} / غير مكتمل {{incomplete}}",
         "tokens": "الرموز",
         "tokensDetail": "إدخال {{input}} / إخراج {{output}}",
+        "cached": "الذاكرة",
         "specialTokens": "الذاكرة / التفكير",
         "specialTokensDetail": "الذاكرة {{cached}} / التفكير {{reasoning}}",
         "avgLatency": "متوسط التأخير",
@@ -2210,7 +2215,10 @@
       "refreshFailedBadge": "فشل التحديث",
       "generic": "فشل تحديث الحصة، يرجى المحاولة لاحقا",
       "deactivatedWorkspace": "تم تعطيل مساحة العمل، بدّل الحساب أو أعد التفويض",
-      "requestFailedManualRetry": "تحقّق من الشبكة. لم يتم جلب أحدث حصة. حدّث للمحاولة مجددًا."
+      "requestFailedManualRetry": "تحقّق من الشبكة. لم يتم جلب أحدث حصة. حدّث للمحاولة مجددًا.",
+      "httpStatusSummary": "أعاد API الخطأ {{status}}",
+      "viewDetails": "التفاصيل",
+      "detailTitle": "تفاصيل الخطأ"
     },
     "plan": {
       "free": "FREE​",
@@ -3374,6 +3382,7 @@
         "disableCooling": "تعطيل cooldown",
         "saveOptions": "حفظ الخيارات",
         "immediateSseResponse": "SSE فوري 200",
+        "maxConcurrentImageRequests": "طلبات الصور لكل حساب",
         "optionsSaved": "تم حفظ خيارات التوجيه"
       },
       "validation": {
@@ -3535,7 +3544,10 @@
       "checkAccounts": "التحقق من الحسابات",
       "importAndAddToApiService": "استيراد + API",
       "importAndAddToApiServiceSuccess": "تم استيرادها وإضافتها إلى خدمة API",
-      "addToApiServiceFailed": "تم الاستيراد، ولكن فشلت الإضافة إلى خدمة API: {{error}}"
+      "addToApiServiceFailed": "تم الاستيراد، ولكن فشلت الإضافة إلى خدمة API: {{error}}",
+      "cancelAndDismiss": "إلغاء وتجاهل",
+      "bulkTagsLabel": "وسوم بعد الاستيراد",
+      "bulkTagsPlaceholder": "اختياري؛ افصل الوسوم بفاصلة أو مسافة"
     },
     "autoRepairMode": {
       "label": "منطق الإصلاح التلقائي",
@@ -3581,7 +3593,10 @@
       "chipTags": "وسوم",
       "chipSearch": "بحث",
       "chipPlan": "خطة",
-      "chipFolder": "مجلد"
+      "chipFolder": "مجلد",
+      "authError": "فشل المصادقة",
+      "zeroQuota": "حصة 0%",
+      "expired": "منتهي"
     },
     "accessTokenImport": {
       "nameRequired": "أدخل اسم الحساب",
@@ -3647,7 +3662,9 @@
       "serverListLead": "اختر هدف المزامنة",
       "serverCount": "{{count}} خادم",
       "autoSyncBadge": "آلي"
-    }
+    },
+    "exportAuthFailed": "تصدير الفاشل",
+    "exportAuthFailedTitle": "تصدير كل الحسابات ذات فشل المصادقة"
   },
   "githubCopilot": {
     "title": "إدارة حسابات GitHub Copilot",
@@ -4818,7 +4835,12 @@
       "streakDays": "{{days}} يوم",
       "streakRewardCountdown": "يتبقى {{days}} يومًا للحصول على المكافأة الإضافية",
       "streakRewardToday": "المكافأة الإضافية متاحة اليوم!",
-      "recentDates": "الأيام الأخيرة: "
+      "recentDates": "الأيام الأخيرة: ",
+      "claimed": "تم الاستلام",
+      "queryFailed": "فشل الاستعلام",
+      "retry": "إعادة",
+      "inactive": "غير متاح",
+      "inactiveHint": "تسجيل الحضور غير مفعّل لهذا الحساب"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "لصق JSON",
-      "pasteDesc": "ألصق ملف auth.json الرسمي من Grok CLI. تُعالج بيانات الاعتماد في الخلفية المحلية فقط. يصدّر Cockpit بيانات وصفية محجوبة لا يمكن استخدامها لاستعادة تسجيل الدخول.",
+      "pasteDesc": "الصق auth.json الرسمي لـ Grok CLI أو JSON الحساب الكامل الذي صدّره هذا التطبيق (يمكن استيراده مجددًا). تُعالَج بيانات الاعتماد محليًا فقط.",
       "pastePlaceholder": "لصق JSON لحساب Grok",
       "pasteAction": "استيراد JSON",
-      "localDesc": "استورد الحساب الحالي من ~/.grok/auth.json الافتراضي. عند اختيار ملف، استخدم ملف auth.json الرسمي من Grok CLI.",
+      "localDesc": "استورد من ~/.grok/auth.json أو اختر auth.json رسميًا / JSON التصدير الكامل من هذا التطبيق.",
       "localClient": "الاستيراد من Grok CLI المحلي",
       "apiKeyTab": "مفتاح API",
-      "apiKeyDesc": "الصق مفتاح xAI API (XAI_API_KEY الرسمي). يُحقن عند التشغيل. يمكن أيضًا لصق auth.json الرسمي لـ OAuth.",
+      "apiKeyDesc": "الصق مفتاح xAI API (XAI_API_KEY / xai-… الرسمي). يُحقن كمتغير بيئة عند تشغيل CLI ولا يستبدل تسجيل الدخول OAuth الرسمي.",
       "apiKeyPlaceholder": "الصق xai-…",
       "apiKeyAction": "إضافة API Key"
     },

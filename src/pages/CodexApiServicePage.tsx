@@ -88,6 +88,7 @@ import type {
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 import {
   formatCodexQuotaPoolPercent,
+  formatCodexQuotaPoolWindowLabel,
   summarizeCodexQuotaPool,
 } from "../utils/codexQuotaPool";
 import { filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
@@ -798,6 +799,8 @@ export function CodexApiServicePage() {
   const [maxRetryIntervalDraft, setMaxRetryIntervalDraft] = useState("30");
   const [disableCoolingDraft, setDisableCoolingDraft] = useState(false);
   const [immediateSseResponseDraft, setImmediateSseResponseDraft] = useState(false);
+  const [maxConcurrentImageRequestsDraft, setMaxConcurrentImageRequestsDraft] =
+    useState("1");
   const [requestLogPage, setRequestLogPage] = useState(1);
   const [requestLogPageSize, setRequestLogPageSize] = useState(() =>
     readStoredRequestLogPageSize(),
@@ -1501,6 +1504,9 @@ export function CodexApiServicePage() {
     );
     setDisableCoolingDraft(collection?.disableCooling ?? false);
     setImmediateSseResponseDraft(collection?.immediateSseResponse ?? false);
+    setMaxConcurrentImageRequestsDraft(
+      String(collection?.maxConcurrentImageRequests ?? 1),
+    );
     setTimeoutDrafts(timeoutDraftsFromValue(collection?.timeouts));
     setSelectedTimeoutPresetId(
       collection?.activeTimeoutPresetId || "long_wait",
@@ -1517,6 +1523,7 @@ export function CodexApiServicePage() {
     collection?.maxRetryIntervalMs,
     collection?.disableCooling,
     collection?.immediateSseResponse,
+    collection?.maxConcurrentImageRequests,
     collection?.timeouts,
     collection?.activeTimeoutPresetId,
   ]);
@@ -2391,9 +2398,18 @@ export function CodexApiServicePage() {
       if (unsetUnknown) {
         continue;
       }
-      const tokenInvalid =
-        longContextThresholdTokens === null ||
-        !Number.isFinite(longContextThresholdTokens ?? 1);
+      // 阈值可空：非长上下文模型（如 gpt-5.4-mini）不填是合法的。
+      // 仅当用户填写了内容但不是正整数（解析为 NaN）时才拦截。
+      // 若填写了任一长上下文价格档，则必须同时提供合法阈值。
+      const hasLongContextTier =
+        (standardLongInput != null && Number.isFinite(standardLongInput)) ||
+        (standardLongOutput != null && Number.isFinite(standardLongOutput)) ||
+        (standardLongCached != null && Number.isFinite(standardLongCached));
+      const tokenInvalid = hasLongContextTier
+        ? longContextThresholdTokens === null ||
+          !Number.isFinite(longContextThresholdTokens)
+        : longContextThresholdTokens != null &&
+          !Number.isFinite(longContextThresholdTokens);
       const inputInvalid = input === null || !Number.isFinite(input);
       const cachedInvalid = cached !== null && !Number.isFinite(cached);
       const outputInvalid = output === null || !Number.isFinite(output);
@@ -2554,6 +2570,21 @@ export function CodexApiServicePage() {
       );
       return;
     }
+    const maxConcurrentImageRequests = parseIntegerDraft(
+      maxConcurrentImageRequestsDraft,
+      1,
+      16,
+    );
+    if (maxConcurrentImageRequests === null) {
+      setError(
+        t("codex.apiService.validation.numberRange", {
+          min: 1,
+          max: 16,
+          defaultValue: "请输入 {{min}} 到 {{max}} 之间的数字",
+        }),
+      );
+      return;
+    }
     await runAction(
       async () => {
         const next =
@@ -2566,6 +2597,7 @@ export function CodexApiServicePage() {
             maxRetryIntervalMs: maxRetryIntervalSeconds * 1000,
             disableCooling: disableCoolingDraft,
             immediateSseResponse: immediateSseResponseDraft,
+            maxConcurrentImageRequests,
           });
         setState(next);
       },
@@ -3176,11 +3208,11 @@ export function CodexApiServicePage() {
       key: "tokens",
       label: t("codex.localAccess.stats.tokens", "总 Token 数"),
       value: formatCompactNumber(totals?.totalTokens ?? 0),
-      detail: t("codex.localAccess.stats.tokensDetail", {
+      detail: `${t("codex.localAccess.stats.tokensDetail", {
         input: formatCompactNumber(totals?.inputTokens ?? 0),
         output: formatCompactNumber(totals?.outputTokens ?? 0),
         defaultValue: "输入 {{input}} / 输出 {{output}}",
-      }),
+      })} / ${t("codex.localAccess.stats.cached", "缓存")} ${formatCompactNumber(totals?.cachedTokens ?? 0)}`,
     },
     {
       key: "cost",
@@ -3648,10 +3680,18 @@ export function CodexApiServicePage() {
                 ) : (
                   quotaPoolSummary.visiblePlans.map((item) => (
                     <span key={item.key}>
-                      {item.key} ({item.count}) · 5h{" "}
-                      {formatCodexQuotaPoolPercent(item.hourly)} ·{" "}
-                      {t("codex.localAccess.quotaPool.weeklyShort", "周")}{" "}
-                      {formatCodexQuotaPoolPercent(item.weekly)}
+                      {item.key} ({item.count})
+                      {item.windows.length > 0
+                        ? ` · ${item.windows
+                            .map(
+                              (window) =>
+                                `${formatCodexQuotaPoolWindowLabel(
+                                  window.label,
+                                  t("codex.localAccess.quotaPool.weeklyShort", "周"),
+                                )} ${formatCodexQuotaPoolPercent(window.percentage)}`,
+                            )
+                            .join(" · ")}`
+                        : ""}
                     </span>
                   ))
                 )}
@@ -4651,6 +4691,24 @@ export function CodexApiServicePage() {
                     checked={immediateSseResponseDraft}
                     onChange={(event) =>
                       setImmediateSseResponseDraft(event.target.checked)
+                    }
+                    disabled={busy || !collection || gatewayMode !== "sidecar"}
+                  />
+                </label>
+                <label>
+                  <span>
+                    {t(
+                      "codex.apiService.routing.maxConcurrentImageRequests",
+                      "Image requests per account",
+                    )}
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={maxConcurrentImageRequestsDraft}
+                    onChange={(event) =>
+                      setMaxConcurrentImageRequestsDraft(event.target.value)
                     }
                     disabled={busy || !collection || gatewayMode !== "sidecar"}
                   />

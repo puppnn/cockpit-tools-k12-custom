@@ -211,9 +211,10 @@ const CC_SWITCH_DIRECT_CLAUDE_PROVIDER_PRESETS: readonly ClaudeApiProviderPreset
     id: 'minimax',
     name: 'MiniMax',
     baseUrl: 'https://api.minimaxi.com/anthropic',
-    website: 'https://platform.minimaxi.com',
+    website: 'https://platform.minimaxi.com/docs',
     apiKeyUrl: 'https://platform.minimaxi.com/subscribe/coding-plan',
-    extraEnv: modelEnv('MiniMax-M2.7', {}, {
+    modelCatalog: ['MiniMax-M3', 'MiniMax-M2.7'],
+    extraEnv: modelEnv('MiniMax-M3', {}, {
       API_TIMEOUT_MS: '3000000',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     }),
@@ -222,9 +223,10 @@ const CC_SWITCH_DIRECT_CLAUDE_PROVIDER_PRESETS: readonly ClaudeApiProviderPreset
     id: 'minimax_global',
     name: 'MiniMax en',
     baseUrl: 'https://api.minimax.io/anthropic',
-    website: 'https://platform.minimax.io',
+    website: 'https://platform.minimax.io/docs',
     apiKeyUrl: 'https://platform.minimax.io/subscribe/coding-plan',
-    extraEnv: modelEnv('MiniMax-M2.7', {}, {
+    modelCatalog: ['MiniMax-M3', 'MiniMax-M2.7'],
+    extraEnv: modelEnv('MiniMax-M3', {}, {
       API_TIMEOUT_MS: '3000000',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     }),

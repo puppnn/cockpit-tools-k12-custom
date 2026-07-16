@@ -591,7 +591,7 @@
       "themeDark": "Tối (Dark)",
       "themeSystem": "Theo hệ thống",
       "uiScale": "Tỷ lệ giao diện",
-      "uiScaleDesc": "Điều chỉnh tỷ lệ giao diện",
+      "uiScaleDesc": "Điều chỉnh tỷ lệ giao diện (⌘+/⌘- hoặc Ctrl+/Ctrl-, ⌘0/Ctrl+0 đặt lại)",
       "accountManagement": "Quản lý tài khoản",
       "autoRefresh": "Tự động làm mới hạn mức Antigravity IDE",
       "codexAutoRefresh": "Tự động làm mới hạn mức Codex",
@@ -1195,7 +1195,11 @@
         "tooMany": "Bạn chỉ có thể thêm tối đa {{max}} thẻ"
       },
       "notesLabel": "Ghi chú",
-      "notesPlaceholder": "Nhập ghi chú. Để trống để xóa"
+      "notesPlaceholder": "Nhập ghi chú. Để trống để xóa",
+      "confirmGlobalDelete": "Xóa thẻ \"{{targetTag}}\" khỏi tất cả tài khoản? Thao tác này không thể hoàn tác.",
+      "globalDeleteHint": "Xóa thẻ này trên toàn cục",
+      "globalDeleteFailed": "Xóa thẻ toàn cục thất bại",
+      "globalRenameHint": "Đổi tên thẻ này trên toàn cục"
     },
     "groupByTag": "Nhóm theo thẻ",
     "untagged": "Chưa gắn thẻ",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Lỗi {{failed}} / Hủy {{canceled}} / Nguồn {{upstreamFailed}} / Chưa xong {{incomplete}}",
         "tokens": "Token",
         "tokensDetail": "Đầu vào {{input}} / Đầu ra {{output}}",
+        "cached": "Bộ đệm",
         "specialTokens": "Bộ đệm / Suy luận",
         "specialTokensDetail": "Bộ đệm {{cached}} / Suy luận {{reasoning}}",
         "avgLatency": "Độ trễ TB",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Làm mới thất bại",
       "generic": "Làm mới quota thất bại, vui lòng thử lại sau",
       "deactivatedWorkspace": "Workspace đã bị vô hiệu hoá, hãy đổi tài khoản hoặc cấp quyền lại",
-      "requestFailedManualRetry": "Kiểm tra mạng. Chưa lấy được quota mới nhất. Làm mới để thử lại."
+      "requestFailedManualRetry": "Kiểm tra mạng. Chưa lấy được quota mới nhất. Làm mới để thử lại.",
+      "httpStatusSummary": "Lỗi API {{status}}",
+      "viewDetails": "Chi tiết",
+      "detailTitle": "Chi tiết lỗi"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Tắt cooldown",
         "saveOptions": "Lưu tùy chọn",
         "immediateSseResponse": "SSE trả 200 ngay",
+        "maxConcurrentImageRequests": "Yêu cầu ảnh mỗi tài khoản",
         "optionsSaved": "Đã lưu tùy chọn định tuyến"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Kiểm tra tài khoản",
       "importAndAddToApiService": "Nhập + API",
       "importAndAddToApiServiceSuccess": "Đã nhập và thêm vào dịch vụ API",
-      "addToApiServiceFailed": "Đã nhập nhưng việc thêm vào dịch vụ API không thành công: {{error}}"
+      "addToApiServiceFailed": "Đã nhập nhưng việc thêm vào dịch vụ API không thành công: {{error}}",
+      "cancelAndDismiss": "Hủy và bỏ",
+      "bulkTagsLabel": "Gắn thẻ sau nhập",
+      "bulkTagsPlaceholder": "Tuỳ chọn; cách nhau bằng dấu phẩy/khoảng trắng"
     },
     "autoRepairMode": {
       "label": "Logic tự sửa",
@@ -3534,7 +3546,10 @@
       "chipTags": "Thẻ",
       "chipSearch": "Tìm",
       "chipPlan": "Gói",
-      "chipFolder": "Thư mục"
+      "chipFolder": "Thư mục",
+      "authError": "Auth lỗi",
+      "zeroQuota": "Hạn mức 0%",
+      "expired": "Hết hạn"
     },
     "accessTokenImport": {
       "nameRequired": "Nhập tên tài khoản",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Chọn mục tiêu đồng bộ hóa",
       "serverCount": "{{count}} máy chủ",
       "autoSyncBadge": "Tự động"
-    }
+    },
+    "exportAuthFailed": "Xuất lỗi",
+    "exportAuthFailedTitle": "Xuất tất cả tài khoản auth lỗi"
   },
   "githubCopilot": {
     "title": "Quản lý tài khoản GitHub Copilot",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} ngày",
       "streakRewardCountdown": "Còn {{days}} ngày nữa để nhận thưởng bonus",
       "streakRewardToday": "Hôm nay có thể nhận thưởng bonus!",
-      "recentDates": "Gần đây: "
+      "recentDates": "Gần đây: ",
+      "claimed": "Đã nhận",
+      "queryFailed": "Truy vấn thất bại",
+      "retry": "Thử lại",
+      "inactive": "Không khả dụng",
+      "inactiveHint": "Check-in không hoạt động với tài khoản này"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "Dán JSON",
-      "pasteDesc": "Dán auth.json chính thức của Grok CLI. Thông tin xác thực chỉ được xử lý trong backend cục bộ. Cockpit chỉ xuất siêu dữ liệu đã che, không thể dùng để khôi phục đăng nhập.",
+      "pasteDesc": "Dán auth.json Grok CLI chính thức hoặc JSON tài khoản đầy đủ do ứng dụng này xuất (có thể nhập lại). Thông tin đăng nhập chỉ xử lý cục bộ.",
       "pastePlaceholder": "Dán JSON tài khoản Grok",
       "pasteAction": "Nhập JSON",
-      "localDesc": "Nhập tài khoản hiện tại từ ~/.grok/auth.json mặc định. Khi chọn tệp, hãy dùng auth.json chính thức của Grok CLI.",
+      "localDesc": "Nhập từ ~/.grok/auth.json, hoặc chọn auth.json chính thức / JSON xuất đầy đủ của ứng dụng này.",
       "localClient": "Nhập từ Grok CLI cục bộ",
       "apiKeyTab": "Khóa API",
-      "apiKeyDesc": "Dán xAI API Key (XAI_API_KEY chính thức). Được inject khi khởi chạy. Cũng có thể dán auth.json chính thức để OAuth.",
+      "apiKeyDesc": "Dán khóa API xAI (XAI_API_KEY / xai-… chính thức). Được inject thành biến môi trường khi khởi chạy CLI; không ghi đè đăng nhập OAuth chính thức.",
       "apiKeyPlaceholder": "dán xai-…",
       "apiKeyAction": "Thêm API Key"
     },

@@ -382,6 +382,55 @@ pub fn repair_session_visibility_quick_across_instances(
     repair_session_visibility_auto_across_instances(CodexSessionVisibilityAutoRepairMode::Current)
 }
 
+/// Repairs the launch target only, using the same bounded quick-repair plan as the
+/// automatic multi-instance repair. The caller supplies the already-resolved data
+/// directory so this path never discovers or mutates another configured instance.
+pub fn repair_session_visibility_quick_for_instance(
+    instance_id: &str,
+    instance_name: &str,
+    data_dir: &Path,
+) -> Result<CodexSessionVisibilityRepairSummary, String> {
+    let started = std::time::Instant::now();
+    modules::logger::log_info(&format!(
+        "[Codex Session Visibility] launch-target quick repair started: instance_id={}, instance_name={}, data_dir={}",
+        instance_id,
+        instance_name,
+        data_dir.display()
+    ));
+    let result = repair_session_visibility_for_instances_with_options(
+        CodexSessionVisibilityRepairOptions::for_auto_repair_mode(
+            CodexSessionVisibilityAutoRepairMode::Current,
+        ),
+        None,
+        None,
+        RepairTargetSelection::default(),
+        vec![CodexSyncInstance {
+            id: instance_id.to_string(),
+            name: instance_name.to_string(),
+            data_dir: data_dir.to_path_buf(),
+            last_pid: None,
+        }],
+    );
+    match &result {
+        Ok(summary) => modules::logger::log_info(&format!(
+            "[Codex Session Visibility] launch-target quick repair finished: instance_id={}, mutated_instances={}, rollout_files={}, sqlite_rows={}, elapsed_ms={}",
+            instance_id,
+            summary.mutated_instance_count,
+            summary.changed_rollout_file_count,
+            summary.updated_sqlite_row_count,
+            started.elapsed().as_millis()
+        )),
+        Err(error) => modules::logger::log_warn(&format!(
+            "[Codex Session Visibility] launch-target quick repair failed: instance_id={}, data_dir={}, elapsed_ms={}, error={}",
+            instance_id,
+            data_dir.display(),
+            started.elapsed().as_millis(),
+            error
+        )),
+    }
+    result
+}
+
 pub fn repair_session_visibility_auto_across_instances(
     mode: CodexSessionVisibilityAutoRepairMode,
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
@@ -4407,5 +4456,139 @@ mod tests {
         assert_eq!(backup_count, 0);
 
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn launch_target_quick_repair_is_bidirectional_idempotent_and_instance_scoped() {
+        fn write_fixture(
+            data_dir: &Path,
+            thread_id: &str,
+            configured_provider: &str,
+            history_provider: &str,
+        ) -> (PathBuf, PathBuf) {
+            fs::write(
+                data_dir.join(CONFIG_FILE_NAME),
+                format!("model_provider = \"{}\"\n", configured_provider),
+            )
+            .expect("write config");
+
+            let rollout_dir = data_dir.join("sessions").join("2026").join("07").join("14");
+            fs::create_dir_all(&rollout_dir).expect("create rollout dir");
+            let rollout_path = rollout_dir.join(format!("rollout-{}.jsonl", thread_id));
+            let rollout_relative = rollout_path
+                .strip_prefix(data_dir)
+                .expect("relative rollout")
+                .to_string_lossy()
+                .replace('\\', "/");
+            fs::write(
+                &rollout_path,
+                format!(
+                    "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"model_provider\":\"{}\"}}}}\n",
+                    thread_id, history_provider
+                ),
+            )
+            .expect("write rollout");
+
+            let db_path = data_dir.join(STATE_DB_FILE);
+            let connection = Connection::open(&db_path).expect("open sqlite");
+            connection
+                .execute(
+                    "CREATE TABLE threads (
+                        id TEXT PRIMARY KEY,
+                        rollout_path TEXT,
+                        model_provider TEXT,
+                        has_user_event INTEGER,
+                        first_user_message TEXT,
+                        thread_source TEXT
+                    )",
+                    [],
+                )
+                .expect("create threads table");
+            connection
+                .execute(
+                    "INSERT INTO threads (id, rollout_path, model_provider, has_user_event, first_user_message, thread_source)
+                     VALUES (?1, ?2, ?3, 0, 'hello', '')",
+                    (thread_id, rollout_relative.as_str(), history_provider),
+                )
+                .expect("insert thread");
+            drop(connection);
+            (db_path, rollout_path)
+        }
+
+        fn read_provider(db_path: &Path, thread_id: &str) -> String {
+            Connection::open(db_path)
+                .expect("open sqlite for read")
+                .query_row(
+                    "SELECT model_provider FROM threads WHERE id = ?1",
+                    [thread_id],
+                    |row| row.get(0),
+                )
+                .expect("read provider")
+        }
+
+        let target_dir = make_temp_dir("codex-launch-target-repair-test");
+        let other_dir = make_temp_dir("codex-launch-other-instance-test");
+        let (target_db, target_rollout) =
+            write_fixture(&target_dir, "target-thread", "relay", "openai");
+        let (other_db, other_rollout) =
+            write_fixture(&other_dir, "other-thread", "openai", "other-provider");
+        let other_rollout_before = fs::read(&other_rollout).expect("read other rollout before");
+
+        let first = repair_session_visibility_quick_for_instance(
+            "target-instance",
+            "Target instance",
+            &target_dir,
+        )
+        .expect("repair target instance");
+        assert_eq!(first.instance_count, 1);
+        assert_eq!(first.mutated_instance_count, 1);
+        assert_eq!(first.items[0].instance_id, "target-instance");
+        assert_eq!(read_provider(&target_db, "target-thread"), "relay");
+        assert!(fs::read_to_string(&target_rollout)
+            .expect("read target rollout")
+            .contains("\"model_provider\":\"relay\""));
+
+        assert_eq!(read_provider(&other_db, "other-thread"), "other-provider");
+        assert_eq!(
+            fs::read(&other_rollout).expect("read other rollout after"),
+            other_rollout_before
+        );
+        assert!(fs::read_dir(&other_dir)
+            .expect("read other instance dir")
+            .filter_map(Result::ok)
+            .all(|entry| !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(SESSION_VISIBILITY_REPAIR_BACKUP_PREFIX)));
+
+        let second = repair_session_visibility_quick_for_instance(
+            "target-instance",
+            "Target instance",
+            &target_dir,
+        )
+        .expect("repeat target repair");
+        assert_eq!(second.mutated_instance_count, 0);
+        assert_eq!(second.changed_rollout_file_count, 0);
+        assert_eq!(second.updated_sqlite_row_count, 0);
+
+        fs::write(
+            target_dir.join(CONFIG_FILE_NAME),
+            "model_provider = \"openai\"\n",
+        )
+        .expect("switch target back to account provider");
+        let switched_back = repair_session_visibility_quick_for_instance(
+            "target-instance",
+            "Target instance",
+            &target_dir,
+        )
+        .expect("repair target after provider switch");
+        assert_eq!(switched_back.mutated_instance_count, 1);
+        assert_eq!(read_provider(&target_db, "target-thread"), "openai");
+        assert!(fs::read_to_string(&target_rollout)
+            .expect("read switched-back rollout")
+            .contains("\"model_provider\":\"openai\""));
+
+        fs::remove_dir_all(&target_dir).expect("cleanup target dir");
+        fs::remove_dir_all(&other_dir).expect("cleanup other dir");
     }
 }

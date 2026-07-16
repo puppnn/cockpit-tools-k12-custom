@@ -929,6 +929,91 @@ func TestCockpitSelectorPickSkipsBoundOAuthAtEitherQuotaReserve(t *testing.T) {
 	}
 }
 
+func TestCockpitSelectorPrefersAccountWithFewerImageJobs(t *testing.T) {
+	busyAccount := &accountSpec{ID: "busy", AuthID: "busy.json"}
+	idleAccount := &accountSpec{ID: "idle", AuthID: "idle.json"}
+	tracker := newRequestUsageTracker()
+	if !tracker.tryReserveImageJob("existing-image", "busy.json", 1) {
+		t.Fatal("expected initial busy image reservation")
+	}
+	if tracker.tryReserveImageJob("competing-image", "busy.json", 1) {
+		t.Fatal("expected busy image auth to reject a second concurrent reservation")
+	}
+	selector := &cockpitSelector{
+		manifest: &manifest{accountByAuthID: map[string]*accountSpec{
+			"busy.json": busyAccount,
+			"idle.json": idleAccount,
+		}},
+		tracker: tracker,
+	}
+	ctx := internallogging.WithRequestID(context.Background(), "new-image")
+	ctx = context.WithValue(ctx, requestKindContextKey, "image_generation")
+
+	selected, err := selector.Pick(
+		ctx,
+		"codex",
+		"gpt-5.4-mini",
+		cliproxyexecutor.Options{},
+		[]*coreauth.Auth{{ID: "busy.json"}, {ID: "idle.json"}},
+	)
+	if err != nil {
+		t.Fatalf("Pick: %v", err)
+	}
+	if selected == nil || selected.ID != "idle.json" {
+		t.Fatalf("expected idle auth, got %#v", selected)
+	}
+	if got := tracker.imageInFlightCount("idle.json"); got != 1 {
+		t.Fatalf("idle auth in-flight count = %d, want 1", got)
+	}
+
+	changed := tracker.imageJobChangeSignal()
+	tracker.releaseImageJobs("new-image")
+	select {
+	case <-changed:
+	default:
+		t.Fatal("expected image slot release notification")
+	}
+	if got := tracker.imageInFlightCount("idle.json"); got != 0 {
+		t.Fatalf("idle auth in-flight count after release = %d, want 0", got)
+	}
+}
+
+func TestRequestUsageTrackerHonorsConfiguredImageJobLimit(t *testing.T) {
+	tracker := newRequestUsageTracker()
+	if !tracker.tryReserveImageJob("first-image", "shared.json", 2) {
+		t.Fatal("expected first image reservation")
+	}
+	if !tracker.tryReserveImageJob("second-image", "shared.json", 2) {
+		t.Fatal("expected second image reservation within configured limit")
+	}
+	if tracker.tryReserveImageJob("third-image", "shared.json", 2) {
+		t.Fatal("expected image reservation above configured limit to be rejected")
+	}
+	if got := tracker.imageInFlightCount("shared.json"); got != 2 {
+		t.Fatalf("shared auth in-flight count = %d, want 2", got)
+	}
+}
+
+func TestImageRequestSelectorBypassesSessionAffinityFallback(t *testing.T) {
+	imageAuth := &coreauth.Auth{ID: "image.json"}
+	affinityAuth := &coreauth.Auth{ID: "affinity.json"}
+	imageFallback := &countingSelector{auth: imageAuth}
+	affinityFallback := &countingSelector{auth: affinityAuth}
+	selector := &imageRequestSelector{
+		imageFallback: imageFallback,
+		fallback:      affinityFallback,
+	}
+	ctx := context.WithValue(context.Background(), requestKindContextKey, "image_generation")
+
+	selected, err := selector.Pick(ctx, "codex", "gpt-5.4-mini", cliproxyexecutor.Options{}, []*coreauth.Auth{imageAuth, affinityAuth})
+	if err != nil {
+		t.Fatalf("Pick: %v", err)
+	}
+	if selected != imageAuth || imageFallback.count != 1 || affinityFallback.count != 0 {
+		t.Fatalf("image request should use image fallback, selected=%#v image=%d affinity=%d", selected, imageFallback.count, affinityFallback.count)
+	}
+}
+
 func TestCockpitSelectorPickIgnoresExplicitlyMissingQuotaWindow(t *testing.T) {
 	hourlyThreshold := 10
 	weeklyThreshold := 20
@@ -5270,6 +5355,15 @@ type fakeRuntime struct {
 	streamCalls  int
 	lastReq      cliproxyexecutor.Request
 	lastOpts     cliproxyexecutor.Options
+
+	alphaSearchStatus  int
+	alphaSearchHeaders http.Header
+	alphaSearchPayload []byte
+	alphaSearchErr     error
+	alphaSearchCalls   int
+	lastAlphaModel     string
+	lastAlphaBody      []byte
+	lastAlphaHeaders   http.Header
 }
 
 func (r *fakeRuntime) Execute(_ context.Context, _ []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
@@ -5277,6 +5371,24 @@ func (r *fakeRuntime) Execute(_ context.Context, _ []string, req cliproxyexecuto
 	r.lastReq = req
 	r.lastOpts = opts
 	return r.response, r.err
+}
+
+func (r *fakeRuntime) CodexAlphaSearch(_ context.Context, model string, body []byte, headers http.Header) (int, http.Header, []byte, error) {
+	r.alphaSearchCalls++
+	r.lastAlphaModel = model
+	r.lastAlphaBody = append([]byte(nil), body...)
+	if headers != nil {
+		r.lastAlphaHeaders = headers.Clone()
+	}
+	status := r.alphaSearchStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
+	payload := r.alphaSearchPayload
+	if payload == nil {
+		payload = []byte(`{"ok":true}`)
+	}
+	return status, r.alphaSearchHeaders, payload, r.alphaSearchErr
 }
 
 func (r *fakeRuntime) ExecuteStream(ctx context.Context, _ []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
@@ -5435,5 +5547,218 @@ func TestRelayAcceptsResponsesPathAppendedToChatCompletionsBase(t *testing.T) {
 		if w.Code == http.StatusNotFound {
 			t.Fatalf("path %s should not be NoRoute 404 (got %d body=%s)", path, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestSanitizeCodexAlphaSearchBodyRemovesLocalRoutingFields(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"query":"hello","prompt_cache_key":"drop-me","prompt_cache_retention":"24h","id":"sess-1"}`)
+	out := sanitizeCodexAlphaSearchBody(body)
+	if strings.Contains(string(out), "prompt_cache_key") || strings.Contains(string(out), "prompt_cache_retention") {
+		t.Fatalf("local routing fields survived: %s", out)
+	}
+	if !strings.Contains(string(out), `"query":"hello"`) || !strings.Contains(string(out), `"id":"sess-1"`) {
+		t.Fatalf("expected search fields preserved: %s", out)
+	}
+}
+
+func TestResolveCodexAlphaSearchURL(t *testing.T) {
+	t.Parallel()
+	if got := resolveCodexAlphaSearchURL(nil); got != defaultCodexAlphaSearchURL {
+		t.Fatalf("nil auth = %q, want default", got)
+	}
+	auth := &coreauth.Auth{Attributes: map[string]string{"base_url": "https://example.test/backend-api/codex/"}}
+	if got := resolveCodexAlphaSearchURL(auth); got != "https://example.test/backend-api/codex/alpha/search" {
+		t.Fatalf("codex base = %q", got)
+	}
+	auth.Attributes["base_url"] = "https://example.test/backend-api"
+	if got := resolveCodexAlphaSearchURL(auth); got != "https://example.test/backend-api/codex/alpha/search" {
+		t.Fatalf("backend-api base = %q", got)
+	}
+}
+
+func TestRequestKindFromPathTreatsAlphaSearchAsText(t *testing.T) {
+	t.Parallel()
+	if got := requestKindFromPath("/v1/alpha/search"); got != "text" {
+		t.Fatalf("requestKindFromPath(/v1/alpha/search) = %q, want text", got)
+	}
+	if got := requestKindFromPath("/backend-api/codex/alpha/search"); got != "text" {
+		t.Fatalf("requestKindFromPath(direct) = %q, want text", got)
+	}
+}
+
+func TestCodexAlphaSearchRouteForwardsToRuntime(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{
+		alphaSearchStatus:  http.StatusOK,
+		alphaSearchPayload: []byte(`{"results":[{"title":"ok"}]}`),
+		alphaSearchHeaders: http.Header{"Content-Type": []string{"application/json"}},
+	}
+	m := &manifest{
+		APIKeys: []apiKeySpec{{
+			ID:      "key_1",
+			Label:   "Test key",
+			Key:     "client-key",
+			Enabled: true,
+		}},
+		ModelIDs: []string{"gpt-5.6-sol"},
+	}
+	m.apiKeyByValue = map[string]*apiKeySpec{
+		"client-key": &m.APIKeys[0],
+	}
+	router := (&relayServer{
+		runtime:  runtime,
+		cfg:      &config.Config{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+	}).router()
+
+	body := `{"query":"OpenAI Codex authentication documentation","model":"gpt-5.6-sol","id":"sess-42"}`
+	req := httptest.NewRequest(http.MethodPost, codexAlphaSearchPath, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Openai-Actor-Authorization", "actor-token")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	if runtime.alphaSearchCalls != 1 {
+		t.Fatalf("alphaSearchCalls = %d, want 1", runtime.alphaSearchCalls)
+	}
+	if runtime.lastAlphaModel != "gpt-5.6-sol" {
+		t.Fatalf("model = %q, want gpt-5.6-sol", runtime.lastAlphaModel)
+	}
+	if !strings.Contains(string(runtime.lastAlphaBody), `"query":"OpenAI Codex authentication documentation"`) {
+		t.Fatalf("body not forwarded: %s", runtime.lastAlphaBody)
+	}
+	if got := runtime.lastAlphaHeaders.Get("X-Session-ID"); got != "sess-42" {
+		t.Fatalf("X-Session-ID = %q, want sess-42", got)
+	}
+	if got := runtime.lastAlphaHeaders.Get("X-Openai-Actor-Authorization"); got != "actor-token" {
+		t.Fatalf("actor header = %q", got)
+	}
+	if !strings.Contains(w.Body.String(), `"results"`) {
+		t.Fatalf("response body missing results: %s", w.Body.String())
+	}
+}
+
+func TestCodexAlphaSearchDirectPathIsRegistered(t *testing.T) {
+	t.Parallel()
+	runtime := &fakeRuntime{alphaSearchPayload: []byte(`{"ok":true}`)}
+	m := &manifest{
+		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+	}
+	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
+	router := (&relayServer{
+		runtime:  runtime,
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodPost, codexDirectAlphaSearchPath, strings.NewReader(`{"query":"ping"}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code == http.StatusNotFound {
+		t.Fatalf("direct path should not be NoRoute 404: %s", w.Body.String())
+	}
+	if runtime.alphaSearchCalls != 1 {
+		t.Fatalf("alphaSearchCalls = %d, want 1", runtime.alphaSearchCalls)
+	}
+}
+
+func TestCodexAlphaSearchRequiresAPIKey(t *testing.T) {
+	t.Parallel()
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		manifest: &manifest{},
+		policy:   &requestPolicy{manifest: &manifest{}},
+	}).router()
+	req := httptest.NewRequest(http.MethodPost, codexAlphaSearchPath, strings.NewReader(`{"query":"ping"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestResponsesWebsocketRouteRequiresAPIKey(t *testing.T) {
+	t.Parallel()
+	called := false
+	router := (&relayServer{
+		runtime: &fakeRuntime{},
+		manifest: &manifest{
+			APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+			apiKeyByValue: map[string]*apiKeySpec{
+				"client-key": {ID: "key_1", Key: "client-key", Enabled: true},
+			},
+		},
+		policy: &requestPolicy{
+			manifest: &manifest{
+				APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+				apiKeyByValue: map[string]*apiKeySpec{
+					"client-key": {ID: "key_1", Key: "client-key", Enabled: true},
+				},
+			},
+		},
+		responsesWebsocket: func(c *gin.Context) {
+			called = true
+			c.Status(http.StatusSwitchingProtocols)
+		},
+	}).router()
+
+	// Missing key → 401, handler not invoked.
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("missing key status = %d, want 401 body=%s", w.Code, w.Body.String())
+	}
+	if called {
+		t.Fatal("websocket handler should not run without API key")
+	}
+
+	// Valid key → handler runs.
+	req = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if !called {
+		t.Fatal("websocket handler should run with valid API key")
+	}
+	if w.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("valid key status = %d, want 101 body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestResponsesWebsocketRouteUnavailableWithoutHandler(t *testing.T) {
+	t.Parallel()
+	m := &manifest{
+		APIKeys: []apiKeySpec{{ID: "key_1", Key: "client-key", Enabled: true}},
+	}
+	m.apiKeyByValue = map[string]*apiKeySpec{"client-key": &m.APIKeys[0]}
+	router := (&relayServer{
+		runtime:  &fakeRuntime{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "responses websocket unavailable") {
+		t.Fatalf("body = %s", w.Body.String())
 	}
 }

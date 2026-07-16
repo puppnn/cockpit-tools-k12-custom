@@ -516,3 +516,46 @@ fn empty_response(status: u16) -> Response<Cursor<Vec<u8>>> {
         None,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anthropic_base_url_appends_messages_path() {
+        let server = Server::http("127.0.0.1:0").expect("mock upstream should start");
+        let port = server
+            .server_addr()
+            .to_ip()
+            .expect("mock upstream should use an IP address")
+            .port();
+        let captured = thread::spawn(move || {
+            let request = server
+                .recv()
+                .expect("mock upstream should receive a request");
+            let path = request.url().to_string();
+            request
+                .respond(json_response(200, json!({ "type": "message" })))
+                .expect("mock upstream should send a response");
+            path
+        });
+
+        let base_url = format!("http://127.0.0.1:{}/anthropic", port);
+        let url = build_upstream_url(&base_url, "/v1/messages")
+            .expect("upstream messages URL should be valid");
+        let response = Client::builder()
+            .no_proxy()
+            .build()
+            .expect("HTTP client should build")
+            .post(url)
+            .body("{}")
+            .send()
+            .expect("captured request should succeed");
+
+        assert!(response.status().is_success());
+        assert_eq!(
+            captured.join().expect("capture thread should finish"),
+            "/anthropic/v1/messages"
+        );
+    }
+}

@@ -591,7 +591,7 @@
       "themeDark": "Dunkel",
       "themeSystem": "System​",
       "uiScale": "UI-Skalierung",
-      "uiScaleDesc": "UI-Skalierung anpassen",
+      "uiScaleDesc": "Oberflächenzoom anpassen (⌘+/⌘- oder Strg+/Strg-, ⌘0/Strg+0 zurücksetzen)",
       "accountManagement": "Kontoverwaltung",
       "autoRefresh": "Antigravity IDE-Quote automatisch aktualisieren",
       "codexAutoRefresh": "Codex-Quote automatisch aktualisieren",
@@ -1195,7 +1195,11 @@
         "tooMany": "Sie können bis zu {{max}} Tags hinzufügen"
       },
       "notesLabel": "Notiz",
-      "notesPlaceholder": "Notiz eingeben. Leer lassen, um sie zu löschen"
+      "notesPlaceholder": "Notiz eingeben. Leer lassen, um sie zu löschen",
+      "confirmGlobalDelete": "Tag \"{{targetTag}}\" von allen Konten entfernen? Dies kann nicht rückgängig gemacht werden.",
+      "globalDeleteHint": "Tag global löschen",
+      "globalDeleteFailed": "Globales Löschen des Tags fehlgeschlagen",
+      "globalRenameHint": "Tag global umbenennen"
     },
     "groupByTag": "Nach Tag gruppieren",
     "untagged": "Ohne Tag",
@@ -1914,6 +1918,7 @@
         "requestsDetail": "OK {{success}} / Fehler {{failed}} / Abbr. {{canceled}} / Quelle {{upstreamFailed}} / Unvollst. {{incomplete}}",
         "tokens": "Token",
         "tokensDetail": "Eingabe {{input}} / Ausgabe {{output}}",
+        "cached": "Zwischenspeicher",
         "specialTokens": "Cache / Denken",
         "specialTokensDetail": "Cache {{cached}} / Denken {{reasoning}}",
         "avgLatency": "Durchschn. Latenz",
@@ -2163,7 +2168,10 @@
       "refreshFailedBadge": "Aktualisierung fehlgeschlagen",
       "generic": "Kontingent-Aktualisierung fehlgeschlagen, bitte später erneut versuchen",
       "deactivatedWorkspace": "Workspace ist deaktiviert, bitte Konto wechseln oder neu autorisieren",
-      "requestFailedManualRetry": "Netzwerk prüfen. Das neueste Kontingent wurde nicht abgerufen. Zum Wiederholen aktualisieren."
+      "requestFailedManualRetry": "Netzwerk prüfen. Das neueste Kontingent wurde nicht abgerufen. Zum Wiederholen aktualisieren.",
+      "httpStatusSummary": "API-Fehler {{status}}",
+      "viewDetails": "Details",
+      "detailTitle": "Fehlerdetails"
     },
     "plan": {
       "free": "FREE​",
@@ -3327,6 +3335,7 @@
         "disableCooling": "Cooldown deaktivieren",
         "saveOptions": "Optionen speichern",
         "immediateSseResponse": "Sofortiges SSE 200",
+        "maxConcurrentImageRequests": "Bildanfragen pro Konto",
         "optionsSaved": "Routingoptionen gespeichert"
       },
       "validation": {
@@ -3488,7 +3497,10 @@
       "checkAccounts": "Konten prüfen",
       "importAndAddToApiService": "Importieren + API",
       "importAndAddToApiServiceSuccess": "Importiert und zum API-Dienst hinzugefügt",
-      "addToApiServiceFailed": "Importiert, aber das Hinzufügen zum API-Dienst ist fehlgeschlagen: {{error}}"
+      "addToApiServiceFailed": "Importiert, aber das Hinzufügen zum API-Dienst ist fehlgeschlagen: {{error}}",
+      "cancelAndDismiss": "Abbrechen und verwerfen",
+      "bulkTagsLabel": "Tags nach Import",
+      "bulkTagsPlaceholder": "Optional; Tags mit Komma oder Leerzeichen"
     },
     "autoRepairMode": {
       "label": "Auto-Reparaturlogik",
@@ -3534,7 +3546,10 @@
       "chipTags": "Schlagworte",
       "chipSearch": "Suche",
       "chipPlan": "Tarif",
-      "chipFolder": "Ordner"
+      "chipFolder": "Ordner",
+      "authError": "Auth fehlgeschlagen",
+      "zeroQuota": "0% Kontingent",
+      "expired": "Abgelaufen"
     },
     "accessTokenImport": {
       "nameRequired": "Kontonamen eingeben",
@@ -3600,7 +3615,9 @@
       "serverListLead": "Wählen Sie das Synchronisierungsziel aus",
       "serverCount": "{{count}} Server",
       "autoSyncBadge": "Automatisch"
-    }
+    },
+    "exportAuthFailed": "Fehler export.",
+    "exportAuthFailedTitle": "Alle Auth-Fehler-Konten exportieren"
   },
   "githubCopilot": {
     "title": "GitHub Copilot-Konten verwalten",
@@ -4771,7 +4788,12 @@
       "streakDays": "{{days}} Tage",
       "streakRewardCountdown": "Noch {{days}} Tage bis zur Bonusbelohnung",
       "streakRewardToday": "Bonusbelohnung heute verfügbar!",
-      "recentDates": "Kürzlich: "
+      "recentDates": "Kürzlich: ",
+      "claimed": "Abgeholt",
+      "queryFailed": "Abfrage fehlgeschlagen",
+      "retry": "Erneut",
+      "inactive": "Inaktiv",
+      "inactiveHint": "Check-in für dieses Konto nicht aktiv"
     }
   },
   "zcode": {
@@ -5221,13 +5243,13 @@
     },
     "import": {
       "pasteTab": "JSON einfügen",
-      "pasteDesc": "Die offizielle auth.json von Grok CLI einfügen. Anmeldedaten werden nur im lokalen Backend verarbeitet. Cockpit exportiert ausschließlich geschwärzte Metadaten, die keine Anmeldung wiederherstellen können.",
+      "pasteDesc": "Offizielles Grok-CLI-auth.json oder vollständiges, von dieser App exportiertes Konto-JSON (mit Anmeldedaten, reimportierbar) einfügen. Anmeldedaten bleiben lokal.",
       "pastePlaceholder": "Grok-Konto-JSON einfügen",
       "pasteAction": "JSON importieren",
-      "localDesc": "Das aktuelle Konto aus der standardmäßigen ~/.grok/auth.json importieren. Bei der Dateiauswahl die offizielle auth.json von Grok CLI verwenden.",
+      "localDesc": "Aus ~/.grok/auth.json importieren oder offizielles auth.json / vollständiges Export-JSON dieser App wählen.",
       "localClient": "Aus lokaler Grok CLI importieren",
       "apiKeyTab": "API-Schlüssel",
-      "apiKeyDesc": "xAI-API-Key einfügen (offiziell XAI_API_KEY). Wird beim Start als Umgebungsvariable gesetzt. Offizielle auth.json ist ebenfalls möglich.",
+      "apiKeyDesc": "xAI-API-Key einfügen (offiziell XAI_API_KEY / xai-…). Wird beim CLI-Start als Umgebungsvariable gesetzt und überschreibt die offizielle OAuth-Anmeldung nicht.",
       "apiKeyPlaceholder": "xai-… einfügen",
       "apiKeyAction": "API-Key hinzufügen"
     },

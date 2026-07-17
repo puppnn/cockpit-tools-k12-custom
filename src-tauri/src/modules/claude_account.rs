@@ -411,7 +411,9 @@ fn load_account_file(account_id: &str) -> Option<ClaudeAccount> {
         return None;
     }
     let content = fs::read_to_string(&path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file::<ClaudeAccount>(&path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<ClaudeAccount>(
+        &path, &content,
+    ) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
                 let account_for_rewrite = account.clone();
@@ -8088,9 +8090,8 @@ pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
         let path = account_file_path(account_id)?;
         // Must share the atomic_write path lock with deferred CAS rewrites so a
         // concurrent migration cannot resurrect the deleted account file.
-        crate::modules::atomic_write::remove_file_locked(&path).map_err(|e| {
-            format!("删除 Claude 账号失败: path={}, error={}", path.display(), e)
-        })?;
+        crate::modules::atomic_write::remove_file_locked(&path)
+            .map_err(|e| format!("删除 Claude 账号失败: path={}, error={}", path.display(), e))?;
     }
     index
         .accounts

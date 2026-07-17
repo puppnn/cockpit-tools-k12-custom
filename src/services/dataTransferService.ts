@@ -759,6 +759,7 @@ function exportCodexAccountGroups(
     name: group.name,
     sortOrder: group.sortOrder,
     createdAt: group.createdAt,
+    quotaAutoRefreshMinutes: group.quotaAutoRefreshMinutes ?? null,
     accountRefs: mapAccountIdsToRefs('codex', group.accountIds, registry),
   }));
 }
@@ -776,6 +777,13 @@ function importCodexAccountGroups(
       name: group.name,
       sortOrder: group.sortOrder,
       createdAt: group.createdAt,
+      // 兼容旧导出里的 boolean；新字段优先
+      quotaAutoRefreshMinutes:
+        (group as { quotaAutoRefreshMinutes?: number | null }).quotaAutoRefreshMinutes !== undefined
+          ? (group as { quotaAutoRefreshMinutes?: number | null }).quotaAutoRefreshMinutes ?? null
+          : (group as { quotaRefreshEnabled?: boolean }).quotaRefreshEnabled === false
+            ? -1
+            : null,
       accountIds: resolved.ids,
     };
   });

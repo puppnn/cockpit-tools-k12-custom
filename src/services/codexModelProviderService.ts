@@ -292,6 +292,9 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
       modelCapabilities: normalizeModelCapabilities(
         (item as { modelCapabilities?: unknown }).modelCapabilities,
       ),
+      visionRoutingModel:
+        sanitizeName(String((item as { visionRoutingModel?: unknown }).visionRoutingModel ?? '')) ||
+        undefined,
       boundInstanceId: normalizeBoundInstanceId(
         (item as { boundInstanceId?: unknown }).boundInstanceId,
       ),

@@ -1273,7 +1273,9 @@
         "renameFailed": "グループの名前変更に失敗しました：{{error}}",
         "deleteFailed": "グループの削除に失敗しました：{{error}}",
         "addFailed": "グループへの追加に失敗しました：{{error}}",
-        "createAndAddFailed": "グループの作成と追加に失敗しました：{{error}}"
+        "createAndAddFailed": "グループの作成と追加に失敗しました：{{error}}",
+        "quotaRefreshFailed": "クォータ更新設定を変更できませんでした：{{error}}",
+        "notFound": "グループが見つかりません"
       },
       "addAccounts": "アカウントを追加",
       "editTitle": "グループを編集",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "現在のグループ",
       "accountPickerEmpty": "条件に一致するアカウントはありません",
       "filterHint": "フィルター対象に {{count}} 件のグループを選択中",
-      "filterToggle": "このグループで絞り込む"
+      "filterToggle": "このグループで絞り込む",
+      "quotaRefresh": "クォータ更新",
+      "quotaRefreshOffBadge": "更新しない",
+      "quotaRefreshOffHint": "このグループは更新されません。自動更新と全件更新ではグループ内のアカウントをスキップします",
+      "refreshForceHint": "ポリシーが「プラットフォームを継承」以外でも、このグループは手動で更新できます",
+      "quotaRefreshInherit": "プラットフォームを継承",
+      "quotaRefreshPolicyHint": "グループのクォータ更新設定が最優先されます：プラットフォームを継承、独自の間隔、または更新しない",
+      "quotaRefreshMinutesBadge": "{{count}}分"
     },
     "switchHistory": {
       "title": "切替履歴",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "{{url}} に接続できません。API サービスが起動していること、ポートが変更されていないこと、ブロックされていないことを確認してください。",
       "testAuthFailed": "サービスには到達しましたが、認証に失敗しました: {{detail}}。API サービスキーまたはアカウントのログイン状態を確認してください。",
       "testServiceUnavailable": "サービスには到達しましたが、現在利用できません: {{detail}}。サービスが有効か、アカウント集合が空でないか、アカウントが利用可能かを確認してください。",
+      "gatewayErrors": {"authUnavailable": "現在、ルーティング可能なアカウントがありません。冷却中、認証失敗、またはクォータ制限の可能性があります。Cockpit Tools の API サービスで状態を確認してください。", "authNotFound": "利用可能なアカウントがアカウントプールに設定されていません。Cockpit Tools の API サービスで追加または有効化してください。"},
       "testRateLimited": "サービスには到達しましたが、上流でレート制限またはクォータ不足です: {{detail}}。",
       "testHttpFailed": "サービスには到達しましたが、リクエストは HTTP {{status}} を返しました: {{detail}}。",
       "activateAction": "API サービスを起動",
@@ -2116,7 +2126,31 @@
         "allAvailable": "すべて正常 {{count}}",
         "availableRatio": "正常 {{available}}/{{total}}",
         "issueSummary": "異常 {{abnormal}} · 冷却 {{cooldown}}",
-        "detail": "正常 {{available}}/{{total}}、異常 {{abnormal}}、冷却 {{cooldown}}、欠落 {{missing}}、認証 {{authError}}、クォータ {{quotaLimited}}"
+        "detail": "正常 {{available}}/{{total}}、異常 {{abnormal}}、冷却 {{cooldown}}、欠落 {{missing}}、認証 {{authError}}、クォータ {{quotaLimited}}",
+        "openDetails": "異常アカウントを表示",
+        "recover": "アカウント状態を復旧",
+        "recoverSuccess": "{{count}} 件のアカウントの復旧を要求しました",
+        "dialog": {
+          "title": "異常アカウント",
+          "description": "この状態は Sidecar OAuth スケジューラから取得しています。復旧すると冷却を解除して再試行します。",
+          "noIssues": "異常アカウントはありません",
+          "missing": "アカウント欠落",
+          "cooldown": "冷却中",
+          "quota": "クォータ制限",
+          "missingDetail": "アカウントが一覧に存在しません",
+          "cooldownModel": "モデル {{model}} は冷却中です",
+          "cooldownUntil": "モデル {{model}} は {{time}} まで冷却中です",
+          "authDetail": "OAuth 認証が失効した可能性があります。再認証してください。",
+          "quotaDetail": "クォータが一時的に利用できません。回復を待つかプランを確認してください。",
+          "paymentDetail": "プランまたは支払い状態を確認してください。",
+          "modelDetail": "このアカウントは要求されたモデルに対応していません。",
+          "upstreamDetail": "上流サービスが一時的に異常です。復旧後に再試行します。",
+          "disabledDetail": "このアカウントは無効です。先に有効化してください。",
+          "unavailableDetail": "Sidecar は現在このアカウントをスケジュール対象にしていません。",
+          "recover": "復旧",
+          "recovering": "復旧中…",
+          "recoverAll": "すべて復旧"
+        }
       },
       "testChatModel": "モデル",
       "testChatClear": "会話を消去",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "連続失敗 {{count}} 回",
-        "image": "画像 {{status}}"
+        "image": "画像 {{status}}",
+        "unavailable": "一時的に利用不可",
+        "authError": "認証エラー"
       },
       "models": {
         "availableTitle": "利用可能なモデル",
@@ -4092,10 +4128,21 @@
       "description": "「アカウントを追加」をクリックして Kiro アカウントの管理を開始します"
     },
     "addModal": {
-      "title": "Kiroアカウントを追加する"
+      "title": "Kiroアカウントを追加する",
+      "idc": "AWS SSO ログイン"
     },
     "oauth": {
       "desc": "下のボタンをクリックして、ブラウザで Kiro 認証を完了してください。"
+    },
+    "idc": {
+      "builderId": "AWS Builder ID アカウント",
+      "enterprise": "企業アカウント",
+      "desc": "ブラウザで AWS IAM Identity Center の認証を完了すると、アカウントが自動的に保存されます。",
+      "region": "AWS リージョン",
+      "startUrl": "IAM Identity Center の開始 URL",
+      "start": "企業ログインを開始",
+      "regionRequired": "AWS リージョンを入力してください",
+      "startUrlRequired": "IAM Identity Center の開始 URL を入力してください"
     },
     "token": {
       "desc": "Kiro アクセス トークンまたはエクスポートされた JSON データを貼り付けます。"

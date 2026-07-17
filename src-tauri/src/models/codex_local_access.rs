@@ -736,6 +736,9 @@ pub struct CodexLocalAccessAccountHealth {
     pub last_failure_message: Option<String>,
     pub image_generation_status: CodexLocalAccessImageGenerationStatus,
     pub image_generation_checked_at: Option<i64>,
+    pub scheduler_available: Option<bool>,
+    pub scheduler_reason: Option<String>,
+    pub scheduler_next_retry_at: Option<i64>,
     pub cooldowns: Vec<CodexLocalAccessAccountCooldown>,
 }
 

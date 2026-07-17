@@ -486,9 +486,7 @@ fn ensure_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(WebviewWindow<R
             return Ok((window, false));
         }
 
-        logger::log_info(
-            "[Window] 托盘销毁后检测到残留主窗口句柄，强制销毁并重建",
-        );
+        logger::log_info("[Window] 托盘销毁后检测到残留主窗口句柄，强制销毁并重建");
         if let Err(err) = window.destroy() {
             logger::log_warn(&format!(
                 "[Window] 清理残留主窗口失败（仍将尝试重建）: {}",
@@ -573,10 +571,7 @@ pub fn show_main_window_and_navigate<R: Runtime>(
     let should_defer_navigation = must_recreate_main_window(window_present, destroyed_to_tray);
     if should_defer_navigation {
         set_pending_main_window_navigation(page)?;
-        logger::log_info(&format!(
-            "[Window] 主窗口将重建，延迟导航到: {}",
-            page
-        ));
+        logger::log_info(&format!("[Window] 主窗口将重建，延迟导航到: {}", page));
     }
     if let Err(err) = show_main_window_internal(app) {
         if should_defer_navigation {
@@ -617,10 +612,7 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 fn show_main_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
     let (window, created) = ensure_main_window(app)?;
 
-    logger::log_info(&format!(
-        "[Window] 尝试恢复主窗口 (recreated={})",
-        created
-    ));
+    logger::log_info(&format!("[Window] 尝试恢复主窗口 (recreated={})", created));
     #[cfg(target_os = "macos")]
     show_macos_application(app);
 
@@ -658,10 +650,7 @@ fn show_main_window_internal<R: Runtime>(app: &AppHandle<R>) -> Result<bool, Str
                 ));
                 std::thread::spawn(|| {
                     if let Err(err) = crate::modules::process::focus_current_process_main_window() {
-                        logger::log_warn(&format!(
-                            "[Window] Windows 原生前置主窗口失败: {}",
-                            err
-                        ));
+                        logger::log_warn(&format!("[Window] Windows 原生前置主窗口失败: {}", err));
                     }
                 });
             }

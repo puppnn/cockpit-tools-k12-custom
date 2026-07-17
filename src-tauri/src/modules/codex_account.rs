@@ -31,6 +31,7 @@ const COCKPIT_API_LOGIN_PLAN_TYPE: &str = "Cockpit Api";
 const COCKPIT_API_DEFAULT_ACCOUNT_NAME: &str = "Codex API";
 const API_KEY_EMAIL_PREFIX: &str = "api-key";
 const API_KEY_AUTH_MODE: &str = "apikey";
+const CODEX_ACCOUNT_GROUPS_FILE: &str = "codex_account_groups.json";
 const CODEX_CONFIG_FILE_NAME: &str = "config.toml";
 const CODEX_CONFIG_OPENAI_BASE_URL_KEY: &str = "openai_base_url";
 const CODEX_CONFIG_MODEL_PROVIDER_KEY: &str = "model_provider";
@@ -2998,6 +2999,143 @@ pub fn delete_account_file(account_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+// ─── Codex 分组额度刷新策略（最高优先级）────────────────────────────
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexAccountGroupRecord {
+    #[serde(default)]
+    account_ids: Vec<String>,
+    /// null/缺省 = 继承平台；-1 = 不刷新；>0 = 自定义分钟
+    #[serde(default)]
+    quota_auto_refresh_minutes: Option<i32>,
+    /// 旧字段兼容：false → 不刷新
+    #[serde(default)]
+    quota_refresh_enabled: Option<bool>,
+}
+
+/// 分组额度策略：继承 / 关闭 / 自定义分钟
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexGroupQuotaRefreshPolicy {
+    Inherit,
+    Disabled,
+    Minutes(u32),
+}
+
+impl CodexAccountGroupRecord {
+    fn policy(&self) -> CodexGroupQuotaRefreshPolicy {
+        if let Some(minutes) = self.quota_auto_refresh_minutes {
+            if minutes <= -1 {
+                return CodexGroupQuotaRefreshPolicy::Disabled;
+            }
+            if minutes > 0 {
+                let clamped = minutes.clamp(1, 999) as u32;
+                return CodexGroupQuotaRefreshPolicy::Minutes(clamped);
+            }
+            // 0 视为关闭
+            return CodexGroupQuotaRefreshPolicy::Disabled;
+        }
+        if self.quota_refresh_enabled == Some(false) {
+            return CodexGroupQuotaRefreshPolicy::Disabled;
+        }
+        CodexGroupQuotaRefreshPolicy::Inherit
+    }
+}
+
+fn codex_account_groups_path() -> Result<PathBuf, String> {
+    Ok(account::get_data_dir()?.join(CODEX_ACCOUNT_GROUPS_FILE))
+}
+
+fn load_codex_account_group_records() -> Vec<CodexAccountGroupRecord> {
+    let path = match codex_account_groups_path() {
+        Ok(path) => path,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Codex Groups] 解析数据目录失败，跳过分组额度策略: {}",
+                error
+            ));
+            return Vec::new();
+        }
+    };
+
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    let raw = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Codex Groups] 读取分组文件失败，跳过分组额度策略: path={}, error={}",
+                path.display(),
+                error
+            ));
+            return Vec::new();
+        }
+    };
+
+    match serde_json::from_str::<Vec<CodexAccountGroupRecord>>(&raw) {
+        Ok(groups) => groups,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Codex Groups] 解析分组文件失败，跳过分组额度策略: path={}, error={}",
+                path.display(),
+                error
+            ));
+            Vec::new()
+        }
+    }
+}
+
+/// 读取分组配置中「关闭额度刷新」的账号 ID 集合（策略 = Disabled / -1）。
+pub fn load_quota_refresh_disabled_account_ids() -> HashSet<String> {
+    let mut disabled = HashSet::new();
+    for group in load_codex_account_group_records() {
+        if group.policy() != CodexGroupQuotaRefreshPolicy::Disabled {
+            continue;
+        }
+        for account_id in group.account_ids {
+            let trimmed = account_id.trim();
+            if !trimmed.is_empty() {
+                disabled.insert(trimmed.to_string());
+            }
+        }
+    }
+    disabled
+}
+
+/// 账号是否允许参与「受策略约束」的额度刷新（自动/全量/默认批量）。
+pub fn is_quota_refresh_enabled_for_account(account_id: &str) -> bool {
+    let trimmed = account_id.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    !load_quota_refresh_disabled_account_ids().contains(trimmed)
+}
+
+/// 按分组策略过滤账号 ID（剔除 Disabled），保持顺序。
+pub fn filter_account_ids_by_quota_refresh_policy(account_ids: &[String]) -> Vec<String> {
+    let disabled = load_quota_refresh_disabled_account_ids();
+    if disabled.is_empty() {
+        return account_ids
+            .iter()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .collect();
+    }
+    account_ids
+        .iter()
+        .filter_map(|id| {
+            let trimmed = id.trim();
+            if trimmed.is_empty() || disabled.contains(trimmed) {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect()
+}
+
 /// 列出所有账号
 pub fn list_accounts() -> Vec<CodexAccount> {
     let mut index = load_account_index();
@@ -4382,8 +4520,7 @@ pub fn write_auth_file_to_dir(base_dir: &Path, account: &CodexAccount) -> Result
             account.api_provider_id.as_deref(),
             account.api_provider_name.as_deref(),
         );
-        let supports_image =
-            api_key_provider_should_enable_imagegen(account, &provider_config);
+        let supports_image = api_key_provider_should_enable_imagegen(account, &provider_config);
         write_api_key_provider_to_config_toml(
             base_dir,
             &provider_config,
@@ -4495,8 +4632,7 @@ fn write_api_key_provider_override_to_config_toml(
     );
     // 绑定 OAuth 一律 requires_openai_auth=true（显示/使用 OAuth 登录态）。
     // 生图：与纯 API Key 同一判定——本地 loopback 始终开；第三方仅目录含 gpt-image-2。
-    let supports_image =
-        api_key_provider_should_enable_imagegen(api_key_account, &provider_config);
+    let supports_image = api_key_provider_should_enable_imagegen(api_key_account, &provider_config);
     write_api_key_provider_to_config_toml(
         base_dir,
         &provider_config,
@@ -4530,8 +4666,7 @@ fn refresh_api_key_provider_projection_in_dir(
         account.api_provider_id.as_deref(),
         account.api_provider_name.as_deref(),
     );
-    let supports_image =
-        api_key_provider_should_enable_imagegen(account, &provider_config);
+    let supports_image = api_key_provider_should_enable_imagegen(account, &provider_config);
     write_api_key_provider_to_config_toml(
         base_dir,
         &provider_config,
@@ -6621,9 +6756,7 @@ async fn import_codex_candidate(
 /// 快速待授权行格式：
 /// `邮箱----账号密码----2FA秘钥----邮件地址`
 /// 也兼容 3 段（无邮件地址）：`邮箱----账号密码----2FA秘钥`
-fn try_parse_pending_oauth_delimited_line(
-    line: &str,
-) -> Option<(String, CodexAccountNoteUpdate)> {
+fn try_parse_pending_oauth_delimited_line(line: &str) -> Option<(String, CodexAccountNoteUpdate)> {
     let line = normalize_optional_ref(Some(line))?;
     if !line.contains("----") {
         return None;
@@ -6684,9 +6817,8 @@ async fn import_accounts_from_token_lines(content: &str) -> Result<Vec<CodexAcco
     for (index, line) in lines.into_iter().enumerate() {
         if let Some((email, update)) = try_parse_pending_oauth_delimited_line(&line) {
             accounts.push(
-                create_pending_oauth_account(email, update).map_err(|err| {
-                    format!("第 {} 行待授权账号导入失败: {}", index + 1, err)
-                })?,
+                create_pending_oauth_account(email, update)
+                    .map_err(|err| format!("第 {} 行待授权账号导入失败: {}", index + 1, err))?,
             );
             continue;
         }
@@ -8430,19 +8562,18 @@ mod tests {
         read_api_provider_from_config_toml, read_quick_config_from_config_toml, remove_accounts,
         resolve_api_provider_config, save_account, save_account_index,
         should_accept_authority_snapshot, sync_account_from_auth_dir,
-        sync_api_key_provider_accounts,
-        sync_api_key_account_from_local_state, sync_managed_projection_from_auth_dir,
-        try_parse_pending_oauth_delimited_line, upsert_account, upsert_account_for_reauth,
-        upsert_account_from_access_token, upsert_account_from_access_token_with_hints,
-        upsert_account_from_auth_tokens, upsert_api_key_account, validate_api_key_credentials,
-        write_account_bundle_to_dir,
+        sync_api_key_account_from_local_state, sync_api_key_provider_accounts,
+        sync_managed_projection_from_auth_dir, try_parse_pending_oauth_delimited_line,
+        upsert_account, upsert_account_for_reauth, upsert_account_from_access_token,
+        upsert_account_from_access_token_with_hints, upsert_account_from_auth_tokens,
+        upsert_api_key_account, validate_api_key_credentials, write_account_bundle_to_dir,
         write_api_key_provider_to_config_toml, write_api_provider_to_config_toml,
         write_managed_projection_to_dir, write_quick_config_to_config_toml, ApiProviderConfig,
-        CodexAccessTokenImportHints, CodexAccountIndex, CodexAccountSummary, CodexAuthFile,
-        CodexAuthTokens, CodexJsonImportCandidate, LocalCodexOAuthSnapshot,
-        CODEX_ACCOUNT_DETAIL_SCHEMA_VERSION, CODEX_AUTHORIZATION_STATUS_PENDING,
-        CODEX_AUTO_COMPACT_DEFAULT_LIMIT, CODEX_CONTEXT_WINDOW_1M_VALUE,
-        CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER,
+        CodexAccessTokenImportHints, CodexAccountGroupRecord, CodexAccountIndex,
+        CodexAccountSummary, CodexAuthFile, CodexAuthTokens, CodexGroupQuotaRefreshPolicy,
+        CodexJsonImportCandidate, LocalCodexOAuthSnapshot, CODEX_ACCOUNT_DETAIL_SCHEMA_VERSION,
+        CODEX_AUTHORIZATION_STATUS_PENDING, CODEX_AUTO_COMPACT_DEFAULT_LIMIT,
+        CODEX_CONTEXT_WINDOW_1M_VALUE, CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER,
         CODEX_DISABLE_HOSTED_IMAGE_GENERATION_HEADER_VALUE, CODEX_IMAGEGEN_ACTOR_HEADER,
         CODEX_IMAGEGEN_ACTOR_HEADER_VALUE, CODEX_IMAGE_MODEL_ID,
     };
@@ -9481,7 +9612,10 @@ mod tests {
             .find(|item| item.email == "user2@example.com")
             .expect("second account");
         assert_eq!(second.account_password.as_deref(), Some("pwd2"));
-        assert_eq!(second.two_factor_secret.as_deref(), Some("ABCDEFGHIJKLMNOP"));
+        assert_eq!(
+            second.two_factor_secret.as_deref(),
+            Some("ABCDEFGHIJKLMNOP")
+        );
         assert!(second.mail_url.is_none());
     }
 
@@ -10597,8 +10731,15 @@ multi_agent = true
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
-            .expect("write config");
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "sk-test",
+            false,
+            false,
+            true,
+        )
+        .expect("write config");
 
         let config_path = base_dir.join("config.toml");
         let content = fs::read_to_string(&config_path).expect("read config");
@@ -10635,8 +10776,15 @@ multi_agent = true
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
-            .expect("write config");
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "sk-test",
+            false,
+            false,
+            true,
+        )
+        .expect("write config");
 
         let config_path = base_dir.join("config.toml");
         let content = fs::read_to_string(&config_path).expect("read config");
@@ -10741,8 +10889,15 @@ X-Custom = "keep-me"
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, true, false)
-            .expect("write config");
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "sk-test",
+            false,
+            true,
+            false,
+        )
+        .expect("write config");
 
         let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
         assert!(content.contains(CODEX_IMAGEGEN_ACTOR_HEADER));
@@ -10770,8 +10925,15 @@ http_headers = { "x-openai-actor-authorization" = "legacy", "X-Custom" = "keep-m
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
-            .expect("write config");
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "sk-test",
+            false,
+            false,
+            true,
+        )
+        .expect("write config");
 
         let content = fs::read_to_string(&config_path).expect("read config");
         let parsed = content.parse::<Document>().expect("parse config");
@@ -11024,8 +11186,15 @@ supports_websockets = false
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", true, false, true)
-            .expect("write config");
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "sk-test",
+            true,
+            false,
+            true,
+        )
+        .expect("write config");
 
         let content = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
         assert!(content.contains("supports_websockets = true"));
@@ -11079,8 +11248,8 @@ supports_websockets = false
         assert_eq!(saved.api_model_catalog, vec!["gpt-5".to_string()]);
         assert_eq!(saved.last_used, 123);
 
-        let config = fs::read_to_string(env.codex_home().join("config.toml"))
-            .expect("read current config");
+        let config =
+            fs::read_to_string(env.codex_home().join("config.toml")).expect("read current config");
         assert!(config.contains("supports_websockets = true"));
     }
 
@@ -11714,8 +11883,15 @@ multi_agent = true
         )
         .expect("resolve provider config");
 
-        write_api_key_provider_to_config_toml(&base_dir, &provider_config, "sk-test", false, false, true)
-            .expect("write config");
+        write_api_key_provider_to_config_toml(
+            &base_dir,
+            &provider_config,
+            "sk-test",
+            false,
+            false,
+            true,
+        )
+        .expect("write config");
 
         let content = fs::read_to_string(&config_path).expect("read config");
         assert!(content.contains("model_provider = \"codex_local_access\""));
@@ -11944,6 +12120,28 @@ wire_api = "responses"
                 log_file.display()
             );
         }
+    }
+
+    #[test]
+    fn codex_group_quota_policy_defaults_to_inherit() {
+        let groups: Vec<CodexAccountGroupRecord> =
+            serde_json::from_str(r#"[{"accountIds":["a1"]}]"#).expect("parse");
+        assert_eq!(groups[0].policy(), CodexGroupQuotaRefreshPolicy::Inherit);
+    }
+
+    #[test]
+    fn codex_group_quota_policy_supports_disabled_and_custom() {
+        let groups: Vec<CodexAccountGroupRecord> = serde_json::from_str(
+            r#"[
+              {"accountIds":["a1"],"quotaAutoRefreshMinutes":-1},
+              {"accountIds":["a2"],"quotaAutoRefreshMinutes":5},
+              {"accountIds":["a3"],"quotaRefreshEnabled":false}
+            ]"#,
+        )
+        .expect("parse");
+        assert_eq!(groups[0].policy(), CodexGroupQuotaRefreshPolicy::Disabled);
+        assert_eq!(groups[1].policy(), CodexGroupQuotaRefreshPolicy::Minutes(5));
+        assert_eq!(groups[2].policy(), CodexGroupQuotaRefreshPolicy::Disabled);
     }
 }
 

@@ -1273,7 +1273,9 @@
         "renameFailed": "Error al renombrar el grupo: {{error}}",
         "deleteFailed": "Error al eliminar el grupo: {{error}}",
         "addFailed": "Error al añadir al grupo: {{error}}",
-        "createAndAddFailed": "Error al crear y añadir: {{error}}"
+        "createAndAddFailed": "Error al crear y añadir: {{error}}",
+        "quotaRefreshFailed": "No se pudo actualizar la configuración de actualización de cuota: {{error}}",
+        "notFound": "No se encontró el grupo"
       },
       "addAccounts": "Agregar cuentas",
       "editTitle": "Editar grupo",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Grupo actual",
       "accountPickerEmpty": "No hay cuentas coincidentes",
       "filterHint": "{{count}} grupo(s) seleccionado(s) para filtrar",
-      "filterToggle": "Marca para filtrar por este grupo"
+      "filterToggle": "Marca para filtrar por este grupo",
+      "quotaRefresh": "Actualizar cuota",
+      "quotaRefreshOffBadge": "Sin actualización",
+      "quotaRefreshOffHint": "Este grupo no se actualiza; la actualización automática y completa omite sus cuentas",
+      "refreshForceHint": "Puedes actualizar este grupo manualmente cuando su política no sea heredar",
+      "quotaRefreshInherit": "Heredar de la plataforma",
+      "quotaRefreshPolicyHint": "La actualización de cuota del grupo tiene máxima prioridad: heredar de la plataforma, intervalo personalizado o desactivada",
+      "quotaRefreshMinutesBadge": "{{count}} minutos"
     },
     "switchHistory": {
       "title": "Historial de cambios",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "No se puede conectar a {{url}}. Confirma que el servicio API esté en ejecución, que el puerto no haya cambiado y que nada lo bloquee.",
       "testAuthFailed": "El servicio responde, pero falló la autenticación: {{detail}}. Revisa la clave del servicio API o el estado de inicio de sesión de la cuenta.",
       "testServiceUnavailable": "El servicio responde, pero no está disponible: {{detail}}. Revisa si el servicio está activado, si la colección de cuentas está vacía o si las cuentas son utilizables.",
+      "gatewayErrors": {"authUnavailable": "Ninguna cuenta del grupo está disponible para enrutar ahora. Puede estar en espera, sin autorización o limitada por cuota. Revisa su estado en el servicio API de Cockpit Tools.", "authNotFound": "No hay ninguna cuenta utilizable configurada en el grupo. Añade o activa una cuenta en el servicio API de Cockpit Tools."},
       "testRateLimited": "El servicio responde, pero el ascendente tiene límite de velocidad o cuota agotada: {{detail}}.",
       "testHttpFailed": "El servicio responde, pero la solicitud devolvió HTTP {{status}}: {{detail}}.",
       "activateAction": "Iniciar servicio API",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Todo OK {{count}}",
         "availableRatio": "Bien {{available}}/{{total}}",
         "issueSummary": "Error {{abnormal}} · Pausa {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, error {{abnormal}}, pausa {{cooldown}}, faltan {{missing}}, auth {{authError}}, cuota {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, error {{abnormal}}, pausa {{cooldown}}, faltan {{missing}}, auth {{authError}}, cuota {{quotaLimited}}",
+        "openDetails": "Ver cuentas con problemas",
+        "recover": "Recuperar estado",
+        "recoverSuccess": "Recuperación solicitada para {{count}} cuenta(s)",
+        "dialog": {
+          "title": "Cuentas con problemas",
+          "description": "Estos estados provienen del programador OAuth de Sidecar. La recuperación borra la espera y reintenta la cuenta.",
+          "noIssues": "No hay cuentas con problemas",
+          "missing": "Cuenta ausente",
+          "cooldown": "En espera",
+          "quota": "Cuota limitada",
+          "missingDetail": "La cuenta ya no está en la lista",
+          "cooldownModel": "El modelo {{model}} está en espera",
+          "cooldownUntil": "El modelo {{model}} estará en espera hasta {{time}}",
+          "authDetail": "La autorización OAuth puede haber caducado. Vuelve a autorizar e inténtalo.",
+          "quotaDetail": "La cuota no está disponible temporalmente. Espera o revisa el plan.",
+          "paymentDetail": "El plan o el pago de la cuenta no está disponible. Revisa la suscripción.",
+          "modelDetail": "Esta cuenta no admite el modelo solicitado.",
+          "upstreamDetail": "El servicio upstream no está disponible temporalmente. Se reintentará.",
+          "disabledDetail": "Esta cuenta está desactivada. Actívala primero.",
+          "unavailableDetail": "Sidecar no considera esta cuenta disponible para programar.",
+          "recover": "Recuperar",
+          "recovering": "Recuperando…",
+          "recoverAll": "Recuperar todo"
+        }
       },
       "testChatModel": "Modelo",
       "testChatClear": "Vaciar chat",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} fallos seguidos",
-        "image": "Imágenes {{status}}"
+        "image": "Imágenes {{status}}",
+        "unavailable": "No disponible temporalmente",
+        "authError": "Error de autenticación"
       },
       "models": {
         "availableTitle": "Modelos disponibles",
@@ -4092,10 +4128,21 @@
       "description": "Haga clic en \"Agregar cuenta\" para comenzar a administrar sus cuentas Kiro"
     },
     "addModal": {
-      "title": "Agregar cuenta Kiro"
+      "title": "Agregar cuenta Kiro",
+      "idc": "Inicio de sesión AWS"
     },
     "oauth": {
       "desc": "Haga clic en el botón a continuación y complete la autorización de Kiro en su navegador."
+    },
+    "idc": {
+      "builderId": "Cuenta AWS Builder ID",
+      "enterprise": "Cuenta empresarial",
+      "desc": "Completa la autorización de AWS IAM Identity Center en el navegador. La cuenta se guardará automáticamente.",
+      "region": "Región de AWS",
+      "startUrl": "URL de inicio de IAM Identity Center",
+      "start": "Iniciar sesión empresarial",
+      "regionRequired": "Introduce una región de AWS",
+      "startUrlRequired": "Introduce una URL de inicio de IAM Identity Center"
     },
     "token": {
       "desc": "Pegue su token de acceso Kiro o los datos JSON exportados."

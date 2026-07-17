@@ -18,15 +18,18 @@ fn candidate_session_dirs() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         #[cfg(target_os = "macos")]
         {
-            dirs.push(
-                home.join("Library/Application Support/CodeBuddy/User/globalStorage"),
-            );
+            dirs.push(home.join("Library/Application Support/CodeBuddy/User/globalStorage"));
             dirs.push(home.join(".codebuddy/sessions"));
         }
         #[cfg(target_os = "windows")]
         {
             if let Ok(roaming) = std::env::var("APPDATA") {
-                dirs.push(PathBuf::from(roaming).join("CodeBuddy").join("User").join("globalStorage"));
+                dirs.push(
+                    PathBuf::from(roaming)
+                        .join("CodeBuddy")
+                        .join("User")
+                        .join("globalStorage"),
+                );
             }
             dirs.push(home.join(".codebuddy").join("sessions"));
         }

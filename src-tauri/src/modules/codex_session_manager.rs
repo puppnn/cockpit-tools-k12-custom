@@ -1434,12 +1434,7 @@ pub fn resolve_session_location_dir(
     rollout_path
         .parent()
         .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            format!(
-                "无法解析会话文件所在目录: {}",
-                rollout_path.display()
-            )
-        })
+        .ok_or_else(|| format!("无法解析会话文件所在目录: {}", rollout_path.display()))
 }
 
 /// Resolve rollout JSONL path. When `instance_id` is set, only that instance is searched
@@ -3019,11 +3014,23 @@ mod tests {
 
     #[test]
     fn classify_session_kind_detects_subagent_and_external() {
-        assert_eq!(super::classify_session_kind("subagent run", "/tmp"), "subagent");
-        assert_eq!(super::classify_session_kind("imported external", "/x"), "external");
-        assert_eq!(super::classify_session_kind("My chat", "/proj"), "conversation");
+        assert_eq!(
+            super::classify_session_kind("subagent run", "/tmp"),
+            "subagent"
+        );
+        assert_eq!(
+            super::classify_session_kind("imported external", "/x"),
+            "external"
+        );
+        assert_eq!(
+            super::classify_session_kind("My chat", "/proj"),
+            "conversation"
+        );
         // Untitled chats must remain visible under the default conversation filter.
-        assert_eq!(super::classify_session_kind("", "/Users/me/project"), "conversation");
+        assert_eq!(
+            super::classify_session_kind("", "/Users/me/project"),
+            "conversation"
+        );
         assert_eq!(super::classify_session_kind("   ", "/tmp"), "conversation");
         assert_eq!(
             super::classify_session_kind("task", "/Users/me/.codex/subagent/work"),

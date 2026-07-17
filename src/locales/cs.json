@@ -1273,7 +1273,9 @@
         "renameFailed": "Nepodařilo se přejmenovat skupinu: {{error}}",
         "deleteFailed": "Nepodařilo se smazat skupinu: {{error}}",
         "addFailed": "Nepodařilo se přidat do skupiny: {{error}}",
-        "createAndAddFailed": "Nepodařilo se vytvořit a přidat: {{error}}"
+        "createAndAddFailed": "Nepodařilo se vytvořit a přidat: {{error}}",
+        "quotaRefreshFailed": "Aktualizaci nastavení obnovování kvóty se nezdařilo: {{error}}",
+        "notFound": "Skupina nebyla nalezena"
       },
       "addAccounts": "Přidat účty",
       "editTitle": "Upravit skupinu",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Aktuální skupina",
       "accountPickerEmpty": "Žádné odpovídající účty",
       "filterHint": "Pro filtrování je vybráno {{count}} skupin",
-      "filterToggle": "Zaškrtnutím filtrujete podle této skupiny"
+      "filterToggle": "Zaškrtnutím filtrujete podle této skupiny",
+      "quotaRefresh": "Obnovení kvóty",
+      "quotaRefreshOffBadge": "Bez obnovování",
+      "quotaRefreshOffHint": "Tato skupina se neobnovuje; automatické a úplné obnovení její účty přeskočí",
+      "refreshForceHint": "Pokud zásada není nastavena na dědění, můžete skupinu stále obnovit ručně",
+      "quotaRefreshInherit": "Dědit nastavení platformy",
+      "quotaRefreshPolicyHint": "Obnovování kvóty skupiny má nejvyšší prioritu: zdědit platformu, vlastní interval nebo vypnout",
+      "quotaRefreshMinutesBadge": "{{count}} minut"
     },
     "switchHistory": {
       "title": "Historie přepnutí",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Nelze se připojit k {{url}}. Ověřte, že API služba běží, port se nezměnil a nic ho neblokuje.",
       "testAuthFailed": "Služba je dosažitelná, ale ověření selhalo: {{detail}}. Zkontrolujte klíč API služby nebo stav přihlášení účtu.",
       "testServiceUnavailable": "Služba je dosažitelná, ale momentálně není dostupná: {{detail}}. Zkontrolujte, zda je služba zapnutá, kolekce účtů není prázdná a účty jsou použitelné.",
+      "gatewayErrors": {"authUnavailable": "Momentálně není k dispozici žádný účet pro směrování. Účet může být v čekací lhůtě, bez ověření nebo omezený kvótou. Zkontrolujte jeho stav v API službě Cockpit Tools.", "authNotFound": "V kolekci účtů není nastaven žádný použitelný účet. Přidejte nebo aktivujte účet v API službě Cockpit Tools."},
       "testRateLimited": "Služba je dosažitelná, ale upstream je omezen nebo kvóta vyčerpána: {{detail}}.",
       "testHttpFailed": "Služba je dosažitelná, ale požadavek vrátil HTTP {{status}}: {{detail}}.",
       "activateAction": "Spustit API službu",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Vše OK {{count}}",
         "availableRatio": "V pořádku {{available}}/{{total}}",
         "issueSummary": "Chyba {{abnormal}} · Pauza {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, chyba {{abnormal}}, pauza {{cooldown}}, chybí {{missing}}, ověření {{authError}}, limit {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, chyba {{abnormal}}, pauza {{cooldown}}, chybí {{missing}}, ověření {{authError}}, limit {{quotaLimited}}",
+        "openDetails": "Zobrazit problémové účty",
+        "recover": "Obnovit stav účtu",
+        "recoverSuccess": "Obnova vyžádána pro {{count}} účtů",
+        "dialog": {
+          "title": "Problémové účty",
+          "description": "Tyto stavy pocházejí z plánovače OAuth Sidecar. Obnova zruší čekání a účet zkusí znovu.",
+          "noIssues": "Žádné problémové účty",
+          "missing": "Účet chybí",
+          "cooldown": "Čeká",
+          "quota": "Omezená kvóta",
+          "missingDetail": "Účet již není v seznamu",
+          "cooldownModel": "Model {{model}} čeká",
+          "cooldownUntil": "Model {{model}} čeká do {{time}}",
+          "authDetail": "Autorizace OAuth mohla vypršet. Proveďte ji znovu.",
+          "quotaDetail": "Kvóta je dočasně nedostupná. Počkejte nebo zkontrolujte tarif.",
+          "paymentDetail": "Tarif nebo platba nejsou dostupné. Zkontrolujte předplatné.",
+          "modelDetail": "Účet nepodporuje požadovaný model.",
+          "upstreamDetail": "Nadřazená služba je dočasně nedostupná. Pokus se zopakuje.",
+          "disabledDetail": "Účet je zakázán. Nejprve jej povolte.",
+          "unavailableDetail": "Sidecar nyní nepovažuje účet za plánovatelný.",
+          "recover": "Obnovit",
+          "recovering": "Obnovování…",
+          "recoverAll": "Obnovit vše"
+        }
       },
       "testChatModel": "Model ID",
       "testChatClear": "Vymazat chat",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} po sobě jdoucích selhání",
-        "image": "Obrázky {{status}}"
+        "image": "Obrázky {{status}}",
+        "unavailable": "Dočasně nedostupné",
+        "authError": "Chyba ověření"
       },
       "models": {
         "availableTitle": "Dostupné modely",
@@ -4092,10 +4128,21 @@
       "description": "Kliknutím na „Přidat účet“ zahájíte správu účtů Kiro"
     },
     "addModal": {
-      "title": "Přidat Kiro účet"
+      "title": "Přidat Kiro účet",
+      "idc": "AWS SSO"
     },
     "oauth": {
       "desc": "Klikněte na tlačítko níže a dokončete autorizaci Kiro ve svém prohlížeči."
+    },
+    "idc": {
+      "builderId": "Účet AWS Builder ID",
+      "enterprise": "Podnikový účet",
+      "desc": "Dokončete autorizaci AWS IAM Identity Center v prohlížeči. Účet se uloží automaticky.",
+      "region": "Oblast AWS",
+      "startUrl": "Počáteční URL IAM Identity Center",
+      "start": "Spustit podnikové přihlášení",
+      "regionRequired": "Zadejte oblast AWS",
+      "startUrlRequired": "Zadejte počáteční URL IAM Identity Center"
     },
     "token": {
       "desc": "Vložte svůj přístupový token Kiro nebo exportovaná data JSON."

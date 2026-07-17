@@ -2906,6 +2906,41 @@
   color: var(--text-secondary);
 }
 
+.ghcp-add-modal .oauth-provider-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ghcp-add-modal .oauth-idc-form {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ghcp-add-modal .oauth-idc-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted, #8b93a7);
+  font-size: 12px;
+}
+
+.ghcp-add-modal .oauth-idc-form input {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.24));
+  border-radius: 8px;
+  color: var(--text-primary, inherit);
+  background: var(--input-background, rgba(148, 163, 184, 0.08));
+}
+
+.ghcp-add-modal .oauth-idc-form input:focus {
+  outline: none;
+  border-color: var(--accent-color, #6366f1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color, #6366f1) 22%, transparent);
+}
+
 @media (max-width: 640px) {
   .account-add-modal-overlay {
     align-items: flex-end;

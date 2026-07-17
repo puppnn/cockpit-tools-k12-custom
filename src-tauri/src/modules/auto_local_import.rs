@@ -15,8 +15,8 @@ use crate::models::workbuddy::WorkbuddyOAuthCompletePayload;
 use crate::modules::{
     claude_account, codebuddy_account, codebuddy_cn_account, codebuddy_cn_oauth, codebuddy_oauth,
     codex_account, config, cursor_account, github_copilot_account, github_copilot_instance, import,
-    kiro_account, kiro_oauth, logger, qoder_account, trae_account, windsurf_account, windsurf_oauth,
-    workbuddy_account, workbuddy_oauth, zed_account,
+    kiro_account, kiro_oauth, logger, qoder_account, trae_account, windsurf_account,
+    windsurf_oauth, workbuddy_account, workbuddy_oauth, zed_account,
 };
 use serde::Serialize;
 
@@ -103,9 +103,9 @@ enum WatchMode {
 
 fn identity_log_tag(identity: &str) -> String {
     // 避免日志写入完整邮箱/token 前缀。
-    let digest = identity
-        .bytes()
-        .fold(0u32, |acc, b| acc.wrapping_mul(33).wrapping_add(u32::from(b)));
+    let digest = identity.bytes().fold(0u32, |acc, b| {
+        acc.wrapping_mul(33).wrapping_add(u32::from(b))
+    });
     format!("{:08x}", digest)
 }
 
@@ -126,11 +126,9 @@ fn identity_key(parts: &[Option<String>]) -> Option<String> {
 }
 
 fn read_vscdb_string_item(conn: &Connection, key: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT value FROM ItemTable WHERE key = ?1",
-        [key],
-        |row| row.get::<_, String>(0),
-    )
+    conn.query_row("SELECT value FROM ItemTable WHERE key = ?1", [key], |row| {
+        row.get::<_, String>(0)
+    })
     .ok()
     .map(|value| value.trim().to_string())
     .filter(|value| !value.is_empty())
@@ -139,12 +137,11 @@ fn read_vscdb_string_item(conn: &Connection, key: &str) -> Option<String> {
 fn peek_antigravity_identity() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
-        let credential = crate::modules::antigravity_credential::read_antigravity_system_credential()
-            .ok()
-            .flatten()?;
-        return identity_key(&[Some(
-            credential.refresh_token.chars().take(24).collect(),
-        )]);
+        let credential =
+            crate::modules::antigravity_credential::read_antigravity_system_credential()
+                .ok()
+                .flatten()?;
+        return identity_key(&[Some(credential.refresh_token.chars().take(24).collect())]);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -224,10 +221,7 @@ fn peek_github_copilot_identity() -> Option<String> {
         return None;
     }
     let conn = Connection::open(&db_path).ok()?;
-    identity_key(&[read_vscdb_string_item(
-        &conn,
-        "github.copilot-github",
-    )])
+    identity_key(&[read_vscdb_string_item(&conn, "github.copilot-github")])
 }
 
 fn peek_kiro_identity() -> Option<String> {
@@ -248,7 +242,9 @@ fn peek_kiro_identity() -> Option<String> {
 }
 
 fn peek_codebuddy_identity() -> Option<String> {
-    let payload = codebuddy_account::import_payload_from_local().ok().flatten()?;
+    let payload = codebuddy_account::import_payload_from_local()
+        .ok()
+        .flatten()?;
     identity_key(&[
         Some(payload.email),
         payload.uid,
@@ -257,7 +253,9 @@ fn peek_codebuddy_identity() -> Option<String> {
 }
 
 fn peek_codebuddy_cn_identity() -> Option<String> {
-    let payload = codebuddy_cn_account::import_payload_from_local().ok().flatten()?;
+    let payload = codebuddy_cn_account::import_payload_from_local()
+        .ok()
+        .flatten()?;
     identity_key(&[
         Some(payload.email),
         payload.uid,
@@ -266,7 +264,9 @@ fn peek_codebuddy_cn_identity() -> Option<String> {
 }
 
 fn peek_workbuddy_identity() -> Option<String> {
-    let payload = workbuddy_account::import_payload_from_local().ok().flatten()?;
+    let payload = workbuddy_account::import_payload_from_local()
+        .ok()
+        .flatten()?;
     identity_key(&[
         Some(payload.email),
         payload.uid,
@@ -310,7 +310,9 @@ fn peek_trae_identity(platform: trae_account::TraePlatformKind) -> Option<String
 }
 
 fn peek_zed_identity() -> Option<String> {
-    let credentials = zed_account::read_credentials_from_keychain().ok().flatten()?;
+    let credentials = zed_account::read_credentials_from_keychain()
+        .ok()
+        .flatten()?;
     identity_key(&[Some(credentials.user_id)])
 }
 
@@ -437,9 +439,8 @@ fn import_kiro() -> ImportFuture {
 
 fn import_codebuddy() -> ImportFuture {
     Box::pin(async {
-        let local_payload = codebuddy_account::import_payload_from_local()?.ok_or_else(|| {
-            "未在本机 CodeBuddy 客户端中找到登录信息".to_string()
-        })?;
+        let local_payload = codebuddy_account::import_payload_from_local()?
+            .ok_or_else(|| "未在本机 CodeBuddy 客户端中找到登录信息".to_string())?;
         let access_token = local_payload.access_token.clone();
         let payload = enrich_codebuddy_payload(
             local_payload,
@@ -453,9 +454,8 @@ fn import_codebuddy() -> ImportFuture {
 
 fn import_codebuddy_cn() -> ImportFuture {
     Box::pin(async {
-        let local_payload = codebuddy_cn_account::import_payload_from_local()?.ok_or_else(|| {
-            "未在本机 CodeBuddy CN 客户端中找到登录信息".to_string()
-        })?;
+        let local_payload = codebuddy_cn_account::import_payload_from_local()?
+            .ok_or_else(|| "未在本机 CodeBuddy CN 客户端中找到登录信息".to_string())?;
         let access_token = local_payload.access_token.clone();
         let payload = enrich_codebuddy_payload(
             local_payload,
@@ -514,9 +514,8 @@ async fn enrich_workbuddy_payload(
 
 fn import_workbuddy() -> ImportFuture {
     Box::pin(async {
-        let local_payload = workbuddy_account::import_payload_from_local()?.ok_or_else(|| {
-            "未在本机 WorkBuddy 客户端中找到登录信息".to_string()
-        })?;
+        let local_payload = workbuddy_account::import_payload_from_local()?
+            .ok_or_else(|| "未在本机 WorkBuddy 客户端中找到登录信息".to_string())?;
         let access_token = local_payload.access_token.clone();
         let payload = enrich_workbuddy_payload(
             local_payload,
@@ -722,10 +721,7 @@ async fn run_watch_cycle_with_mode(
     let (scanned, pending) = match tokio::time::timeout(IDENTITY_SCAN_TIMEOUT, task).await {
         Ok(Ok(result)) => result,
         Ok(Err(err)) => {
-            logger::log_warn(&format!(
-                "[AutoLocalImport] 后台本机身份扫描失败: {}",
-                err
-            ));
+            logger::log_warn(&format!("[AutoLocalImport] 后台本机身份扫描失败: {}", err));
             return AutoLocalImportScanResult::default();
         }
         Err(err) => {

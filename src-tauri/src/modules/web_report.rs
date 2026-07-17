@@ -1486,7 +1486,6 @@ fn append_cursor_rows(rows: &mut Vec<ReportRow>) {
     }
 }
 
-
 fn append_codebuddy_rows(
     rows: &mut Vec<ReportRow>,
     service: &str,

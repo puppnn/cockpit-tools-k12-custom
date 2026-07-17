@@ -251,7 +251,8 @@ impl WsServer {
 
 /// 全局 WebSocket 服务实例
 static WS_SERVER: std::sync::OnceLock<Arc<WsServer>> = std::sync::OnceLock::new();
-static WS_AUTH_TOKEN: std::sync::LazyLock<String> = std::sync::LazyLock::new(generate_ws_auth_token);
+static WS_AUTH_TOKEN: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(generate_ws_auth_token);
 static PLUGIN_SWITCH_PENDING: std::sync::LazyLock<
     Mutex<HashMap<String, oneshot::Sender<PluginSwitchAccountResponsePayload>>>,
 > = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -828,29 +829,23 @@ async fn handle_client_message(
         } => {
             crate::modules::logger::log_info("[WS] 收到添加账号请求");
 
-            let response = match require_ws_auth(auth_token.as_deref(), "add_account").and_then(
-                |_| {
-                    handle_add_account(
-                        &email,
-                        &refresh_token,
-                        access_token.as_deref(),
-                        expires_at,
-                    )
-                },
-            ) {
-                Ok(msg) => {
-                    // 广播数据变更（同时发送 Tauri 事件通知前端）
-                    broadcast_data_changed("extension_add_account");
-                    WsMessage::SuccessResponse {
-                        request_id,
-                        message: msg,
+            let response =
+                match require_ws_auth(auth_token.as_deref(), "add_account").and_then(|_| {
+                    handle_add_account(&email, &refresh_token, access_token.as_deref(), expires_at)
+                }) {
+                    Ok(msg) => {
+                        // 广播数据变更（同时发送 Tauri 事件通知前端）
+                        broadcast_data_changed("extension_add_account");
+                        WsMessage::SuccessResponse {
+                            request_id,
+                            message: msg,
+                        }
                     }
-                }
-                Err(e) => WsMessage::ErrorResponse {
-                    request_id,
-                    error: e,
-                },
-            };
+                    Err(e) => WsMessage::ErrorResponse {
+                        request_id,
+                        error: e,
+                    },
+                };
 
             if let Ok(json) = serde_json::to_string(&response) {
                 sender
@@ -867,23 +862,22 @@ async fn handle_client_message(
         } => {
             crate::modules::logger::log_info("[WS] 收到删除账号请求");
 
-            let response =
-                match require_ws_auth(auth_token.as_deref(), "delete_account")
-                    .and_then(|_| handle_delete_account_by_email(&email))
-                {
-                    Ok(msg) => {
-                        // 广播数据变更（同时发送 Tauri 事件通知前端）
-                        broadcast_data_changed("extension_delete_account");
-                        WsMessage::SuccessResponse {
-                            request_id,
-                            message: msg,
-                        }
-                    }
-                    Err(e) => WsMessage::ErrorResponse {
+            let response = match require_ws_auth(auth_token.as_deref(), "delete_account")
+                .and_then(|_| handle_delete_account_by_email(&email))
+            {
+                Ok(msg) => {
+                    // 广播数据变更（同时发送 Tauri 事件通知前端）
+                    broadcast_data_changed("extension_delete_account");
+                    WsMessage::SuccessResponse {
                         request_id,
-                        error: e,
-                    },
-                };
+                        message: msg,
+                    }
+                }
+                Err(e) => WsMessage::ErrorResponse {
+                    request_id,
+                    error: e,
+                },
+            };
 
             if let Ok(json) = serde_json::to_string(&response) {
                 sender

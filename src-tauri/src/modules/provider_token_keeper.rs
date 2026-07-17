@@ -251,7 +251,8 @@ fn mark_trae_strict_check_done(account_id: &str) {
 }
 
 async fn refresh_due_codex_accounts() -> bool {
-    let accounts = match list_accounts_blocking("codex", codex_account::list_accounts_checked).await {
+    let accounts = match list_accounts_blocking("codex", codex_account::list_accounts_checked).await
+    {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -305,16 +306,17 @@ async fn refresh_due_codex_accounts() -> bool {
 }
 
 async fn refresh_due_cursor_accounts() -> bool {
-    let accounts = match list_accounts_blocking("cursor", cursor_account::list_accounts_checked).await {
-        Ok(accounts) => accounts,
-        Err(err) => {
-            logger::log_warn(&format!(
-                "[TokenKeeper][Cursor] 读取账号列表失败，跳过本轮保活: {}",
-                err
-            ));
-            return false;
-        }
-    };
+    let accounts =
+        match list_accounts_blocking("cursor", cursor_account::list_accounts_checked).await {
+            Ok(accounts) => accounts,
+            Err(err) => {
+                logger::log_warn(&format!(
+                    "[TokenKeeper][Cursor] 读取账号列表失败，跳过本轮保活: {}",
+                    err
+                ));
+                return false;
+            }
+        };
 
     let current_id = cursor_account::resolve_current_account_id(&accounts);
     let mut refreshed_any = false;
@@ -416,7 +418,12 @@ async fn refresh_due_grok_accounts() -> bool {
 }
 
 async fn refresh_due_github_copilot_accounts() -> bool {
-    let accounts = match list_accounts_blocking("github_copilot", github_copilot_account::list_accounts_checked).await {
+    let accounts = match list_accounts_blocking(
+        "github_copilot",
+        github_copilot_account::list_accounts_checked,
+    )
+    .await
+    {
         Ok(accounts) => accounts,
         Err(err) => {
             logger::log_warn(&format!(
@@ -539,16 +546,17 @@ async fn refresh_due_kiro_accounts() -> bool {
 }
 
 async fn refresh_due_codebuddy_accounts() -> bool {
-    let accounts = match list_accounts_blocking("codebuddy", codebuddy_account::list_accounts_checked).await {
-        Ok(accounts) => accounts,
-        Err(err) => {
-            logger::log_warn(&format!(
-                "[TokenKeeper][CodeBuddy] 读取账号列表失败，跳过本轮保活: {}",
-                err
-            ));
-            return false;
-        }
-    };
+    let accounts =
+        match list_accounts_blocking("codebuddy", codebuddy_account::list_accounts_checked).await {
+            Ok(accounts) => accounts,
+            Err(err) => {
+                logger::log_warn(&format!(
+                    "[TokenKeeper][CodeBuddy] 读取账号列表失败，跳过本轮保活: {}",
+                    err
+                ));
+                return false;
+            }
+        };
 
     let current_id = codebuddy_account::resolve_current_account_id(&accounts);
     let mut refreshed_any = false;
@@ -600,16 +608,19 @@ async fn refresh_due_codebuddy_accounts() -> bool {
 }
 
 async fn refresh_due_codebuddy_cn_accounts() -> bool {
-    let accounts = match list_accounts_blocking("codebuddy_cn", codebuddy_cn_account::list_accounts_checked).await {
-        Ok(accounts) => accounts,
-        Err(err) => {
-            logger::log_warn(&format!(
-                "[TokenKeeper][CodeBuddyCN] 读取账号列表失败，跳过本轮保活: {}",
-                err
-            ));
-            return false;
-        }
-    };
+    let accounts =
+        match list_accounts_blocking("codebuddy_cn", codebuddy_cn_account::list_accounts_checked)
+            .await
+        {
+            Ok(accounts) => accounts,
+            Err(err) => {
+                logger::log_warn(&format!(
+                    "[TokenKeeper][CodeBuddyCN] 读取账号列表失败，跳过本轮保活: {}",
+                    err
+                ));
+                return false;
+            }
+        };
 
     let current_id = codebuddy_cn_account::resolve_current_account_id(&accounts);
     let mut refreshed_any = false;
@@ -662,16 +673,17 @@ async fn refresh_due_codebuddy_cn_accounts() -> bool {
 }
 
 async fn refresh_due_workbuddy_accounts() -> bool {
-    let accounts = match list_accounts_blocking("workbuddy", workbuddy_account::list_accounts_checked).await {
-        Ok(accounts) => accounts,
-        Err(err) => {
-            logger::log_warn(&format!(
-                "[TokenKeeper][WorkBuddy] 读取账号列表失败，跳过本轮保活: {}",
-                err
-            ));
-            return false;
-        }
-    };
+    let accounts =
+        match list_accounts_blocking("workbuddy", workbuddy_account::list_accounts_checked).await {
+            Ok(accounts) => accounts,
+            Err(err) => {
+                logger::log_warn(&format!(
+                    "[TokenKeeper][WorkBuddy] 读取账号列表失败，跳过本轮保活: {}",
+                    err
+                ));
+                return false;
+            }
+        };
 
     let current_id = workbuddy_account::resolve_current_account_id(&accounts);
     let mut refreshed_any = false;

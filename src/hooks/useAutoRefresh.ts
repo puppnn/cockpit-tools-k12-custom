@@ -44,6 +44,14 @@ import {
 } from '../utils/autoRefreshScheduler';
 import { CURRENT_ACCOUNT_CHANGED_EVENT } from '../utils/accountSyncEvents';
 import { refreshCodexApiKeyUsageForAccounts } from '../services/codexApiKeyUsageRefreshService';
+import * as codexService from '../services/codexService';
+import {
+  getCodexAccountGroups,
+  getCodexCustomQuotaRefreshAccountIdsByMinutes,
+  getCodexInheritPlatformQuotaRefreshAccountIds,
+  resolveCodexGroupQuotaAutoRefreshMinutes,
+} from '../services/codexAccountGroupService';
+import { isCodexApiKeyAccount, isCodexNewApiAccount } from '../types/codex';
 
 interface GeneralConfig {
   language: string;
@@ -205,7 +213,6 @@ export function useAutoRefresh() {
   const fetchAccounts = useAccountStore((state) => state.fetchAccounts);
   const fetchCurrentAccount = useAccountStore((state) => state.fetchCurrentAccount);
 
-  const refreshAllCodexQuotas = useCodexAccountStore((state) => state.refreshAllQuotas);
   const fetchCodexAccounts = useCodexAccountStore((state) => state.fetchAccounts);
   const fetchCurrentCodexAccount = useCodexAccountStore((state) => state.fetchCurrentAccount);
   const refreshAllClaudeQuotas = useClaudeAccountStore((state) => state.refreshAllTokens);
@@ -413,6 +420,30 @@ export function useAutoRefresh() {
             await refreshProviderToken(accountId);
           };
 
+          // Codex 分组额度策略：继承平台 / 自定义间隔 / 不刷新（最高优先级）
+          const codexGroups = await getCodexAccountGroups().catch(() => []);
+          const codexCurrentAccount = useCodexAccountStore.getState().currentAccount;
+          let codexCurrentMinutes = resolveCurrentMinutes(
+            'codex',
+            currentAccountEmails.codex,
+            currentRefreshMinutesMap,
+          );
+          if (codexCurrentAccount?.id) {
+            const group = codexGroups.find((item) =>
+              item.accountIds.includes(codexCurrentAccount.id),
+            );
+            const policy = resolveCodexGroupQuotaAutoRefreshMinutes(group);
+            if (policy === -1) {
+              codexCurrentMinutes = -1;
+            } else if (typeof policy === 'number' && policy > 0) {
+              codexCurrentMinutes = policy;
+            }
+          }
+          const codexCustomRefreshByMinutes =
+            await getCodexCustomQuotaRefreshAccountIdsByMinutes().catch(
+              () => new Map<number, string[]>(),
+            );
+
           const descriptors: PlatformRefreshDescriptor[] = [
             {
               key: 'antigravity',
@@ -440,18 +471,34 @@ export function useAutoRefresh() {
               key: 'codex',
               label: 'Codex',
               intervalMinutes: config.codex_auto_refresh_minutes,
-              currentMinutes: resolveCurrentMinutes('codex', currentAccountEmails.codex, currentRefreshMinutesMap),
+              currentMinutes: codexCurrentMinutes,
               fullRefreshingRef: codexRefreshingRef,
               currentRefreshingRef: codexCurrentRefreshingRef,
               runFullRefresh: async () => {
                 try {
-                  await refreshAllCodexQuotas();
+                  // 平台间隔只刷「继承平台 + 未分组」；自定义间隔分组由独立任务负责
+                  const accounts = useCodexAccountStore.getState().accounts;
+                  const refreshableIds = accounts
+                    .filter(
+                      (account) =>
+                        !isCodexApiKeyAccount(account) || isCodexNewApiAccount(account),
+                    )
+                    .map((account) => account.id);
+                  const inheritIds =
+                    await getCodexInheritPlatformQuotaRefreshAccountIds(refreshableIds);
+                  if (inheritIds.length > 0) {
+                    await codexService.refreshCodexQuotasBatch(inheritIds, {
+                      respectGroupQuotaRefresh: true,
+                    });
+                  }
                 } finally {
                   await refreshCodexApiKeyUsageForAccounts(
                     useCodexAccountStore.getState().accounts,
                   ).catch((error) => {
                     console.error('[AutoRefresh] Codex API Key usage refresh failed:', error);
                   });
+                  await fetchCodexAccounts();
+                  await fetchCurrentCodexAccount();
                 }
               },
               runCurrentRefresh: async () => {
@@ -769,6 +816,42 @@ export function useAutoRefresh() {
             }
           }
 
+          // Codex 分组自定义间隔：独立调度（最高优先级，不依赖平台间隔是否开启）
+          for (const [minutes, accountIds] of codexCustomRefreshByMinutes.entries()) {
+            if (minutes <= 0 || accountIds.length === 0) {
+              continue;
+            }
+            const uniqueIds = [...new Set(accountIds.filter(Boolean))];
+            if (uniqueIds.length === 0) {
+              continue;
+            }
+            console.log(
+              `[AutoRefresh] Codex 分组自定义刷新: 每 ${minutes} 分钟, accounts=${uniqueIds.length}`,
+            );
+            tasks.push({
+              key: `full:codex-group:${minutes}`,
+              label: `Codex 分组自定义刷新 (${minutes}m)`,
+              intervalMs: minutesToMs(minutes),
+              run: () =>
+                executeWithGuard(
+                  codexRefreshingRef,
+                  async () => {
+                    try {
+                      // 自定义分组任务目标明确，不因「不刷新」外的策略再过滤
+                      await codexService.refreshCodexQuotasBatch(uniqueIds, {
+                        respectGroupQuotaRefresh: false,
+                      });
+                    } finally {
+                      await fetchCodexAccounts();
+                      await fetchCurrentCodexAccount();
+                    }
+                  },
+                  `[AutoRefresh] 触发 Codex 分组自定义刷新 (${minutes}m)...`,
+                  `[AutoRefresh] Codex 分组自定义刷新失败 (${minutes}m):`,
+                ),
+            });
+          }
+
           if (tasks.length > 0) {
             const scheduler = createAutoRefreshScheduler(tasks, {
               tickMs: AUTO_REFRESH_TICK_MS,
@@ -817,7 +900,6 @@ export function useAutoRefresh() {
     fetchAccounts,
     refreshAllCodebuddyCnTokens,
     refreshAllCodebuddyTokens,
-    refreshAllCodexQuotas,
     refreshAllClaudeQuotas,
     refreshAllCursorTokens,
     refreshAllGrokTokens,

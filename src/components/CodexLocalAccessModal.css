@@ -1759,9 +1759,19 @@
 }
 
 .codex-local-access-health-pool-card {
+  font-family: inherit;
+  cursor: pointer;
   border-color: rgba(22, 163, 74, 0.2);
   background: rgba(240, 253, 244, 0.72);
   color: #166534;
+}
+
+.codex-local-access-health-pool-card:hover,
+.codex-local-access-health-pool-card:focus-visible {
+  filter: brightness(0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 0 0 2px color-mix(in srgb, currentColor 18%, transparent);
 }
 
 .codex-local-access-health-pool-card.has-issue {

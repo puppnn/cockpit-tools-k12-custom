@@ -183,7 +183,10 @@ fn serialize_account_for_storage(account: &Account) -> Result<String, String> {
     serde_json::to_string_pretty(&value).map_err(|e| format!("序列化账号数据失败: {}", e))
 }
 
-fn deserialize_account_from_storage(account_path: &PathBuf, content: &str) -> Result<Account, String> {
+fn deserialize_account_from_storage(
+    account_path: &PathBuf,
+    content: &str,
+) -> Result<Account, String> {
     let mut value = serde_json::from_str::<serde_json::Value>(content)
         .map_err(|e| format!("解析账号数据失败: {}", e))?;
     let mut needs_migration = false;
@@ -212,8 +215,8 @@ fn deserialize_account_from_storage(account_path: &PathBuf, content: &str) -> Re
         object.remove("token_encrypted");
     }
 
-    let account = serde_json::from_value::<Account>(value)
-        .map_err(|e| format!("解析账号数据失败: {}", e))?;
+    let account =
+        serde_json::from_value::<Account>(value).map_err(|e| format!("解析账号数据失败: {}", e))?;
 
     if needs_migration || needs_rotation {
         let account_for_rewrite = account.clone();
@@ -256,7 +259,11 @@ pub fn resolve_data_dir() -> Result<PathBuf, String> {
 pub fn get_data_dir() -> Result<PathBuf, String> {
     // #816: tests can isolate storage via env without touching real user data.
     // Prefer COCKPIT_TOOLS_TEST_DATA_DIR (community PR name); keep COCKPIT_TEST_DATA_DIR alias.
-    for key in ["COCKPIT_TOOLS_TEST_DATA_DIR", "COCKPIT_TEST_DATA_DIR", "COCKPIT_TOOLS_DATA_DIR"] {
+    for key in [
+        "COCKPIT_TOOLS_TEST_DATA_DIR",
+        "COCKPIT_TEST_DATA_DIR",
+        "COCKPIT_TOOLS_DATA_DIR",
+    ] {
         if let Ok(override_dir) = std::env::var(key) {
             let override_dir = override_dir.trim();
             if !override_dir.is_empty() {

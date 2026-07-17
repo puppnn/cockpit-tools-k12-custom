@@ -301,6 +301,58 @@ func TestConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream_Restores
 	}
 }
 
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_SynthesizesMissingToolCallID(t *testing.T) {
+	request := []byte(`{"model":"gpt-5.4","tools":[{"type":"function","name":"lookup"}]}`)
+	in := []string{
+		`data: {"id":"resp_missing_id","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"lookup","arguments":""}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_missing_id","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":\"weather\"}"}}]},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+	}
+
+	var param any
+	events := map[string]gjson.Result{}
+	for _, line := range in {
+		for _, chunk := range ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, []byte(line), &param) {
+			event, data := parseOpenAIResponsesSSEEvent(t, chunk)
+			events[event] = data
+		}
+	}
+
+	const wantCallID = "call_resp_missing_id_0_0"
+	if got := events["response.output_item.added"].Get("item.call_id").String(); got != wantCallID {
+		t.Fatalf("added call_id = %q, want %q", got, wantCallID)
+	}
+	if got := events["response.output_item.done"].Get("item.call_id").String(); got != wantCallID {
+		t.Fatalf("done call_id = %q, want %q", got, wantCallID)
+	}
+	if got := events["response.completed"].Get("response.output.0.call_id").String(); got != wantCallID {
+		t.Fatalf("completed call_id = %q, want %q", got, wantCallID)
+	}
+}
+
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream_SynthesizesMissingToolCallID(t *testing.T) {
+	request := []byte(`{"model":"gpt-5.4","tools":[{"type":"function","name":"lookup"}]}`)
+	raw := []byte(`{
+		"id":"chatcmpl_missing_id",
+		"object":"chat.completion",
+		"created":1773896263,
+		"model":"model",
+		"choices":[{"index":2,"message":{"role":"assistant","tool_calls":[
+			{"type":"function","function":{"name":"lookup","arguments":"{\"query\":\"weather\"}"}}
+		]},"finish_reason":"tool_calls"}]
+	}`)
+
+	out := ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(context.Background(), "model", request, request, raw, nil)
+
+	const wantCallID = "call_chatcmpl_missing_id_2_0"
+	if got := gjson.GetBytes(out, "output.0.call_id").String(); got != wantCallID {
+		t.Fatalf("call_id = %q, want %q; out=%s", got, wantCallID, out)
+	}
+	if got := gjson.GetBytes(out, "output.0.id").String(); got != "fc_"+wantCallID {
+		t.Fatalf("item id = %q, want %q; out=%s", got, "fc_"+wantCallID, out)
+	}
+}
+
 func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_MultipleToolCallsRemainSeparate(t *testing.T) {
 	in := []string{
 		`data: {"id":"resp_test","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":"call_read","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}`,

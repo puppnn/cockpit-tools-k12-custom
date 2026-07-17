@@ -433,6 +433,15 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.folder-inline-quota-meta {
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .folder-inline-name-input {

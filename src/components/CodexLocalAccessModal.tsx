@@ -67,6 +67,7 @@ import {
 } from "../utils/codexLocalAccessAccounts";
 import { isBlockingCodexQuotaError } from "../utils/codexQuotaError";
 import { AccountTagFilterDropdown } from "./AccountTagFilterDropdown";
+import { CodexAccountPoolHealthModal } from "./CodexAccountPoolHealthModal";
 import {
   MultiSelectFilterDropdown,
   type MultiSelectFilterOption,
@@ -148,6 +149,8 @@ interface CodexLocalAccessModalProps {
   onRotateApiKey: () => Promise<unknown> | unknown;
   onKillPort: () => Promise<unknown> | unknown;
   onToggleEnabled: () => Promise<unknown> | unknown;
+  onRecoverAccounts: (accountIds: string[]) => Promise<void>;
+  healthActionBusy: boolean;
   onStreamTestMessage: (payload: {
     sessionId: string;
     modelId: string;
@@ -327,9 +330,10 @@ function isAbnormalAccountFailure(
 ): boolean {
   return Boolean(
     health &&
-    health.consecutiveFailures >= 3 &&
-    health.lastFailureCategory &&
-    ABNORMAL_ACCOUNT_FAILURE_CATEGORIES.has(health.lastFailureCategory),
+    ((health.schedulerAvailable === false && !health.cooldowns.length) ||
+      (health.consecutiveFailures >= 3 &&
+        health.lastFailureCategory &&
+        ABNORMAL_ACCOUNT_FAILURE_CATEGORIES.has(health.lastFailureCategory))),
   );
 }
 
@@ -360,6 +364,8 @@ export function CodexLocalAccessModal({
   onRotateApiKey,
   onKillPort,
   onToggleEnabled,
+  onRecoverAccounts,
+  healthActionBusy,
   onStreamTestMessage,
   saving,
   testing,
@@ -377,6 +383,7 @@ export function CodexLocalAccessModal({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [healthModalOpen, setHealthModalOpen] = useState(false);
   const [testDialogRunning, setTestDialogRunning] = useState(false);
   const [testChatMessages, setTestChatMessages] = useState<TestChatMessage[]>(
     [],
@@ -2333,7 +2340,8 @@ export function CodexLocalAccessModal({
                     aria-label={quotaPoolLabels.title}
                   >
                     {accountPoolHealthSummary.total > 0 && (
-                      <div
+                      <button
+                        type="button"
                         className={`codex-local-access-quota-pool-card codex-local-access-health-pool-card${
                           accountPoolHealthSummary.available <
                             accountPoolHealthSummary.total ||
@@ -2353,6 +2361,11 @@ export function CodexLocalAccessModal({
                           defaultValue:
                             "可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}",
                         })}
+                        onClick={() => setHealthModalOpen(true)}
+                        aria-label={t(
+                          "codex.localAccess.accountPoolHealth.openDetails",
+                          "查看异常账号详情",
+                        )}
                       >
                         <span className="codex-local-access-quota-pool-plan">
                           {t(
@@ -2395,7 +2408,7 @@ export function CodexLocalAccessModal({
                             )}
                           </span>
                         )}
-                      </div>
+                      </button>
                     )}
                     {currentQuotaPoolSummary.visiblePlans.map((item) => (
                       <div
@@ -3768,6 +3781,17 @@ export function CodexLocalAccessModal({
           </div>
         </div>
       )}
+      <CodexAccountPoolHealthModal
+        isOpen={healthModalOpen}
+        accountIds={collection?.accountIds ?? []}
+        accounts={accounts}
+        accountHealth={state?.accountHealth ?? []}
+        actionBusy={healthActionBusy}
+        maskAccountText={(value) => maskAccountText(value)}
+        onClose={() => setHealthModalOpen(false)}
+        onRecover={(accountId) => onRecoverAccounts([accountId])}
+        onRecoverAll={onRecoverAccounts}
+      />
     </>
   );
 }

@@ -1098,10 +1098,8 @@ fn scan_windows_start_apps_for_claude(
         ])
         .creation_flags(0x08000000)
         .stdin(Stdio::null());
-    let output = modules::process_timeout::output_with_timeout(
-        &mut command,
-        WINDOWS_CLAUDE_PROBE_TIMEOUT,
-    );
+    let output =
+        modules::process_timeout::output_with_timeout(&mut command, WINDOWS_CLAUDE_PROBE_TIMEOUT);
     let Ok(output) = output else {
         return;
     };
@@ -1158,10 +1156,8 @@ fn scan_windows_appx_packages_for_claude(
         ])
         .creation_flags(0x08000000)
         .stdin(Stdio::null());
-    let output = modules::process_timeout::output_with_timeout(
-        &mut command,
-        WINDOWS_CLAUDE_PROBE_TIMEOUT,
-    );
+    let output =
+        modules::process_timeout::output_with_timeout(&mut command, WINDOWS_CLAUDE_PROBE_TIMEOUT);
     let Ok(output) = output else {
         return false;
     };

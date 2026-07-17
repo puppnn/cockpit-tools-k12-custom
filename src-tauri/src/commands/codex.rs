@@ -1272,6 +1272,14 @@ pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
     if account.is_api_key_auth() {
         return Ok(());
     }
+    // 分组策略「不刷新」：自动当前号刷新静默跳过
+    if !codex_account::is_quota_refresh_enabled_for_account(&account.id) {
+        logger::log_info(&format!(
+            "[Codex Quota] 当前账号所属分组已关闭额度刷新，跳过: account_id={}",
+            account.id
+        ));
+        return Ok(());
+    }
 
     let result = codex_quota::refresh_account_quota(&account.id).await;
     if result.is_ok() {
@@ -1299,12 +1307,18 @@ pub async fn refresh_all_codex_quotas(app: AppHandle) -> Result<i32, String> {
 
 /// 按账号 ID 列表限流并发刷新配额（分组刷新 / 本地访问批量等）
 /// 只在全部任务结束后做一次 tray / post-check，避免 N 次并发互踩。
+///
+/// `respect_group_quota_refresh` 缺省 true：跳过分组「不刷新」账号。
+/// 显式「刷新分组」应传 false。
 #[tauri::command]
 pub async fn refresh_codex_quotas_batch(
     app: AppHandle,
     account_ids: Vec<String>,
+    respect_group_quota_refresh: Option<bool>,
 ) -> Result<i32, String> {
-    let results = codex_quota::refresh_quotas_for_account_ids(&account_ids).await?;
+    let respect = respect_group_quota_refresh.unwrap_or(true);
+    let results =
+        codex_quota::refresh_quotas_for_account_ids_with_options(&account_ids, respect).await?;
     let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
     if success_count > 0 {
         run_codex_post_refresh_checks(&app).await;
@@ -3160,6 +3174,13 @@ pub async fn codex_local_access_remove_account(
     account_id: String,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::remove_local_access_account(&account_id).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_recover_accounts(
+    account_ids: Vec<String>,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::recover_local_access_accounts(account_ids).await
 }
 
 #[tauri::command]

@@ -1356,7 +1356,9 @@
         "renameFailed": "Gagal mengubah nama grup: {{error}}",
         "deleteFailed": "Gagal menghapus grup: {{error}}",
         "addFailed": "Gagal menambahkan ke grup: {{error}}",
-        "createAndAddFailed": "Gagal membuat grup dan menambahkan: {{error}}"
+        "createAndAddFailed": "Gagal membuat grup dan menambahkan: {{error}}",
+        "quotaRefreshFailed": "Gagal memperbarui pengaturan penyegaran kuota: {{error}}",
+        "notFound": "Grup tidak ditemukan"
       },
       "addAccounts": "Tambahkan Akun",
       "editTitle": "Edit Grup",
@@ -1364,7 +1366,14 @@
       "currentGroupLabel": "Grup Saat Ini",
       "accountPickerEmpty": "Tidak ada akun yang cocok",
       "filterHint": "{{count}} grup dipilih untuk penyaringan",
-      "filterToggle": "Centang untuk menyaring berdasarkan grup ini"
+      "filterToggle": "Centang untuk menyaring berdasarkan grup ini",
+      "quotaRefresh": "Penyegaran kuota",
+      "quotaRefreshOffBadge": "Tanpa penyegaran",
+      "quotaRefreshOffHint": "Grup ini tidak disegarkan; penyegaran otomatis dan menyeluruh melewati akunnya",
+      "refreshForceHint": "Anda tetap dapat menyegarkan grup ini secara manual jika kebijakannya bukan mewarisi",
+      "quotaRefreshInherit": "Ikuti pengaturan platform",
+      "quotaRefreshPolicyHint": "Kebijakan penyegaran kuota grup memiliki prioritas tertinggi: ikuti platform, interval khusus, atau nonaktif",
+      "quotaRefreshMinutesBadge": "{{count}} mnt"
     },
     "clearTagFilter": "Hapus Filter Tag",
     "compact": {
@@ -1948,6 +1957,7 @@
       "testConnectFailed": "Tidak dapat terhubung ke {{url}}. Pastikan layanan API berjalan, port tidak berubah, dan tidak ada yang memblokirnya.",
       "testAuthFailed": "Layanan dapat dijangkau, tetapi autentikasi gagal: {{detail}}. Periksa kunci layanan API atau status masuk akun.",
       "testServiceUnavailable": "Layanan dapat dijangkau, tetapi saat ini tidak tersedia: {{detail}}. Periksa apakah layanan aktif, koleksi akun kosong, atau akun dapat digunakan.",
+      "gatewayErrors": {"authUnavailable": "Tidak ada akun yang dapat dirutekan saat ini. Akun mungkin sedang cooldown, tidak terautentikasi, atau dibatasi kuota. Periksa statusnya di layanan API Cockpit Tools.", "authNotFound": "Tidak ada akun yang dapat digunakan di kumpulan akun. Tambahkan atau aktifkan akun di layanan API Cockpit Tools."},
       "testRateLimited": "Layanan dapat dijangkau, tetapi upstream dibatasi atau kuota habis: {{detail}}.",
       "testHttpFailed": "Layanan dapat dijangkau, tetapi permintaan mengembalikan HTTP {{status}}: {{detail}}.",
       "activateAction": "Mulai Layanan API",
@@ -2166,7 +2176,31 @@
         "allAvailable": "Semua OK {{count}}",
         "availableRatio": "Baik {{available}}/{{total}}",
         "issueSummary": "Error {{abnormal}} · Jeda {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, error {{abnormal}}, jeda {{cooldown}}, hilang {{missing}}, auth {{authError}}, kuota {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, error {{abnormal}}, jeda {{cooldown}}, hilang {{missing}}, auth {{authError}}, kuota {{quotaLimited}}",
+        "openDetails": "Lihat akun bermasalah",
+        "recover": "Pulihkan status akun",
+        "recoverSuccess": "Pemulihan diminta untuk {{count}} akun",
+        "dialog": {
+          "title": "Akun Bermasalah",
+          "description": "Status ini berasal dari penjadwal OAuth Sidecar. Pemulihan menghapus jeda dan mencoba kembali akun.",
+          "noIssues": "Tidak ada akun bermasalah",
+          "missing": "Akun hilang",
+          "cooldown": "Dalam jeda",
+          "quota": "Kuota terbatas",
+          "missingDetail": "Akun tidak lagi ada dalam daftar",
+          "cooldownModel": "Model {{model}} sedang dalam jeda",
+          "cooldownUntil": "Model {{model}} dalam jeda hingga {{time}}",
+          "authDetail": "Otorisasi OAuth mungkin kedaluwarsa. Otorisasi ulang lalu coba lagi.",
+          "quotaDetail": "Kuota sementara tidak tersedia. Tunggu atau periksa paket.",
+          "paymentDetail": "Paket atau status pembayaran tidak tersedia. Periksa langganan.",
+          "modelDetail": "Akun ini tidak mendukung model yang diminta.",
+          "upstreamDetail": "Layanan upstream sementara bermasalah. Akan dicoba lagi.",
+          "disabledDetail": "Akun ini dinonaktifkan. Aktifkan terlebih dahulu.",
+          "unavailableDetail": "Sidecar saat ini tidak menganggap akun ini dapat dijadwalkan.",
+          "recover": "Pulihkan",
+          "recovering": "Memulihkan…",
+          "recoverAll": "Pulihkan semua"
+        }
       },
       "testChatModel": "Model uji",
       "testChatClear": "Hapus chat",
@@ -3288,7 +3322,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} kegagalan beruntun",
-        "image": "Gambar {{status}}"
+        "image": "Gambar {{status}}",
+        "unavailable": "Sementara tidak tersedia",
+        "authError": "Kesalahan autentikasi"
       },
       "models": {
         "availableTitle": "Model tersedia",
@@ -4245,10 +4281,21 @@
       "description": "Klik \"Tambah Akun\" untuk mulai mengelola akun Kiro Anda"
     },
     "addModal": {
-      "title": "Tambah Akun Kiro"
+      "title": "Tambah Akun Kiro",
+      "idc": "SSO AWS"
     },
     "oauth": {
       "desc": "Klik tombol di bawah ini dan selesaikan otorisasi Kiro di peramban Anda."
+    },
+    "idc": {
+      "builderId": "Akun AWS Builder ID",
+      "enterprise": "Akun perusahaan",
+      "desc": "Selesaikan otorisasi AWS IAM Identity Center di peramban. Akun akan disimpan otomatis.",
+      "region": "Wilayah AWS",
+      "startUrl": "URL awal IAM Identity Center",
+      "start": "Mulai masuk perusahaan",
+      "regionRequired": "Masukkan wilayah AWS",
+      "startUrlRequired": "Masukkan URL awal IAM Identity Center"
     },
     "token": {
       "desc": "Tempel token akses Kiro atau data JSON yang diekspor."

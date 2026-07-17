@@ -1273,7 +1273,9 @@
         "renameFailed": "Falha ao renomear grupo: {{error}}",
         "deleteFailed": "Falha ao excluir grupo: {{error}}",
         "addFailed": "Falha ao adicionar ao grupo: {{error}}",
-        "createAndAddFailed": "Falha ao criar e adicionar: {{error}}"
+        "createAndAddFailed": "Falha ao criar e adicionar: {{error}}",
+        "quotaRefreshFailed": "Falha ao atualizar a configuração de atualização de cota: {{error}}",
+        "notFound": "Grupo não encontrado"
       },
       "addAccounts": "Adicionar contas",
       "editTitle": "Editar grupo",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Grupo atual",
       "accountPickerEmpty": "Nenhuma conta correspondente",
       "filterHint": "{{count}} grupo(s) selecionado(s) para filtrar",
-      "filterToggle": "Marque para filtrar por este grupo"
+      "filterToggle": "Marque para filtrar por este grupo",
+      "quotaRefresh": "Atualização de cota",
+      "quotaRefreshOffBadge": "Sem atualização",
+      "quotaRefreshOffHint": "Este grupo não é atualizado; as atualizações automática e completa ignoram suas contas",
+      "refreshForceHint": "Você ainda pode atualizar este grupo manualmente quando a política não estiver definida como herdar",
+      "quotaRefreshInherit": "Herdar da plataforma",
+      "quotaRefreshPolicyHint": "A política do grupo tem prioridade máxima: herdar da plataforma, intervalo personalizado ou desativar",
+      "quotaRefreshMinutesBadge": "{{count}} minutos"
     },
     "switchHistory": {
       "title": "Histórico de trocas",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Não foi possível conectar a {{url}}. Confirme se o serviço de API está em execução, se a porta não mudou e se nada está bloqueando.",
       "testAuthFailed": "O serviço está acessível, mas a autenticação falhou: {{detail}}. Verifique a chave do serviço de API ou o estado de login da conta.",
       "testServiceUnavailable": "O serviço está acessível, mas indisponível no momento: {{detail}}. Verifique se o serviço está ativado, se a coleção de contas está vazia ou se as contas podem ser usadas.",
+      "gatewayErrors": {"authUnavailable": "Nenhuma conta do grupo está disponível para roteamento agora. A conta pode estar em espera, sem autorização ou limitada por cota. Verifique o estado no serviço API do Cockpit Tools.", "authNotFound": "Nenhuma conta utilizável está configurada no grupo. Adicione ou ative uma conta no serviço API do Cockpit Tools."},
       "testRateLimited": "O serviço está acessível, mas o upstream está limitado ou a cota acabou: {{detail}}.",
       "testHttpFailed": "O serviço está acessível, mas a requisição retornou HTTP {{status}}: {{detail}}.",
       "activateAction": "Iniciar serviço de API",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Tudo OK {{count}}",
         "availableRatio": "Ativas {{available}}/{{total}}",
         "issueSummary": "Erro {{abnormal}} · Pausa {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, erro {{abnormal}}, pausa {{cooldown}}, ausente {{missing}}, auth {{authError}}, cota {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, erro {{abnormal}}, pausa {{cooldown}}, ausente {{missing}}, auth {{authError}}, cota {{quotaLimited}}",
+        "openDetails": "Ver contas com problema",
+        "recover": "Recuperar estado",
+        "recoverSuccess": "Recuperação solicitada para {{count}} conta(s)",
+        "dialog": {
+          "title": "Contas com problema",
+          "description": "Estes estados vêm do agendador OAuth do Sidecar. A recuperação limpa a espera e tenta a conta novamente.",
+          "noIssues": "Nenhuma conta com problema",
+          "missing": "Conta ausente",
+          "cooldown": "Em espera",
+          "quota": "Cota limitada",
+          "missingDetail": "A conta não está mais na lista",
+          "cooldownModel": "O modelo {{model}} está em espera",
+          "cooldownUntil": "O modelo {{model}} ficará em espera até {{time}}",
+          "authDetail": "A autorização OAuth pode ter expirado. Autorize novamente e tente.",
+          "quotaDetail": "A cota está temporariamente indisponível. Aguarde ou verifique o plano.",
+          "paymentDetail": "O plano ou pagamento da conta está indisponível. Verifique a assinatura.",
+          "modelDetail": "Esta conta não oferece suporte ao modelo solicitado.",
+          "upstreamDetail": "O serviço upstream está temporariamente indisponível. Será tentado novamente.",
+          "disabledDetail": "Esta conta está desativada. Ative-a primeiro.",
+          "unavailableDetail": "O Sidecar não considera esta conta disponível para agendamento.",
+          "recover": "Recuperar",
+          "recovering": "Recuperando…",
+          "recoverAll": "Recuperar tudo"
+        }
       },
       "testChatModel": "Modelo",
       "testChatClear": "Limpar chat",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} falhas seguidas",
-        "image": "Imagens {{status}}"
+        "image": "Imagens {{status}}",
+        "unavailable": "Temporariamente indisponível",
+        "authError": "Erro de autenticação"
       },
       "models": {
         "availableTitle": "Modelos disponíveis",
@@ -4092,10 +4128,21 @@
       "description": "Clique em \"Adicionar conta\" para começar a gerenciar suas contas Kiro"
     },
     "addModal": {
-      "title": "Adicionar conta Kiro"
+      "title": "Adicionar conta Kiro",
+      "idc": "Login AWS"
     },
     "oauth": {
       "desc": "Clique no botão abaixo e conclua a autorização do Kiro em seu navegador."
+    },
+    "idc": {
+      "builderId": "Conta AWS Builder ID",
+      "enterprise": "Conta empresarial",
+      "desc": "Conclua a autorização do AWS IAM Identity Center no navegador. A conta será salva automaticamente.",
+      "region": "Região da AWS",
+      "startUrl": "URL inicial do IAM Identity Center",
+      "start": "Iniciar login empresarial",
+      "regionRequired": "Informe uma região da AWS",
+      "startUrlRequired": "Informe uma URL inicial do IAM Identity Center"
     },
     "token": {
       "desc": "Cole seu token de acesso Kiro ou dados JSON exportados."

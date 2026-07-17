@@ -1273,7 +1273,9 @@
         "renameFailed": "Nie udało się zmienić nazwy grupy: {{error}}",
         "deleteFailed": "Nie udało się usunąć grupy: {{error}}",
         "addFailed": "Nie udało się dodać do grupy: {{error}}",
-        "createAndAddFailed": "Nie udało się utworzyć grupy i dodać: {{error}}"
+        "createAndAddFailed": "Nie udało się utworzyć grupy i dodać: {{error}}",
+        "quotaRefreshFailed": "Nie udało się zaktualizować ustawienia odświeżania limitu: {{error}}",
+        "notFound": "Nie znaleziono grupy"
       },
       "addAccounts": "Dodaj konta",
       "editTitle": "Edytuj grupę",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Bieżąca grupa",
       "accountPickerEmpty": "Brak pasujących kont",
       "filterHint": "Wybrano {{count}} grup do filtrowania",
-      "filterToggle": "Zaznacz, aby filtrować według tej grupy"
+      "filterToggle": "Zaznacz, aby filtrować według tej grupy",
+      "quotaRefresh": "Odświeżanie limitu",
+      "quotaRefreshOffBadge": "Bez odświeżania",
+      "quotaRefreshOffHint": "Ta grupa nie jest odświeżana; automatyczne i pełne odświeżanie pomija jej konta",
+      "refreshForceHint": "Gdy zasada nie dziedziczy ustawień, grupę nadal można odświeżyć ręcznie",
+      "quotaRefreshInherit": "Dziedzicz z platformy",
+      "quotaRefreshPolicyHint": "Zasada grupy ma najwyższy priorytet: dziedziczenie z platformy, własny interwał lub wyłączenie",
+      "quotaRefreshMinutesBadge": "{{count}} minuty"
     },
     "switchHistory": {
       "title": "Historia przełączeń",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Nie można połączyć się z {{url}}. Sprawdź, czy usługa API działa, port się nie zmienił i nic go nie blokuje.",
       "testAuthFailed": "Usługa jest osiągalna, ale uwierzytelnianie nie powiodło się: {{detail}}. Sprawdź klucz usługi API lub stan logowania konta.",
       "testServiceUnavailable": "Usługa jest osiągalna, ale obecnie niedostępna: {{detail}}. Sprawdź, czy usługa jest włączona, kolekcja kont nie jest pusta i konta są używalne.",
+      "gatewayErrors": {"authUnavailable": "Obecnie nie ma konta dostępnego do routingu. Konto może być w czasie oczekiwania, bez autoryzacji lub ograniczone limitem. Sprawdź jego stan w usłudze API Cockpit Tools.", "authNotFound": "W puli kont nie skonfigurowano użytecznego konta. Dodaj lub włącz konto w usłudze API Cockpit Tools."},
       "testRateLimited": "Usługa jest osiągalna, ale upstream jest ograniczony lub limit został wyczerpany: {{detail}}.",
       "testHttpFailed": "Usługa jest osiągalna, ale żądanie zwróciło HTTP {{status}}: {{detail}}.",
       "activateAction": "Uruchom usługę API",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Wszystkie OK {{count}}",
         "availableRatio": "Dobre {{available}}/{{total}}",
         "issueSummary": "Błąd {{abnormal}} · Pauza {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, błąd {{abnormal}}, pauza {{cooldown}}, brak {{missing}}, auth {{authError}}, limit {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, błąd {{abnormal}}, pauza {{cooldown}}, brak {{missing}}, auth {{authError}}, limit {{quotaLimited}}",
+        "openDetails": "Pokaż konta z problemami",
+        "recover": "Przywróć stan",
+        "recoverSuccess": "Zażądano przywrócenia {{count}} kont(a)",
+        "dialog": {
+          "title": "Konta z problemami",
+          "description": "Te stany pochodzą z harmonogramu OAuth Sidecar. Przywrócenie usuwa pauzę i ponawia próbę.",
+          "noIssues": "Brak kont z problemami",
+          "missing": "Brak konta",
+          "cooldown": "Wstrzymane",
+          "quota": "Limit kwoty",
+          "missingDetail": "Konta nie ma już na liście",
+          "cooldownModel": "Model {{model}} jest wstrzymany",
+          "cooldownUntil": "Model {{model}} jest wstrzymany do {{time}}",
+          "authDetail": "Autoryzacja OAuth mogła wygasnąć. Autoryzuj ponownie.",
+          "quotaDetail": "Limit jest tymczasowo niedostępny. Poczekaj lub sprawdź plan.",
+          "paymentDetail": "Plan lub płatność są niedostępne. Sprawdź subskrypcję.",
+          "modelDetail": "To konto nie obsługuje żądanego modelu.",
+          "upstreamDetail": "Usługa nadrzędna jest chwilowo niedostępna. Próba zostanie ponowiona.",
+          "disabledDetail": "Konto jest wyłączone. Najpierw je włącz.",
+          "unavailableDetail": "Sidecar nie uznaje teraz tego konta za dostępne.",
+          "recover": "Przywróć",
+          "recovering": "Przywracanie…",
+          "recoverAll": "Przywróć wszystkie"
+        }
       },
       "testChatModel": "Model ID",
       "testChatClear": "Wyczyść czat",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} kolejnych niepowodzeń",
-        "image": "Obrazy {{status}}"
+        "image": "Obrazy {{status}}",
+        "unavailable": "Tymczasowo niedostępne",
+        "authError": "Błąd uwierzytelniania"
       },
       "models": {
         "availableTitle": "Dostępne modele",
@@ -4092,10 +4128,21 @@
       "description": "Kliknij „Dodaj konto”, aby rozpocząć zarządzanie swoimi kontami Kiro"
     },
     "addModal": {
-      "title": "Dodaj konto Kiro"
+      "title": "Dodaj konto Kiro",
+      "idc": "Logowanie AWS"
     },
     "oauth": {
       "desc": "Kliknij poniższy przycisk i dokończ autoryzację Kiro w swojej przeglądarce."
+    },
+    "idc": {
+      "builderId": "Konto AWS Builder ID",
+      "enterprise": "Konto firmowe",
+      "desc": "Ukończ autoryzację AWS IAM Identity Center w przeglądarce. Konto zostanie zapisane automatycznie.",
+      "region": "Region AWS",
+      "startUrl": "Początkowy adres URL IAM Identity Center",
+      "start": "Rozpocznij logowanie firmowe",
+      "regionRequired": "Wpisz region AWS",
+      "startUrlRequired": "Wpisz początkowy adres URL IAM Identity Center"
     },
     "token": {
       "desc": "Wklej token dostępu Kiro lub wyeksportowane dane JSON."

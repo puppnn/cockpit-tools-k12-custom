@@ -1273,7 +1273,9 @@
         "renameFailed": "Échec du renommage du groupe : {{error}}",
         "deleteFailed": "Échec de la suppression du groupe : {{error}}",
         "addFailed": "Échec de l'ajout au groupe : {{error}}",
-        "createAndAddFailed": "Échec de la création et de l'ajout : {{error}}"
+        "createAndAddFailed": "Échec de la création et de l'ajout : {{error}}",
+        "quotaRefreshFailed": "Échec de la mise à jour du paramètre d’actualisation du quota : {{error}}",
+        "notFound": "Groupe introuvable"
       },
       "addAccounts": "Ajouter des comptes",
       "editTitle": "Modifier le groupe",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Groupe actuel",
       "accountPickerEmpty": "Aucun compte correspondant",
       "filterHint": "{{count}} groupe(s) sélectionné(s) pour le filtrage",
-      "filterToggle": "Cochez pour filtrer par ce groupe"
+      "filterToggle": "Cochez pour filtrer par ce groupe",
+      "quotaRefresh": "Actualisation du quota",
+      "quotaRefreshOffBadge": "Aucune actualisation",
+      "quotaRefreshOffHint": "Ce groupe n’est pas actualisé ; les actualisations automatiques et complètes ignorent ses comptes",
+      "refreshForceHint": "Vous pouvez toujours actualiser ce groupe manuellement si sa politique n’hérite pas de la plateforme",
+      "quotaRefreshInherit": "Hériter de la plateforme",
+      "quotaRefreshPolicyHint": "La politique du groupe est prioritaire : hériter de la plateforme, intervalle personnalisé ou désactivée",
+      "quotaRefreshMinutesBadge": "{{count}} min."
     },
     "switchHistory": {
       "title": "Historique des bascules",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Impossible de se connecter à {{url}}. Vérifiez que le service API est lancé, que le port n’a pas changé et qu’aucun blocage n’existe.",
       "testAuthFailed": "Service joignable, mais authentification échouée : {{detail}}. Vérifiez la clé du service API ou l’état de connexion du compte.",
       "testServiceUnavailable": "Service joignable, mais actuellement indisponible : {{detail}}. Vérifiez si le service est activé, si la collection de comptes est vide ou si les comptes sont utilisables.",
+      "gatewayErrors": {"authUnavailable": "Aucun compte du pool n’est actuellement utilisable. Le compte peut être en refroidissement, non autorisé ou limité par son quota. Vérifiez son état dans le service API de Cockpit Tools.", "authNotFound": "Aucun compte utilisable n’est configuré dans le pool. Ajoutez ou activez un compte dans le service API de Cockpit Tools."},
       "testRateLimited": "Service joignable, mais l’amont est limité ou le quota est épuisé : {{detail}}.",
       "testHttpFailed": "Service joignable, mais la requête a renvoyé HTTP {{status}} : {{detail}}.",
       "activateAction": "Démarrer le service API",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Tout OK {{count}}",
         "availableRatio": "Valide {{available}}/{{total}}",
         "issueSummary": "Erreur {{abnormal}} · Pause {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, erreur {{abnormal}}, pause {{cooldown}}, manquant {{missing}}, auth {{authError}}, quota {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, erreur {{abnormal}}, pause {{cooldown}}, manquant {{missing}}, auth {{authError}}, quota {{quotaLimited}}",
+        "openDetails": "Voir les comptes en erreur",
+        "recover": "Rétablir l’état",
+        "recoverSuccess": "Rétablissement demandé pour {{count}} compte(s)",
+        "dialog": {
+          "title": "Comptes en erreur",
+          "description": "Ces états proviennent du planificateur OAuth Sidecar. Le rétablissement efface la pause et réessaie le compte.",
+          "noIssues": "Aucun compte en erreur",
+          "missing": "Compte manquant",
+          "cooldown": "En pause",
+          "quota": "Quota limité",
+          "missingDetail": "Le compte n’est plus dans la liste",
+          "cooldownModel": "Le modèle {{model}} est en pause",
+          "cooldownUntil": "Le modèle {{model}} est en pause jusqu’à {{time}}",
+          "authDetail": "L’autorisation OAuth a peut-être expiré. Réautorisez puis réessayez.",
+          "quotaDetail": "Le quota est temporairement indisponible. Attendez ou vérifiez l’offre.",
+          "paymentDetail": "L’offre ou le paiement du compte est indisponible. Vérifiez l’abonnement.",
+          "modelDetail": "Ce compte ne prend pas en charge le modèle demandé.",
+          "upstreamDetail": "Le service amont est temporairement indisponible. Il sera réessayé.",
+          "disabledDetail": "Ce compte est désactivé. Activez-le d’abord.",
+          "unavailableDetail": "Sidecar ne considère pas ce compte comme planifiable actuellement.",
+          "recover": "Rétablir",
+          "recovering": "Rétablissement…",
+          "recoverAll": "Tout rétablir"
+        }
       },
       "testChatModel": "Modèle",
       "testChatClear": "Effacer",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} échecs consécutifs",
-        "image": "Images {{status}}​"
+        "image": "Images {{status}}​",
+        "unavailable": "Temporairement indisponible",
+        "authError": "Erreur d’authentification"
       },
       "models": {
         "availableTitle": "Modèles disponibles",
@@ -4092,10 +4128,21 @@
       "description": "Cliquez sur \"Ajouter un compte\" pour commencer à gérer vos comptes Kiro"
     },
     "addModal": {
-      "title": "Ajouter un compte Kiro"
+      "title": "Ajouter un compte Kiro",
+      "idc": "Connexion AWS"
     },
     "oauth": {
       "desc": "Cliquez sur le bouton ci-dessous et complétez l'autorisation Kiro dans votre navigateur."
+    },
+    "idc": {
+      "builderId": "Compte AWS Builder ID",
+      "enterprise": "Compte d’entreprise",
+      "desc": "Terminez l’autorisation AWS IAM Identity Center dans le navigateur. Le compte sera enregistré automatiquement.",
+      "region": "Région AWS",
+      "startUrl": "URL de démarrage IAM Identity Center",
+      "start": "Démarrer la connexion d’entreprise",
+      "regionRequired": "Saisissez une région AWS",
+      "startUrlRequired": "Saisissez une URL de démarrage IAM Identity Center"
     },
     "token": {
       "desc": "Collez votre jeton d'accès Kiro ou les données JSON exportées."

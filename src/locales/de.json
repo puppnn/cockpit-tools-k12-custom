@@ -1273,7 +1273,9 @@
         "renameFailed": "Gruppe konnte nicht umbenannt werden: {{error}}",
         "deleteFailed": "Gruppe konnte nicht gelöscht werden: {{error}}",
         "addFailed": "Hinzufügen zur Gruppe fehlgeschlagen: {{error}}",
-        "createAndAddFailed": "Erstellen und Hinzufügen fehlgeschlagen: {{error}}"
+        "createAndAddFailed": "Erstellen und Hinzufügen fehlgeschlagen: {{error}}",
+        "quotaRefreshFailed": "Kontingentaktualisierung konnte nicht gespeichert werden: {{error}}",
+        "notFound": "Gruppe nicht gefunden"
       },
       "addAccounts": "Konten hinzufügen",
       "editTitle": "Gruppe bearbeiten",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Aktuelle Gruppe",
       "accountPickerEmpty": "Keine passenden Konten",
       "filterHint": "{{count}} Gruppe(n) zum Filtern ausgewählt",
-      "filterToggle": "Aktivieren, um nach dieser Gruppe zu filtern"
+      "filterToggle": "Aktivieren, um nach dieser Gruppe zu filtern",
+      "quotaRefresh": "Kontingentaktualisierung",
+      "quotaRefreshOffBadge": "Keine Aktualisierung",
+      "quotaRefreshOffHint": "Diese Gruppe wird nicht aktualisiert; automatische und vollständige Aktualisierungen überspringen ihre Konten",
+      "refreshForceHint": "Wenn die Richtlinie nicht auf Vererben steht, kann die Gruppe weiterhin manuell aktualisiert werden",
+      "quotaRefreshInherit": "Plattformeinstellung übernehmen",
+      "quotaRefreshPolicyHint": "Die Gruppenrichtlinie hat höchste Priorität: Plattformeinstellung übernehmen, eigenes Intervall oder deaktivieren",
+      "quotaRefreshMinutesBadge": "{{count}} Min."
     },
     "switchHistory": {
       "title": "Wechselverlauf",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Keine Verbindung zu {{url}}. Prüfen Sie, ob der API-Dienst läuft, der Port unverändert ist und nichts blockiert.",
       "testAuthFailed": "Dienst erreichbar, aber Authentifizierung fehlgeschlagen: {{detail}}. Prüfen Sie API-Dienstschlüssel oder Kontoanmeldung.",
       "testServiceUnavailable": "Dienst erreichbar, aber derzeit nicht verfügbar: {{detail}}. Prüfen Sie, ob der Dienst aktiv ist, die Kontosammlung leer ist oder Konten nutzbar sind.",
+      "gatewayErrors": {"authUnavailable": "Derzeit ist kein Konto im Kontenpool einsetzbar. Das Konto kann abkühlen, nicht autorisiert oder durch ein Kontingent begrenzt sein. Prüfen Sie den Kontostatus im API-Service von Cockpit Tools.", "authNotFound": "Im Kontenpool ist kein nutzbares Konto konfiguriert. Fügen Sie im API-Service von Cockpit Tools ein Konto hinzu oder aktivieren Sie eines."},
       "testRateLimited": "Dienst erreichbar, aber Upstream ist limitiert oder das Kontingent ist erschöpft: {{detail}}.",
       "testHttpFailed": "Dienst erreichbar, aber die Anfrage gab HTTP {{status}} zurück: {{detail}}.",
       "activateAction": "API-Dienst starten",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Alle OK {{count}}",
         "availableRatio": "Bereit {{available}}/{{total}}",
         "issueSummary": "Fehler {{abnormal}} · Pause {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, Fehler {{abnormal}}, Pause {{cooldown}}, fehlt {{missing}}, Auth {{authError}}, Kontingent {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, Fehler {{abnormal}}, Pause {{cooldown}}, fehlt {{missing}}, Auth {{authError}}, Kontingent {{quotaLimited}}",
+        "openDetails": "Problemkonten anzeigen",
+        "recover": "Kontostatus wiederherstellen",
+        "recoverSuccess": "Wiederherstellung für {{count}} Konto/Konten angefordert",
+        "dialog": {
+          "title": "Problemkonten",
+          "description": "Diese Zustände stammen vom Sidecar-OAuth-Planer. Die Wiederherstellung löscht Wartezeiten und versucht das Konto erneut.",
+          "noIssues": "Keine Problemkonten",
+          "missing": "Konto fehlt",
+          "cooldown": "In Wartezeit",
+          "quota": "Kontingent begrenzt",
+          "missingDetail": "Das Konto ist nicht mehr in der Kontoliste",
+          "cooldownModel": "Modell {{model}} befindet sich in Wartezeit",
+          "cooldownUntil": "Modell {{model}} ist bis {{time}} in Wartezeit",
+          "authDetail": "Die OAuth-Autorisierung ist möglicherweise abgelaufen. Erneut autorisieren und wiederholen.",
+          "quotaDetail": "Das Kontingent ist vorübergehend nicht verfügbar. Warten oder Tarif prüfen.",
+          "paymentDetail": "Tarif oder Zahlungsstatus ist nicht verfügbar. Abonnement prüfen.",
+          "modelDetail": "Dieses Konto unterstützt das angeforderte Modell nicht.",
+          "upstreamDetail": "Der Upstream-Dienst ist vorübergehend gestört. Danach wird erneut versucht.",
+          "disabledDetail": "Dieses Konto ist deaktiviert. Zuerst aktivieren.",
+          "unavailableDetail": "Sidecar stuft dieses Konto derzeit nicht als planbar ein.",
+          "recover": "Wiederherstellen",
+          "recovering": "Wiederherstellung…",
+          "recoverAll": "Alle wiederherstellen"
+        }
       },
       "testChatModel": "Modell",
       "testChatClear": "Chat leeren",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} Fehlversuche in Folge",
-        "image": "Bilder {{status}}"
+        "image": "Bilder {{status}}",
+        "unavailable": "Vorübergehend nicht verfügbar",
+        "authError": "Authentifizierungsfehler"
       },
       "models": {
         "availableTitle": "Verfügbare Modelle",
@@ -4092,10 +4128,21 @@
       "description": "Klicken Sie auf „Konto hinzufügen“, um mit der Verwaltung Ihrer Kiro-Konten zu beginnen"
     },
     "addModal": {
-      "title": "Kiro-Konto hinzufügen"
+      "title": "Kiro-Konto hinzufügen",
+      "idc": "AWS-SSO"
     },
     "oauth": {
       "desc": "Klicken Sie auf die Schaltfläche unten und schließen Sie die Kiro-Autorisierung in Ihrem Browser ab."
+    },
+    "idc": {
+      "builderId": "AWS-Builder-ID-Konto",
+      "enterprise": "Unternehmenskonto",
+      "desc": "Schließen Sie die AWS-IAM-Identity-Center-Autorisierung im Browser ab. Das Konto wird automatisch gespeichert.",
+      "region": "AWS-Region",
+      "startUrl": "Start-URL des IAM Identity Center",
+      "start": "Unternehmensanmeldung starten",
+      "regionRequired": "Geben Sie eine AWS-Region ein",
+      "startUrlRequired": "Geben Sie eine Start-URL des IAM Identity Center ein"
     },
     "token": {
       "desc": "Fügen Sie Ihr Kiro-Zugriffstoken oder exportierte JSON-Daten ein."

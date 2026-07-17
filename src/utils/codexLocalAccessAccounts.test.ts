@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canAddCodexAccountToLocalAccess,
   getCodexLocalAccessAccountIneligibleReason,
   isCodexLocalAccessEligibleAccount,
 } from "./codexLocalAccessAccounts.ts";
@@ -43,4 +44,28 @@ test("authorized oauth accounts remain eligible", () => {
   });
   assert.equal(getCodexLocalAccessAccountIneligibleReason(ok, true), null);
   assert.equal(isCodexLocalAccessEligibleAccount(ok, true), true);
+});
+
+test("eligible accounts can be added when they are not API service members", () => {
+  const eligible = account({ plan_type: "plus" });
+
+  assert.equal(
+    canAddCodexAccountToLocalAccess(eligible, new Set(), true),
+    true,
+  );
+  assert.equal(
+    canAddCodexAccountToLocalAccess(
+      eligible,
+      new Set([eligible.id]),
+      true,
+    ),
+    false,
+  );
+});
+
+test("direct add follows the API service free-account restriction", () => {
+  const free = account({ plan_type: "free" });
+
+  assert.equal(canAddCodexAccountToLocalAccess(free, new Set(), true), false);
+  assert.equal(canAddCodexAccountToLocalAccess(free, new Set(), false), true);
 });

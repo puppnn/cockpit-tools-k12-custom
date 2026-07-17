@@ -122,6 +122,14 @@ type Result struct {
 	// SuppressAvailabilityUpdate records the request without applying account or
 	// model cooldown state. Session-aware selectors use this for isolated K12 failures.
 	SuppressAvailabilityUpdate bool
+	// AuthStateKnown reports whether MarkResult evaluated the selected auth's final scheduler state.
+	AuthStateKnown bool
+	// AuthAvailable is the scheduler's final availability decision for this auth/model.
+	AuthAvailable bool
+	// NextRetryAt is the scheduler's effective retry time after applying local cooldown policy.
+	NextRetryAt time.Time
+	// AuthStateReason is a stable machine-readable reason for the final scheduler state.
+	AuthStateReason string
 }
 
 // Selector chooses an auth candidate for execution.
@@ -1723,6 +1731,57 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 	return auth.Clone(), nil
 }
 
+// ResetAuthState clears transient scheduler state for an auth and makes it
+// eligible for a fresh request attempt. Credential data and operator-disabled
+// state are preserved.
+func (m *Manager) ResetAuthState(ctx context.Context, authID string) (*Auth, error) {
+	authID = strings.TrimSpace(authID)
+	if m == nil || authID == "" {
+		return nil, nil
+	}
+
+	var authSnapshot *Auth
+	var modelIDs []string
+	m.mu.Lock()
+	auth, ok := m.auths[authID]
+	if !ok || auth == nil {
+		m.mu.Unlock()
+		return nil, nil
+	}
+	now := time.Now()
+	cleared := auth.Clone()
+	wasDisabled := cleared.Disabled || cleared.Status == StatusDisabled
+	modelIDs = make([]string, 0, len(cleared.ModelStates))
+	for modelID := range cleared.ModelStates {
+		if modelID = strings.TrimSpace(modelID); modelID != "" {
+			modelIDs = append(modelIDs, modelID)
+		}
+	}
+	cleared.ModelStates = nil
+	clearAuthStateOnSuccess(cleared, now)
+	if wasDisabled {
+		cleared.Status = StatusDisabled
+	}
+	cleared.UpdatedAt = now
+	authSnapshot = cleared.Clone()
+	m.auths[authID] = authSnapshot
+	m.mu.Unlock()
+
+	m.rebuildAPIKeyModelAliasFromRuntimeConfig()
+	if m.scheduler != nil {
+		m.scheduler.upsertAuth(authSnapshot)
+	}
+	modelRegistry := registry.GetGlobalRegistry()
+	for _, modelID := range modelIDs {
+		modelRegistry.ClearModelQuotaExceeded(authID, modelID)
+		modelRegistry.ResumeClientModel(authID, modelID)
+	}
+	m.queueRefreshReschedule(authID)
+	_ = m.persist(ctx, authSnapshot)
+	m.hook.OnAuthUpdated(ctx, authSnapshot.Clone())
+	return authSnapshot.Clone(), nil
+}
+
 // Load resets manager state from the backing store.
 func (m *Manager) Load(ctx context.Context) error {
 	m.mu.Lock()
@@ -3102,6 +3161,11 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 
 		_ = m.persist(ctx, auth)
 		authSnapshot = auth.Clone()
+		blocked, blockReasonValue, nextRetryAt := isAuthBlockedForModel(authSnapshot, result.Model, now)
+		result.AuthStateKnown = true
+		result.AuthAvailable = !blocked
+		result.NextRetryAt = nextRetryAt
+		result.AuthStateReason = authResultStateReason(result, suspendReason, blockReasonValue)
 	}
 	m.mu.Unlock()
 	if m.scheduler != nil && authSnapshot != nil {
@@ -3121,6 +3185,39 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 
 	m.hook.OnResult(ctx, result)
+}
+
+func authResultStateReason(result Result, suspendReason string, reason blockReason) string {
+	if result.Success {
+		return "available"
+	}
+	if value := strings.TrimSpace(suspendReason); value != "" {
+		return value
+	}
+	status := statusCodeFromResult(result.Error)
+	switch status {
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusPaymentRequired, http.StatusForbidden:
+		return "payment_required"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusTooManyRequests:
+		return "quota"
+	case http.StatusRequestTimeout, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return "transient_upstream"
+	}
+	switch reason {
+	case blockReasonCooldown:
+		return "cooldown"
+	case blockReasonDisabled:
+		return "disabled"
+	case blockReasonOther:
+		return "unavailable"
+	default:
+		return "available"
+	}
 }
 
 func ensureModelState(auth *Auth, model string) *ModelState {

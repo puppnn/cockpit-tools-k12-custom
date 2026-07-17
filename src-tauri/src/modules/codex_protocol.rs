@@ -194,8 +194,7 @@ fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
     let mut has_allowed_tools = false;
     for key in ["tools", "allowed_tools"] {
         if let Some(value) = choice_object.get_mut(key) {
-            let (value_changed, value_has_allowed_tools) =
-                filter_responses_lite_tool_array(value);
+            let (value_changed, value_has_allowed_tools) = filter_responses_lite_tool_array(value);
             changed |= value_changed;
             has_allowed_tools |= value_has_allowed_tools;
         }

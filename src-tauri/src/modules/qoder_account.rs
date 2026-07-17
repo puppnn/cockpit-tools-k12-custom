@@ -154,7 +154,10 @@ pub fn load_account(account_id: &str) -> Option<QoderAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file::<QoderAccount>(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<QoderAccount>(
+        &account_path,
+        &content,
+    ) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
                 let account_for_rewrite = account.clone();
@@ -179,8 +182,7 @@ pub fn load_account(account_id: &str) -> Option<QoderAccount> {
 
 fn save_account_file(account: &QoderAccount) -> Result<(), String> {
     let path = resolve_account_file_path(account.id.as_str())?;
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("qoder", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("qoder", account)?;
     crate::modules::atomic_write::write_string_atomic(&path, &content)
         .map_err(|e| format!("保存账号失败: {}", e))
 }

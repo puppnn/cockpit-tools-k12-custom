@@ -561,7 +561,11 @@ async fn reload_remote_codex_app_server(server: &SshServer) -> Result<(), String
     .await
     .map_err(|e| format!("ssh_remote_app_server_reload_failed: {}", sanitize_error(e)))?;
 
-    let status = output.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
+    let status = output
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
     if matches!(
         status,
         "daemon-restarted" | "app-server-terminated" | "no-app-server"
@@ -786,8 +790,12 @@ mod tests {
             path: "/tmp/id_test".to_string(),
         };
         let args = build_ssh_args(&server, 12);
-        assert!(args.windows(2).any(|w| w[0] == "-o" && w[1] == "IdentitiesOnly=yes"));
-        assert!(args.windows(2).any(|w| w[0] == "-i" && w[1] == "/tmp/id_test"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "-o" && w[1] == "IdentitiesOnly=yes"));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "-i" && w[1] == "/tmp/id_test"));
     }
 
     #[test]

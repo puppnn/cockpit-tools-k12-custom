@@ -1273,7 +1273,9 @@
         "renameFailed": "Не удалось переименовать группу: {{error}}",
         "deleteFailed": "Не удалось удалить группу: {{error}}",
         "addFailed": "Не удалось добавить в группу: {{error}}",
-        "createAndAddFailed": "Не удалось создать группу и добавить: {{error}}"
+        "createAndAddFailed": "Не удалось создать группу и добавить: {{error}}",
+        "quotaRefreshFailed": "Не удалось изменить настройку обновления квоты: {{error}}",
+        "notFound": "Группа не найдена"
       },
       "addAccounts": "Добавить аккаунты",
       "editTitle": "Редактировать группу",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Текущая группа",
       "accountPickerEmpty": "Подходящих аккаунтов не найдено",
       "filterHint": "Для фильтра выбрано групп: {{count}}",
-      "filterToggle": "Отметьте, чтобы фильтровать по этой группе"
+      "filterToggle": "Отметьте, чтобы фильтровать по этой группе",
+      "quotaRefresh": "Обновление квоты",
+      "quotaRefreshOffBadge": "Не обновлять",
+      "quotaRefreshOffHint": "Эта группа не обновляется; автоматическое и полное обновление пропускают её аккаунты",
+      "refreshForceHint": "Если политика не наследуется, группу всё равно можно обновить вручную",
+      "quotaRefreshInherit": "Наследовать от платформы",
+      "quotaRefreshPolicyHint": "Политика группы имеет наивысший приоритет: наследование от платформы, свой интервал или отключение",
+      "quotaRefreshMinutesBadge": "{{count}} мин"
     },
     "switchHistory": {
       "title": "История переключений",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Не удалось подключиться к {{url}}. Убедитесь, что API-сервис запущен, порт не изменён и ничего его не блокирует.",
       "testAuthFailed": "Сервис доступен, но аутентификация не прошла: {{detail}}. Проверьте ключ API-сервиса или состояние входа в аккаунт.",
       "testServiceUnavailable": "Сервис доступен, но сейчас недоступен: {{detail}}. Проверьте, включён ли сервис, не пуста ли коллекция аккаунтов и доступны ли аккаунты.",
+      "gatewayErrors": {"authUnavailable": "Сейчас нет доступного для маршрутизации аккаунта. Аккаунт может быть на паузе, не авторизован или ограничен квотой. Проверьте состояние в API-сервисе Cockpit Tools.", "authNotFound": "В коллекции нет настроенного доступного аккаунта. Добавьте или включите аккаунт в API-сервисе Cockpit Tools."},
       "testRateLimited": "Сервис доступен, но upstream ограничен или квота исчерпана: {{detail}}.",
       "testHttpFailed": "Сервис доступен, но запрос вернул HTTP {{status}}: {{detail}}.",
       "activateAction": "Запустить API-сервис",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Все OK {{count}}",
         "availableRatio": "Рабочие {{available}}/{{total}}",
         "issueSummary": "Сбой {{abnormal}} · Пауза {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, сбой {{abnormal}}, пауза {{cooldown}}, нет {{missing}}, auth {{authError}}, квота {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, сбой {{abnormal}}, пауза {{cooldown}}, нет {{missing}}, auth {{authError}}, квота {{quotaLimited}}",
+        "openDetails": "Показать проблемные аккаунты",
+        "recover": "Восстановить статус",
+        "recoverSuccess": "Запрошено восстановление {{count}} аккаунт(ов)",
+        "dialog": {
+          "title": "Проблемные аккаунты",
+          "description": "Эти состояния получены от планировщика OAuth Sidecar. Восстановление сбрасывает паузу и повторяет попытку.",
+          "noIssues": "Проблемных аккаунтов нет",
+          "missing": "Аккаунт отсутствует",
+          "cooldown": "На паузе",
+          "quota": "Квота ограничена",
+          "missingDetail": "Аккаунта больше нет в списке",
+          "cooldownModel": "Модель {{model}} на паузе",
+          "cooldownUntil": "Модель {{model}} на паузе до {{time}}",
+          "authDetail": "Авторизация OAuth могла истечь. Авторизуйтесь снова.",
+          "quotaDetail": "Квота временно недоступна. Подождите или проверьте тариф.",
+          "paymentDetail": "Тариф или оплата недоступны. Проверьте подписку.",
+          "modelDetail": "Аккаунт не поддерживает запрошенную модель.",
+          "upstreamDetail": "Вышестоящий сервис временно недоступен. Попытка будет повторена.",
+          "disabledDetail": "Аккаунт отключён. Сначала включите его.",
+          "unavailableDetail": "Sidecar сейчас не считает аккаунт доступным для планирования.",
+          "recover": "Восстановить",
+          "recovering": "Восстановление…",
+          "recoverAll": "Восстановить все"
+        }
       },
       "testChatModel": "Модель",
       "testChatClear": "Очистить чат",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} сбоев подряд",
-        "image": "Изображения {{status}}"
+        "image": "Изображения {{status}}",
+        "unavailable": "Временно недоступен",
+        "authError": "Ошибка аутентификации"
       },
       "models": {
         "availableTitle": "Доступные модели",
@@ -4092,10 +4128,21 @@
       "description": "Нажмите «Добавить учетную запись», чтобы начать управлять своими учетными записями Kiro."
     },
     "addModal": {
-      "title": "Добавить аккаунт Киро"
+      "title": "Добавить аккаунт Киро",
+      "idc": "Вход через AWS"
     },
     "oauth": {
       "desc": "Нажмите кнопку ниже и завершите авторизацию Kiro в своем браузере."
+    },
+    "idc": {
+      "builderId": "Аккаунт AWS Builder ID",
+      "enterprise": "Корпоративный аккаунт",
+      "desc": "Завершите авторизацию AWS IAM Identity Center в браузере. Аккаунт будет сохранён автоматически.",
+      "region": "Регион AWS",
+      "startUrl": "Начальный URL IAM Identity Center",
+      "start": "Начать корпоративный вход",
+      "regionRequired": "Введите регион AWS",
+      "startUrlRequired": "Введите начальный URL IAM Identity Center"
     },
     "token": {
       "desc": "Вставьте свой токен доступа Kiro или экспортированные данные JSON."

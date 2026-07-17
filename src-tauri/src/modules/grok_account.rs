@@ -305,8 +305,7 @@ pub fn load_account(account_id: &str) -> Option<GrokAccount> {
 }
 
 fn write_account_content_to_path(path: &Path, account: &GrokAccount) -> Result<(), String> {
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("grok", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("grok", account)?;
     write_secret_atomic(path, &content)
 }
 
@@ -354,7 +353,8 @@ fn load_account_from_path(path: &Path, account_id: &str) -> Option<GrokAccount> 
                             }
                         }
                         // 若 path 即正式账号文件，走全量 save（含 index/profile）
-                        if account_path(&account_id_owned).ok().as_deref() == Some(path_buf.as_path())
+                        if account_path(&account_id_owned).ok().as_deref()
+                            == Some(path_buf.as_path())
                         {
                             let _ = save_account_file(&account_for_rewrite);
                         } else {
@@ -407,8 +407,7 @@ fn load_account_from_path(path: &Path, account_id: &str) -> Option<GrokAccount> 
 
 fn save_account_file(account: &GrokAccount) -> Result<(), String> {
     let path = account_path(&account.id)?;
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("grok", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("grok", account)?;
     write_secret_atomic(&path, &content)
 }
 
@@ -1292,12 +1291,10 @@ fn import_full_accounts(accounts: Vec<GrokAccount>) -> Result<Vec<GrokAccountVie
     }
     let mut result = Vec::new();
     for (idx, account) in accounts.into_iter().enumerate() {
-        validate_importable_account(&account).map_err(|error| {
-            format!("第 {} 条记录解析失败: {}", idx + 1, error)
-        })?;
-        let saved = upsert_candidate(account, None).map_err(|error| {
-            format!("第 {} 条记录导入失败: {}", idx + 1, error)
-        })?;
+        validate_importable_account(&account)
+            .map_err(|error| format!("第 {} 条记录解析失败: {}", idx + 1, error))?;
+        let saved = upsert_candidate(account, None)
+            .map_err(|error| format!("第 {} 条记录导入失败: {}", idx + 1, error))?;
         result.push(GrokAccountView::from(&saved));
     }
     Ok(result)
@@ -1341,7 +1338,8 @@ fn try_import_cockpit_export(value: &Value) -> Option<Result<Vec<GrokAccountView
         .or_else(|| value.get("items"))
         .and_then(Value::as_array)
     {
-        if let Ok(accounts) = serde_json::from_value::<Vec<GrokAccount>>(Value::Array(items.clone()))
+        if let Ok(accounts) =
+            serde_json::from_value::<Vec<GrokAccount>>(Value::Array(items.clone()))
         {
             return Some(import_full_accounts(accounts));
         }
@@ -1380,12 +1378,10 @@ pub fn import_from_json(content: &str) -> Result<Vec<GrokAccountView>, String> {
     }
     let mut accounts = Vec::new();
     for (idx, value) in values.into_iter().enumerate() {
-        let candidate = parse_auth_registry(&value).map_err(|error| {
-            format!("第 {} 条记录解析失败: {}", idx + 1, error)
-        })?;
-        let account = upsert_candidate(candidate, None).map_err(|error| {
-            format!("第 {} 条记录导入失败: {}", idx + 1, error)
-        })?;
+        let candidate = parse_auth_registry(&value)
+            .map_err(|error| format!("第 {} 条记录解析失败: {}", idx + 1, error))?;
+        let account = upsert_candidate(candidate, None)
+            .map_err(|error| format!("第 {} 条记录导入失败: {}", idx + 1, error))?;
         accounts.push(GrokAccountView::from(&account));
     }
     Ok(accounts)
@@ -1840,11 +1836,12 @@ async fn cli_user_for(
 ) -> Option<Value> {
     let access_token = account.access_token.clone();
     let client_version = client_version.to_string();
-    let response = send_with_transport_retry("查询 Grok 用户信息", TRANSPORT_MAX_ATTEMPTS, || {
-        cli_proxy_get(client, CLI_USER_URL, &access_token, &client_version)
-    })
-    .await
-    .ok()?;
+    let response =
+        send_with_transport_retry("查询 Grok 用户信息", TRANSPORT_MAX_ATTEMPTS, || {
+            cli_proxy_get(client, CLI_USER_URL, &access_token, &client_version)
+        })
+        .await
+        .ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -2000,7 +1997,10 @@ fn find_matching_auth_entry_in_registry<'a>(
     }
     // 多条同账号（极少见）：取 expires_at 最晚的
     matches.sort_by(|left, right| {
-        let left_exp = left.get("expires_at").and_then(parse_timestamp).unwrap_or(0);
+        let left_exp = left
+            .get("expires_at")
+            .and_then(parse_timestamp)
+            .unwrap_or(0);
         let right_exp = right
             .get("expires_at")
             .and_then(parse_timestamp)
@@ -2062,7 +2062,11 @@ fn live_candidate_from_store(account: &GrokAccount) -> Option<LiveCredentialCand
         expires_at: account.expires_at,
         expires_at_raw: account.expires_at_raw.clone(),
         observed_at,
-        entry: account.auth_raw.as_ref().and_then(Value::as_object).cloned(),
+        entry: account
+            .auth_raw
+            .as_ref()
+            .and_then(Value::as_object)
+            .cloned(),
         path,
     })
 }
@@ -2124,7 +2128,11 @@ fn pick_best_live_credential(
                     .unwrap_or(0)
                     .cmp(&right.expires_at.unwrap_or(0))
             })
-            .then_with(|| left.source.tie_break_rank().cmp(&right.source.tie_break_rank()))
+            .then_with(|| {
+                left.source
+                    .tie_break_rank()
+                    .cmp(&right.source.tie_break_rank())
+            })
     })
 }
 
@@ -2736,18 +2744,20 @@ pub fn run_quota_alert_if_needed() -> Result<(), String> {
             })
             .max_by_key(|(_, minimum)| *minimum)
             .map(|(account, _)| account);
-        crate::modules::account::dispatch_quota_alert(&crate::modules::account::QuotaAlertPayload {
-            platform: "grok".to_string(),
-            current_account_id: current.id.clone(),
-            current_email: current.email.clone(),
-            threshold,
-            threshold_display: None,
-            lowest_percentage: lowest,
-            low_models: low_products,
-            recommended_account_id: recommendation.map(|account| account.id.clone()),
-            recommended_email: recommendation.map(|account| account.email.clone()),
-            triggered_at: now,
-        });
+        crate::modules::account::dispatch_quota_alert(
+            &crate::modules::account::QuotaAlertPayload {
+                platform: "grok".to_string(),
+                current_account_id: current.id.clone(),
+                current_email: current.email.clone(),
+                threshold,
+                threshold_display: None,
+                lowest_percentage: lowest,
+                low_models: low_products,
+                recommended_account_id: recommendation.map(|account| account.id.clone()),
+                recommended_email: recommendation.map(|account| account.email.clone()),
+                triggered_at: now,
+            },
+        );
     }
     Ok(())
 }
@@ -2755,16 +2765,16 @@ pub fn run_quota_alert_if_needed() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        account_from_auth_object, accounts_match_for_upsert, acquire_secret_lock,
-        apply_refreshed_token, auth_entry_matches_account, auth_registry_entry, auth_registry_for,
-        default_grok_home, ensure_secret_dir, list_accounts_checked, load_account,
-        load_account_from_path, load_index_from_paths,
-        access_still_usable, find_matching_auth_entry_in_registry, parse_auth_registry,
+        access_still_usable, account_from_auth_object, accounts_match_for_upsert,
+        acquire_secret_lock, apply_refreshed_token, auth_entry_matches_account,
+        auth_registry_entry, auth_registry_for, default_grok_home, ensure_secret_dir,
+        find_matching_auth_entry_in_registry, list_accounts_checked, load_account,
+        load_account_from_path, load_index_from_paths, parse_auth_registry,
         pick_best_live_credential, quota_from_payload, quota_remaining_metrics, remove_account,
         remove_matching_auth_scope, resolve_account_id_from_registry, save_account_locked,
-        should_retry_quota_after_unauthorized, string_field, GrokCredSource,
-        LiveCredentialCandidate, write_account_to_auth_path_if_token_matches,
-        write_account_to_official_auth_path,
+        should_retry_quota_after_unauthorized, string_field,
+        write_account_to_auth_path_if_token_matches, write_account_to_official_auth_path,
+        GrokCredSource, LiveCredentialCandidate,
     };
     use crate::models::grok::{
         GrokAccount, GrokAccountView, GrokAuthMode, GrokProductUsage, GrokQuota,
@@ -2873,12 +2883,13 @@ mod tests {
         )
         .expect("write seed registry");
 
-        assert!(write_account_to_official_auth_path(&sample_account(), &auth_path)
-            .expect("sync official auth"));
-        let persisted: Value = serde_json::from_str(
-            &std::fs::read_to_string(&auth_path).expect("read official auth"),
-        )
-        .expect("parse official auth");
+        assert!(
+            write_account_to_official_auth_path(&sample_account(), &auth_path)
+                .expect("sync official auth")
+        );
+        let persisted: Value =
+            serde_json::from_str(&std::fs::read_to_string(&auth_path).expect("read official auth"))
+                .expect("parse official auth");
         assert_eq!(persisted["custom-scope"]["key"], "keep");
         assert_eq!(persisted["custom-scope"]["future"], true);
         assert_eq!(
@@ -2901,8 +2912,10 @@ mod tests {
         api_key_account.api_key = Some("xai-test-key".to_string());
         api_key_account.refresh_token = None;
 
-        assert!(!write_account_to_official_auth_path(&api_key_account, &auth_path)
-            .expect("select api key account"));
+        assert!(
+            !write_account_to_official_auth_path(&api_key_account, &auth_path)
+                .expect("select api key account")
+        );
         assert_eq!(
             std::fs::read_to_string(&auth_path).expect("read preserved auth"),
             original

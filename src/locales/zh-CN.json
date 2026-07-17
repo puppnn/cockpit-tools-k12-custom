@@ -1508,7 +1508,9 @@
         "renameFailed": "重命名分组失败：{{error}}",
         "deleteFailed": "删除分组失败：{{error}}",
         "addFailed": "添加到分组失败：{{error}}",
-        "createAndAddFailed": "新建分组并添加失败：{{error}}"
+        "createAndAddFailed": "新建分组并添加失败：{{error}}",
+        "quotaRefreshFailed": "更新额度刷新设置失败：{{error}}",
+        "notFound": "分组不存在"
       },
       "addAccounts": "添加账号",
       "editTitle": "编辑分组",
@@ -1516,7 +1518,14 @@
       "currentGroupLabel": "当前分组",
       "accountPickerEmpty": "没有符合条件的账号",
       "filterHint": "已勾选 {{count}} 个分组做筛选",
-      "filterToggle": "勾选以筛选此分组"
+      "filterToggle": "勾选以筛选此分组",
+      "quotaRefresh": "额度刷新",
+      "quotaRefreshOffBadge": "不刷新",
+      "quotaRefreshOffHint": "本组不刷新：自动/全量会跳过组内账号",
+      "refreshForceHint": "本组自动额度策略非继承时，仍可手动刷新本组",
+      "quotaRefreshInherit": "继承平台",
+      "quotaRefreshPolicyHint": "分组额度刷新为最高优先级；可继承平台设置、自定义间隔或不刷新",
+      "quotaRefreshMinutesBadge": "{{count}} 分钟"
     },
     "clearTagFilter": "清空标签",
     "compact": {
@@ -2177,6 +2186,10 @@
       "testConnectFailed": "无法连接 {{url}}。请确认 API 服务已启动、端口未被改动或被拦截。",
       "testAuthFailed": "服务可达，但鉴权失败：{{detail}}。请检查 API 服务密钥或账号登录状态。",
       "testServiceUnavailable": "服务可达，但当前不可用：{{detail}}。请检查服务是否启用、账号集合是否为空或账号是否可用。",
+      "gatewayErrors": {
+        "authUnavailable": "账号池当前没有可调度账号；账号可能正在冷却、授权失效或额度受限，请在 Cockpit Tools 的 API 服务页查看账号状态。",
+        "authNotFound": "账号池当前没有已配置的可用账号，请在 Cockpit Tools 的 API 服务页添加或启用账号。"
+      },
       "testRateLimited": "服务可达，但上游限流或额度不足：{{detail}}。",
       "testHttpFailed": "服务可达，但请求返回 HTTP {{status}}：{{detail}}。",
       "activateAction": "启动 API 服务",
@@ -2274,7 +2287,31 @@
         "allAvailable": "全部可用 {{count}}",
         "availableRatio": "可用 {{available}}/{{total}}",
         "issueSummary": "异常 {{abnormal}} · 冷却 {{cooldown}}",
-        "detail": "可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}"
+        "detail": "可用 {{available}}/{{total}}，异常 {{abnormal}}，冷却 {{cooldown}}，缺失 {{missing}}，鉴权 {{authError}}，额度 {{quotaLimited}}",
+        "openDetails": "查看异常账号详情",
+        "recover": "恢复账号状态",
+        "recoverSuccess": "已提交 {{count}} 个账号的恢复操作",
+        "dialog": {
+          "title": "异常账号",
+          "description": "以下状态来自 Sidecar OAuth 调度器。恢复操作会清除调度冷却并重新尝试账号。",
+          "noIssues": "当前没有异常账号",
+          "missing": "账号缺失",
+          "cooldown": "冷却中",
+          "quota": "额度受限",
+          "missingDetail": "账号已不在当前账号列表中",
+          "cooldownModel": "模型 {{model}} 处于冷却状态",
+          "cooldownUntil": "模型 {{model}} 冷却至 {{time}}",
+          "authDetail": "OAuth 授权可能已失效，请重新授权后再试",
+          "quotaDetail": "账号额度暂时不可用，请等待额度恢复或检查套餐状态",
+          "paymentDetail": "账号套餐或付款状态不可用，请检查订阅状态",
+          "modelDetail": "当前账号不支持请求的模型",
+          "upstreamDetail": "上游服务暂时异常，恢复后会重新尝试",
+          "disabledDetail": "该账号已被停用，请先启用账号",
+          "unavailableDetail": "Sidecar 当前未将该账号列为可调度账号",
+          "recover": "恢复",
+          "recovering": "恢复中…",
+          "recoverAll": "全部恢复"
+        }
       },
       "memberTitle": "集合成员",
       "routingStrategy": {
@@ -3455,7 +3492,9 @@
       },
       "accountHealth": {
         "failures": "连续失败 {{count}}",
-        "image": "图片 {{status}}"
+        "image": "图片 {{status}}",
+        "unavailable": "暂不可用",
+        "authError": "鉴权异常"
       },
       "accountModelRules": {
         "action": "禁用模型",
@@ -4401,10 +4440,21 @@
       "description": "点击\"添加账号\"开始管理您的 Kiro 账号"
     },
     "addModal": {
-      "title": "添加 Kiro 账号"
+      "title": "添加 Kiro 账号",
+      "idc": "AWS 单点登录"
     },
     "oauth": {
       "desc": "点击下方按钮，在浏览器中完成 Kiro OAuth 授权。"
+    },
+    "idc": {
+      "builderId": "AWS Builder ID 账号",
+      "enterprise": "企业账号",
+      "desc": "在浏览器中完成 AWS IAM Identity Center 授权，授权完成后账号会自动保存。",
+      "region": "AWS Region",
+      "startUrl": "IAM Identity Center Start URL",
+      "start": "开始企业登录",
+      "regionRequired": "请填写 AWS Region",
+      "startUrlRequired": "请填写 IAM Identity Center Start URL"
     },
     "token": {
       "desc": "粘贴您的 Kiro Access Token 或导出的 JSON 数据。"

@@ -1508,7 +1508,9 @@
         "renameFailed": "Failed to rename group: {{error}}",
         "deleteFailed": "Failed to delete group: {{error}}",
         "addFailed": "Failed to add to group: {{error}}",
-        "createAndAddFailed": "Failed to create group and add: {{error}}"
+        "createAndAddFailed": "Failed to create group and add: {{error}}",
+        "quotaRefreshFailed": "Failed to update quota refresh setting: {{error}}",
+        "notFound": "Group not found"
       },
       "addAccounts": "Add Accounts",
       "editTitle": "Edit Group",
@@ -1516,7 +1518,14 @@
       "currentGroupLabel": "Current Group",
       "accountPickerEmpty": "No matching accounts",
       "filterHint": "{{count}} group(s) selected for filtering",
-      "filterToggle": "Check to filter by this group"
+      "filterToggle": "Check to filter by this group",
+      "quotaRefresh": "Quota refresh",
+      "quotaRefreshOffBadge": "No refresh",
+      "quotaRefreshOffHint": "No refresh for this group; auto and full refresh skip its accounts",
+      "refreshForceHint": "You can still refresh this group manually when its policy is not inherit",
+      "quotaRefreshInherit": "Inherit platform",
+      "quotaRefreshPolicyHint": "Group quota refresh has highest priority: inherit platform, custom interval, or off",
+      "quotaRefreshMinutesBadge": "{{count}} min"
     },
     "clearTagFilter": "Clear Tag Filter",
     "compact": {
@@ -2177,6 +2186,10 @@
       "testConnectFailed": "Cannot connect to {{url}}. Confirm the API service is running, the port has not changed, and nothing is blocking it.",
       "testAuthFailed": "Service is reachable, but authentication failed: {{detail}}. Check the API service key or account sign-in state.",
       "testServiceUnavailable": "Service is reachable, but currently unavailable: {{detail}}. Check whether the service is enabled, the account collection is empty, or accounts are usable.",
+      "gatewayErrors": {
+        "authUnavailable": "No account is currently schedulable; the account may be cooling down, unauthorized, or quota-limited. Check account status in the Cockpit Tools API Service page.",
+        "authNotFound": "No usable account is configured in the account pool. Add or enable an account in the Cockpit Tools API Service page."
+      },
       "testRateLimited": "Service is reachable, but upstream is rate limited or quota is exhausted: {{detail}}.",
       "testHttpFailed": "Service is reachable, but the request returned HTTP {{status}}: {{detail}}.",
       "activateAction": "Start API Service",
@@ -2274,7 +2287,31 @@
         "allAvailable": "All OK {{count}}",
         "availableRatio": "OK {{available}}/{{total}}",
         "issueSummary": "Bad {{abnormal}} · Cool {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, bad {{abnormal}}, cooldown {{cooldown}}, missing {{missing}}, auth {{authError}}, quota {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, bad {{abnormal}}, cooldown {{cooldown}}, missing {{missing}}, auth {{authError}}, quota {{quotaLimited}}",
+        "openDetails": "View problem accounts",
+        "recover": "Recover account status",
+        "recoverSuccess": "Recovery requested for {{count}} account(s)",
+        "dialog": {
+          "title": "Problem Accounts",
+          "description": "These states come from the Sidecar OAuth scheduler. Recovery clears scheduler cooldowns and retries the account.",
+          "noIssues": "No problem accounts",
+          "missing": "Missing account",
+          "cooldown": "Cooling down",
+          "quota": "Quota limited",
+          "missingDetail": "The account is no longer in the account list",
+          "cooldownModel": "Model {{model}} is cooling down",
+          "cooldownUntil": "Model {{model}} cools down until {{time}}",
+          "authDetail": "OAuth authorization may have expired. Reauthorize and try again.",
+          "quotaDetail": "Account quota is temporarily unavailable. Wait for recovery or check the plan.",
+          "paymentDetail": "The account plan or payment status is unavailable. Check the subscription.",
+          "modelDetail": "This account does not support the requested model.",
+          "upstreamDetail": "The upstream service is temporarily unavailable. Recovery will retry it.",
+          "disabledDetail": "This account is disabled. Enable it first.",
+          "unavailableDetail": "Sidecar does not currently consider this account schedulable.",
+          "recover": "Recover",
+          "recovering": "Recovering…",
+          "recoverAll": "Recover all"
+        }
       },
       "memberTitle": "Collection Members",
       "routingStrategy": {
@@ -3455,7 +3492,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} consecutive failure(s)",
-        "image": "Images {{status}}"
+        "image": "Images {{status}}",
+        "unavailable": "Temporarily unavailable",
+        "authError": "Authentication error"
       },
       "accountModelRules": {
         "action": "Block Models",
@@ -4401,10 +4440,21 @@
       "description": "Click \"Add Account\" to start managing your Kiro accounts"
     },
     "addModal": {
-      "title": "Add Kiro Account"
+      "title": "Add Kiro Account",
+      "idc": "AWS SSO"
     },
     "oauth": {
       "desc": "Click the button below and complete Kiro authorization in your browser."
+    },
+    "idc": {
+      "builderId": "AWS Builder ID",
+      "enterprise": "Enterprise",
+      "desc": "Complete AWS IAM Identity Center authorization in your browser. The account will be saved automatically.",
+      "region": "AWS Region",
+      "startUrl": "IAM Identity Center Start URL",
+      "start": "Start enterprise login",
+      "regionRequired": "Enter an AWS Region",
+      "startUrlRequired": "Enter an IAM Identity Center Start URL"
     },
     "token": {
       "desc": "Paste your Kiro access token or exported JSON data."

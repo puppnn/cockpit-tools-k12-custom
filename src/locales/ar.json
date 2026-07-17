@@ -1320,7 +1320,9 @@
         "renameFailed": "فشل إعادة تسمية المجموعة: {{error}}",
         "deleteFailed": "فشل حذف المجموعة: {{error}}",
         "addFailed": "فشل الإضافة إلى المجموعة: {{error}}",
-        "createAndAddFailed": "فشل الإنشاء والإضافة: {{error}}"
+        "createAndAddFailed": "فشل الإنشاء والإضافة: {{error}}",
+        "quotaRefreshFailed": "فشل تحديث إعداد تحديث الحصة: {{error}}",
+        "notFound": "المجموعة غير موجودة"
       },
       "addAccounts": "إضافة حسابات",
       "editTitle": "تحرير المجموعة",
@@ -1328,7 +1330,14 @@
       "currentGroupLabel": "المجموعة الحالية",
       "accountPickerEmpty": "لا توجد حسابات مطابقة",
       "filterHint": "تم تحديد {{count}} مجموعة للتصفية",
-      "filterToggle": "حدّد للتصفية حسب هذه المجموعة"
+      "filterToggle": "حدّد للتصفية حسب هذه المجموعة",
+      "quotaRefresh": "تحديث الحصة",
+      "quotaRefreshOffBadge": "بدون تحديث",
+      "quotaRefreshOffHint": "لن تُحدَّث هذه المجموعة؛ سيتخطى التحديث التلقائي والكامل حساباتها",
+      "refreshForceHint": "لا يزال بإمكانك تحديث هذه المجموعة يدويًا عندما لا تكون سياستها هي التوريث",
+      "quotaRefreshInherit": "توريث إعداد المنصة",
+      "quotaRefreshPolicyHint": "سياسة تحديث حصة المجموعة لها الأولوية القصوى: توريث إعداد المنصة أو فاصل مخصص أو إيقاف التحديث",
+      "quotaRefreshMinutesBadge": "{{count}} د"
     },
     "switchHistory": {
       "title": "سجل التبديل",
@@ -1945,6 +1954,7 @@
       "testConnectFailed": "لا يمكن الاتصال بـ {{url}}. تأكد من تشغيل خدمة API، وأن المنفذ لم يتغير، ولا يوجد ما يحظره.",
       "testAuthFailed": "الخدمة قابلة للوصول، لكن المصادقة فشلت: {{detail}}. تحقق من مفتاح خدمة API أو حالة تسجيل الدخول للحساب.",
       "testServiceUnavailable": "الخدمة قابلة للوصول، لكنها غير متاحة حاليًا: {{detail}}. تحقق من تفعيل الخدمة، أو من أن مجموعة الحسابات ليست فارغة، أو من صلاحية الحسابات.",
+      "gatewayErrors": {"authUnavailable": "لا يوجد حاليًا حساب قابل للتوجيه. قد يكون الحساب في فترة تهدئة أو بلا مصادقة أو مقيّدًا بالحصّة. تحقّق من حالته في خدمة API داخل Cockpit Tools.", "authNotFound": "لا يوجد حساب صالح مُعدّ في مجموعة الحسابات. أضف حسابًا أو فعّله في خدمة API داخل Cockpit Tools."},
       "testRateLimited": "الخدمة قابلة للوصول، لكن upstream مقيّد أو الحصة نفدت: {{detail}}.",
       "testHttpFailed": "الخدمة قابلة للوصول، لكن الطلب أعاد HTTP {{status}}: {{detail}}.",
       "activateAction": "تشغيل خدمة API",
@@ -2163,7 +2173,31 @@
         "allAvailable": "كلها سليمة {{count}}",
         "availableRatio": "سليم {{available}}/{{total}}",
         "issueSummary": "خلل {{abnormal}} · تهدئة {{cooldown}}",
-        "detail": "سليم {{available}}/{{total}}، خلل {{abnormal}}، تهدئة {{cooldown}}، مفقود {{missing}}، مصادقة {{authError}}، حصة {{quotaLimited}}"
+        "detail": "سليم {{available}}/{{total}}، خلل {{abnormal}}، تهدئة {{cooldown}}، مفقود {{missing}}، مصادقة {{authError}}، حصة {{quotaLimited}}",
+        "openDetails": "عرض الحسابات التي بها مشاكل",
+        "recover": "استعادة حالة الحساب",
+        "recoverSuccess": "طُلبت الاستعادة لـ {{count}} حساب",
+        "dialog": {
+          "title": "حسابات بها مشاكل",
+          "description": "تأتي هذه الحالات من مجدول OAuth في Sidecar. تمسح الاستعادة فترة الانتظار وتعيد محاولة الحساب.",
+          "noIssues": "لا توجد حسابات بها مشاكل",
+          "missing": "الحساب مفقود",
+          "cooldown": "قيد الانتظار",
+          "quota": "الحصة محدودة",
+          "missingDetail": "لم يعد الحساب موجودًا في القائمة",
+          "cooldownModel": "النموذج {{model}} قيد الانتظار",
+          "cooldownUntil": "النموذج {{model}} قيد الانتظار حتى {{time}}",
+          "authDetail": "ربما انتهت صلاحية تفويض OAuth. أعد التفويض ثم حاول.",
+          "quotaDetail": "الحصة غير متاحة مؤقتًا. انتظر أو تحقق من الخطة.",
+          "paymentDetail": "الخطة أو حالة الدفع غير متاحة. تحقق من الاشتراك.",
+          "modelDetail": "هذا الحساب لا يدعم النموذج المطلوب.",
+          "upstreamDetail": "الخدمة العليا غير متاحة مؤقتًا. ستتم إعادة المحاولة.",
+          "disabledDetail": "هذا الحساب معطل. فعّله أولًا.",
+          "unavailableDetail": "لا يعتبر Sidecar هذا الحساب قابلًا للجدولة حاليًا.",
+          "recover": "استعادة",
+          "recovering": "جارٍ الاستعادة…",
+          "recoverAll": "استعادة الكل"
+        }
       },
       "testChatModel": "النموذج",
       "testChatClear": "مسح المحادثة",
@@ -3288,7 +3322,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} إخفاقات متتالية",
-        "image": "الصور {{status}}"
+        "image": "الصور {{status}}",
+        "unavailable": "غير متاح مؤقتًا",
+        "authError": "خطأ في المصادقة"
       },
       "models": {
         "availableTitle": "النماذج المتاحة",
@@ -4139,10 +4175,21 @@
       "description": "انقر على \"إضافة حساب\" لبدء إدارة حسابات Kiro"
     },
     "addModal": {
-      "title": "إضافة حساب Kiro"
+      "title": "إضافة حساب Kiro",
+      "idc": "مركز هوية AWS"
     },
     "oauth": {
       "desc": "انقر الزر أدناه وأكمل تفويض Kiro في المتصفح."
+    },
+    "idc": {
+      "builderId": "حساب AWS Builder ID",
+      "enterprise": "حساب مؤسسي",
+      "desc": "أكمل تفويض AWS IAM Identity Center في المتصفح، وسيُحفظ الحساب تلقائياً.",
+      "region": "منطقة AWS",
+      "startUrl": "عنوان بدء IAM Identity Center",
+      "start": "بدء تسجيل دخول المؤسسة",
+      "regionRequired": "أدخل منطقة AWS",
+      "startUrlRequired": "أدخل عنوان بدء IAM Identity Center"
     },
     "token": {
       "desc": "الصق رمز وصول Kiro أو بيانات JSON المصدّرة."

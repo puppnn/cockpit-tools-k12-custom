@@ -43,14 +43,11 @@ fn worker_sender() -> Option<&'static SyncSender<RewriteJob>> {
             match thread::Builder::new()
                 .name("deferred-account-rewrite".into())
                 .spawn(move || {
-                    logger::log_info(
-                        "[DeferredAccountRewrite] 后台账号详情迁移写回 worker 已启动",
-                    );
+                    logger::log_info("[DeferredAccountRewrite] 后台账号详情迁移写回 worker 已启动");
                     while let Ok(job) = rx.recv() {
                         let key = job.key;
-                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                            job.action,
-                        ));
+                        let result =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(job.action));
                         remove_pending_key(&key);
                         if let Err(panic) = result {
                             logger::log_warn(&format!(
@@ -60,8 +57,7 @@ fn worker_sender() -> Option<&'static SyncSender<RewriteJob>> {
                         }
                         thread::sleep(Duration::from_millis(5));
                     }
-                })
-            {
+                }) {
                 Ok(_) => Some(tx),
                 Err(error) => {
                     logger::log_error(&format!(

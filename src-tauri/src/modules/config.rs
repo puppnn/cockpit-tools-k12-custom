@@ -1601,10 +1601,7 @@ pub fn load_user_config() -> Result<UserConfig, String> {
         }
 
         if !obj.contains_key("startup_page") {
-            obj.insert(
-                "startup_page".to_string(),
-                json!(default_startup_page()),
-            );
+            obj.insert("startup_page".to_string(), json!(default_startup_page()));
         } else if let Some(value) = obj.get("startup_page").and_then(|v| v.as_str()) {
             let normalized = normalize_startup_page(value);
             obj.insert("startup_page".to_string(), json!(normalized));

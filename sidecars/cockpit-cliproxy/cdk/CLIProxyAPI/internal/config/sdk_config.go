@@ -44,6 +44,10 @@ type SDKConfig struct {
 	// APIKeyAccountIDs optionally limits which auth IDs a client API key may use.
 	APIKeyAccountIDs map[string][]string `yaml:"api-key-account-ids,omitempty" json:"api-key-account-ids,omitempty"`
 
+	// AuthErrorLocalization provides user-facing auth selection messages keyed by locale.
+	// The request Accept-Language is preferred, then DefaultLocale, then English.
+	AuthErrorLocalization AuthErrorLocalizationConfig `yaml:"auth-error-localization,omitempty" json:"auth-error-localization,omitempty"`
+
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
 	PassthroughHeaders bool `yaml:"passthrough-headers" json:"passthrough-headers"`
@@ -54,6 +58,13 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
+}
+
+// AuthErrorLocalizationConfig contains localized user-facing auth selection errors.
+type AuthErrorLocalizationConfig struct {
+	DefaultLocale   string            `yaml:"default-locale,omitempty" json:"default-locale,omitempty"`
+	AuthUnavailable map[string]string `yaml:"auth-unavailable,omitempty" json:"auth-unavailable,omitempty"`
+	AuthNotFound    map[string]string `yaml:"auth-not-found,omitempty" json:"auth-not-found,omitempty"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.

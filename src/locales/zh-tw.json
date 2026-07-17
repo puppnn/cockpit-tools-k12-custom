@@ -1273,7 +1273,9 @@
         "renameFailed": "重新命名分組失敗：{{error}}",
         "deleteFailed": "刪除分組失敗：{{error}}",
         "addFailed": "加入分組失敗：{{error}}",
-        "createAndAddFailed": "新建分組並加入失敗：{{error}}"
+        "createAndAddFailed": "新建分組並加入失敗：{{error}}",
+        "quotaRefreshFailed": "更新額度重新整理設定失敗：{{error}}",
+        "notFound": "找不到分組"
       },
       "addAccounts": "添加帳號",
       "editTitle": "編輯分組",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "目前分組",
       "accountPickerEmpty": "沒有符合條件的帳號",
       "filterHint": "已勾選 {{count}} 個分組做篩選",
-      "filterToggle": "勾選以篩選此分組"
+      "filterToggle": "勾選以篩選此分組",
+      "quotaRefresh": "額度重新整理",
+      "quotaRefreshOffBadge": "不重新整理",
+      "quotaRefreshOffHint": "本組不會重新整理；自動與全部重新整理會略過組內帳號",
+      "refreshForceHint": "本組策略不是繼承時，仍可手動重新整理",
+      "quotaRefreshInherit": "繼承平台",
+      "quotaRefreshPolicyHint": "分組額度重新整理具有最高優先級：可繼承平台、自訂間隔或不重新整理",
+      "quotaRefreshMinutesBadge": "{{count}} 分鐘"
     },
     "switchHistory": {
       "title": "切換記錄",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "無法連線到 {{url}}。請確認 API 服務已啟動、連接埠未被變更或阻擋。",
       "testAuthFailed": "服務可達，但驗證失敗：{{detail}}。請檢查 API 服務密鑰或帳號登入狀態。",
       "testServiceUnavailable": "服務可達，但目前不可用：{{detail}}。請檢查服務是否啟用、帳號集合是否為空或帳號是否可用。",
+      "gatewayErrors": {"authUnavailable": "帳號池目前沒有可調度帳號；帳號可能正在冷卻、授權失效或額度受限，請在 Cockpit Tools 的 API 服務頁查看帳號狀態。", "authNotFound": "帳號池目前沒有已設定的可用帳號，請在 Cockpit Tools 的 API 服務頁新增或啟用帳號。"},
       "testRateLimited": "服務可達，但上游限流或額度不足：{{detail}}。",
       "testHttpFailed": "服務可達，但請求返回 HTTP {{status}}：{{detail}}。",
       "activateAction": "啟動 API 服務",
@@ -2116,7 +2126,31 @@
         "allAvailable": "全部可用 {{count}}",
         "availableRatio": "可用 {{available}}/{{total}}",
         "issueSummary": "異常 {{abnormal}} · 冷卻 {{cooldown}}",
-        "detail": "可用 {{available}}/{{total}}，異常 {{abnormal}}，冷卻 {{cooldown}}，缺失 {{missing}}，鑑權 {{authError}}，額度 {{quotaLimited}}"
+        "detail": "可用 {{available}}/{{total}}，異常 {{abnormal}}，冷卻 {{cooldown}}，缺失 {{missing}}，鑑權 {{authError}}，額度 {{quotaLimited}}",
+        "openDetails": "查看異常帳號詳情",
+        "recover": "恢復帳號狀態",
+        "recoverSuccess": "已提交 {{count}} 個帳號的恢復操作",
+        "dialog": {
+          "title": "異常帳號",
+          "description": "以下狀態來自 Sidecar OAuth 調度器。恢復操作會清除調度冷卻並重新嘗試帳號。",
+          "noIssues": "目前沒有異常帳號",
+          "missing": "帳號缺失",
+          "cooldown": "冷卻中",
+          "quota": "額度受限",
+          "missingDetail": "帳號已不在目前帳號列表中",
+          "cooldownModel": "模型 {{model}} 正在冷卻",
+          "cooldownUntil": "模型 {{model}} 冷卻至 {{time}}",
+          "authDetail": "OAuth 授權可能已失效，請重新授權後再試",
+          "quotaDetail": "帳號額度暫時不可用，請等待額度恢復或檢查方案狀態",
+          "paymentDetail": "帳號方案或付款狀態不可用，請檢查訂閱狀態",
+          "modelDetail": "目前帳號不支援所請求的模型",
+          "upstreamDetail": "上游服務暫時異常，恢復後會重新嘗試",
+          "disabledDetail": "該帳號已停用，請先啟用帳號",
+          "unavailableDetail": "Sidecar 目前未將該帳號列為可調度帳號",
+          "recover": "恢復",
+          "recovering": "恢復中…",
+          "recoverAll": "全部恢復"
+        }
       },
       "testChatModel": "模型",
       "testChatClear": "清空對話",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "連續失敗 {{count}}",
-        "image": "圖片 {{status}}"
+        "image": "圖片 {{status}}",
+        "unavailable": "暫時不可用",
+        "authError": "驗證錯誤"
       },
       "models": {
         "availableTitle": "可用模型",
@@ -4092,10 +4128,21 @@
       "description": "點擊「新增帳戶」開始管理您的 Kiro 帳戶"
     },
     "addModal": {
-      "title": "新增 Kiro 帳戶"
+      "title": "新增 Kiro 帳戶",
+      "idc": "AWS 單點登入"
     },
     "oauth": {
       "desc": "點擊下面的按鈕並在瀏覽器中完成 Kiro 授權。"
+    },
+    "idc": {
+      "builderId": "AWS Builder ID 帳戶",
+      "enterprise": "企業帳戶",
+      "desc": "在瀏覽器中完成 AWS IAM Identity Center 授權，完成後會自動儲存帳戶。",
+      "region": "AWS 區域",
+      "startUrl": "IAM Identity Center 起始 URL",
+      "start": "開始企業登入",
+      "regionRequired": "請輸入 AWS 區域",
+      "startUrlRequired": "請輸入 IAM Identity Center 起始 URL"
     },
     "token": {
       "desc": "貼上您的 Kiro 存取權杖或匯出的 JSON 資料。"

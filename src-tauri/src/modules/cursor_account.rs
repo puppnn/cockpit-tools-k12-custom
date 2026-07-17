@@ -119,7 +119,10 @@ pub fn load_account(account_id: &str) -> Option<CursorAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file::<CursorAccount>(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<CursorAccount>(
+        &account_path,
+        &content,
+    ) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
                 let account_for_rewrite = account.clone();

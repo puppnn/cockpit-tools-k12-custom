@@ -57,9 +57,9 @@ pub fn host_allowed(host: &str, allowlist: &[String]) -> bool {
         return true;
     }
     let host = host.trim().to_ascii_lowercase();
-    allowlist.iter().any(|entry| {
-        host == *entry || host.ends_with(&format!(".{entry}"))
-    })
+    allowlist
+        .iter()
+        .any(|entry| host == *entry || host.ends_with(&format!(".{entry}")))
 }
 
 pub fn validate_webdav_url(url: &str, allowlist_raw: &str) -> Result<(), String> {
@@ -104,6 +104,9 @@ mod tests {
         // After filtering bare `com`, allowlist is empty → allow all (same as unset).
         assert!(host_allowed("evil.com", &parse_allowed_domains("com")));
         // With a real entry, evil.com still rejected.
-        assert!(!host_allowed("evil.com", &parse_allowed_domains("example.com")));
+        assert!(!host_allowed(
+            "evil.com",
+            &parse_allowed_domains("example.com")
+        ));
     }
 }

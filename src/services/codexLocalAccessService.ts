@@ -50,6 +50,12 @@ export async function removeCodexLocalAccessAccount(
   return await invoke("codex_local_access_remove_account", { accountId });
 }
 
+export async function recoverCodexLocalAccessAccounts(
+  accountIds: string[],
+): Promise<CodexLocalAccessState> {
+  return await invoke("codex_local_access_recover_accounts", { accountIds });
+}
+
 export async function rotateCodexLocalAccessApiKey(): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_rotate_api_key");
 }

@@ -153,7 +153,9 @@ fn save_index(index: &ZcodeAccountIndex) -> Result<(), String> {
 pub fn load_account(account_id: &str) -> Option<ZcodeAccount> {
     let path = account_path(account_id).ok()?;
     let content = fs::read_to_string(&path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file::<ZcodeAccount>(&path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<ZcodeAccount>(
+        &path, &content,
+    ) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
                 let account_for_rewrite = account.clone();
@@ -177,8 +179,7 @@ pub fn load_account(account_id: &str) -> Option<ZcodeAccount> {
 }
 
 fn save_account_file(account: &ZcodeAccount) -> Result<(), String> {
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("zcode", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("zcode", account)?;
     atomic_write::write_string_atomic(&account_path(&account.id)?, &content)
         .map_err(|error| format!("保存 ZCode 账号失败: {}", error))
 }

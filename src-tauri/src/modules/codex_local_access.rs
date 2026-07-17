@@ -73,6 +73,10 @@ const CODEX_PROVIDER_GATEWAY_MODEL_SLOTS: [&str; 3] = ["gpt-5.5", "gpt-5.4", "gp
 const CODEX_PROVIDER_GATEWAY_STATE_FILE: &str = "state.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_CONFIG_FILE: &str = "config.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_MANIFEST_FILE: &str = "manifest.json";
+const SIDECAR_MESSAGE_LOCALES: &[&str] = &[
+    "ar", "cs", "de", "en-us", "en", "es", "fr", "id", "it", "ja", "ko", "pl", "pt-br", "ru", "tr",
+    "vi", "zh-cn", "zh-tw",
+];
 const CODEX_LOCAL_ACCESS_SIDECAR_API_KEY_PRIORITY_FILE: &str = "api-key-priorities.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_QUOTA_RESERVE_FILE: &str = "quota-reserve.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_QUOTA_STATE_VERSION: u32 = 1;
@@ -97,6 +101,7 @@ const CODEX_PROFILE_AUTH_FILE: &str = "auth.json";
 const CODEX_PROFILE_CONFIG_FILE: &str = "config.toml";
 const CODEX_LOCAL_ACCESS_MODEL_CATALOG_FILE: &str = "cockpit-local-access-model-catalog.json";
 const CODEX_PROVIDER_MODEL_CATALOG_FILE: &str = "cockpit-provider-model-catalog.json";
+const CODEX_MODEL_CACHE_FILE: &str = "models_cache.json";
 const CODEX_PROVIDER_MODEL_BACKUP_FILE: &str = ".cockpit-provider-model-backup.json";
 const MAX_HTTP_REQUEST_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(15);
@@ -545,6 +550,9 @@ struct RuntimeAccountHealth {
     last_failure_message: Option<String>,
     image_generation_status: CodexLocalAccessImageGenerationStatus,
     image_generation_checked_at: Option<i64>,
+    sidecar_scheduler_available: Option<bool>,
+    sidecar_scheduler_reason: Option<String>,
+    sidecar_scheduler_next_retry_at: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -1919,6 +1927,17 @@ fn account_health_blocks_routing(health: Option<&RuntimeAccountHealth>) -> bool 
         .unwrap_or(false)
 }
 
+fn sidecar_scheduler_blocks_account(health: Option<&RuntimeAccountHealth>, now: i64) -> bool {
+    health
+        .filter(|item| item.sidecar_scheduler_available == Some(false))
+        .map(|item| {
+            item.sidecar_scheduler_next_retry_at
+                .map(|next_retry_at| next_retry_at > now)
+                .unwrap_or(true)
+        })
+        .unwrap_or(false)
+}
+
 async fn account_id_blocked_by_health(account_id: &str) -> bool {
     let account_id = account_id.trim();
     if account_id.is_empty() {
@@ -2526,6 +2545,12 @@ fn normalize_image_model_base(model: &str) -> String {
         }
     }
     base_model.to_string()
+}
+
+fn is_gpt_image_generation_model(model: &str) -> bool {
+    normalize_image_model_base(model)
+        .to_ascii_lowercase()
+        .starts_with("gpt-image-")
 }
 
 fn normalize_image_response_format(value: Option<&Value>) -> String {
@@ -3777,6 +3802,9 @@ fn build_responses_body_from_chat_completions(
         .filter(|value| !value.is_empty())
         .map(resolve_supported_model_alias)
         .ok_or("chat/completions 请求缺少 model".to_string())?;
+    if is_gpt_image_generation_model(&model) {
+        return Err("This model is not supported on the Chat Completions endpoint".to_string());
+    }
     let messages = request_obj
         .get("messages")
         .ok_or("chat/completions 请求缺少 messages".to_string())?;
@@ -9573,6 +9601,19 @@ fn sidecar_config_fingerprint(config_content: &str, manifest_content: &str) -> S
     format!("{:x}", hasher.finalize())
 }
 
+fn sidecar_localized_messages(key: &str) -> Value {
+    let values = SIDECAR_MESSAGE_LOCALES
+        .iter()
+        .map(|locale| {
+            (
+                (*locale).to_string(),
+                Value::String(crate::modules::i18n::translate(locale, key, &[])),
+            )
+        })
+        .collect::<Map<String, Value>>();
+    Value::Object(values)
+}
+
 fn stable_sidecar_config_for_fingerprint(config_content: &str) -> String {
     let Ok(mut config) = serde_json::from_str::<Value>(config_content) else {
         return config_content.to_string();
@@ -9755,6 +9796,14 @@ struct SidecarAuthResultEvent {
     error_code: Option<String>,
     #[serde(default)]
     error_message: Option<String>,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    auth_available: Option<bool>,
+    #[serde(default)]
+    next_retry_at_ms: Option<i64>,
+    #[serde(default)]
+    auth_state_reason: Option<String>,
 }
 
 fn local_access_sidecar_dir() -> Result<PathBuf, String> {
@@ -10056,12 +10105,15 @@ fn legacy_api_key_is_active(collection: &CodexLocalAccessCollection) -> bool {
 
 fn sidecar_api_key_manifest_values(collection: &CodexLocalAccessCollection) -> Vec<Value> {
     let mut values = Vec::new();
+    let bound_oauth =
+        normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref()).is_some();
     if legacy_api_key_is_active(collection) {
         values.push(json!({
             "id": "legacy",
             "label": default_local_api_key_label(),
             "key": collection.api_key.trim(),
             "enabled": true,
+            "boundOAuth": bound_oauth,
             "accountIds": collection.account_ids.clone(),
             "responsesWebsockets": collection.responses_websockets_enabled,
             "allowedModels": [],
@@ -10081,6 +10133,7 @@ fn sidecar_api_key_manifest_values(collection: &CodexLocalAccessCollection) -> V
             "label": item.label.clone(),
             "key": item.key.trim(),
             "providerGateway": item.provider_gateway.clone(),
+            "boundOAuth": bound_oauth,
             "responsesWebsockets": collection.responses_websockets_enabled
                 && item.provider_gateway.is_none(),
             "accountIds": account_ids,
@@ -11304,6 +11357,19 @@ async fn prepare_sidecar_launch_config_in_dir(
         "api-key-account-ids".to_string(),
         sidecar_api_key_account_scope_values(collection, &account_overrides),
     );
+    let app_locale = crate::modules::config::get_user_config().language;
+    config.insert(
+        "auth-error-localization".to_string(),
+        json!({
+            "default-locale": app_locale,
+            "auth-unavailable": sidecar_localized_messages(
+                "codex.localAccess.gatewayErrors.authUnavailable",
+            ),
+            "auth-not-found": sidecar_localized_messages(
+                "codex.localAccess.gatewayErrors.authNotFound",
+            ),
+        }),
+    );
     config.insert("request-log".to_string(), json!(false));
     config.insert("logging-to-file".to_string(), json!(false));
     config.insert("commercial-mode".to_string(), json!(true));
@@ -11523,6 +11589,173 @@ async fn update_sidecar_auth_result_health(event: &SidecarAuthResultEvent) {
         is_client_canceled,
     )
     .await;
+    sync_sidecar_scheduler_state(event).await;
+}
+
+fn apply_sidecar_scheduler_state(
+    runtime: &mut GatewayRuntime,
+    event: &SidecarAuthResultEvent,
+    now: i64,
+) {
+    let account_id = event.account_id.trim();
+    let Some(available) = event.auth_available else {
+        return;
+    };
+    if account_id.is_empty() {
+        return;
+    }
+
+    let health = runtime
+        .account_health
+        .entry(account_id.to_string())
+        .or_default();
+    health.sidecar_scheduler_available = Some(available);
+    health.sidecar_scheduler_reason = event
+        .auth_state_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "available")
+        .map(str::to_string);
+    health.sidecar_scheduler_next_retry_at = event.next_retry_at_ms.filter(|value| *value > now);
+
+    let model = event.model.trim();
+    if model.is_empty() {
+        if available {
+            let prefix = format!("{}{}", account_id, COOLDOWN_KEY_SEPARATOR);
+            runtime
+                .model_cooldowns
+                .retain(|key, _| !key.starts_with(&prefix));
+        }
+        return;
+    }
+    let Some(cooldown_key) = build_cooldown_key(account_id, model) else {
+        return;
+    };
+    if available {
+        runtime.model_cooldowns.remove(&cooldown_key);
+        return;
+    }
+    let Some(next_retry_at_ms) = event.next_retry_at_ms.filter(|value| *value > now) else {
+        runtime.model_cooldowns.remove(&cooldown_key);
+        return;
+    };
+    runtime.model_cooldowns.insert(
+        cooldown_key,
+        AccountModelCooldown {
+            model_key: model.to_string(),
+            next_retry_at_ms,
+            reason: event
+                .auth_state_reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unavailable")
+                .to_string(),
+        },
+    );
+}
+
+async fn sync_sidecar_scheduler_state(event: &SidecarAuthResultEvent) {
+    if event.account_id.trim().is_empty() || event.auth_available.is_none() {
+        return;
+    }
+    let mut runtime = gateway_runtime().lock().await;
+    let now = now_ms();
+    prune_runtime_routing_state(&mut runtime, now);
+    apply_sidecar_scheduler_state(&mut runtime, event, now);
+}
+
+fn clear_runtime_account_health(runtime: &mut GatewayRuntime, account_ids: &[String]) {
+    let account_ids: HashSet<&str> = account_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|account_id| !account_id.trim().is_empty())
+        .collect();
+    if account_ids.is_empty() {
+        return;
+    }
+    runtime
+        .account_health
+        .retain(|account_id, _| !account_ids.contains(account_id.as_str()));
+    runtime.model_cooldowns.retain(|key, _| {
+        !account_ids
+            .iter()
+            .any(|account_id| key.starts_with(&format!("{}{}", account_id, COOLDOWN_KEY_SEPARATOR)))
+    });
+}
+
+pub async fn recover_local_access_accounts(
+    account_ids: Vec<String>,
+) -> Result<CodexLocalAccessState, String> {
+    ensure_runtime_loaded_without_start().await?;
+    let (collection, port, running) = {
+        let runtime = gateway_runtime().lock().await;
+        let collection = runtime
+            .collection
+            .clone()
+            .ok_or_else(|| "API 服务集合尚未创建".to_string())?;
+        (
+            collection.clone(),
+            runtime.actual_port.unwrap_or(collection.port),
+            runtime.running,
+        )
+    };
+    if !running {
+        return Err("API 服务 Sidecar 当前未运行，无法恢复账号调度状态".to_string());
+    }
+
+    let requested: HashSet<String> = account_ids
+        .into_iter()
+        .map(|account_id| account_id.trim().to_string())
+        .filter(|account_id| !account_id.is_empty())
+        .collect();
+    let selected: Vec<String> = collection
+        .account_ids
+        .iter()
+        .filter(|account_id| requested.contains(account_id.as_str()))
+        .cloned()
+        .collect();
+    if selected.is_empty() {
+        return Err("没有找到可恢复的账号".to_string());
+    }
+
+    let client = build_localhost_http_client(Duration::from_secs(10), "账号调度恢复")?;
+    let url = format!(
+        "http://{}:{}/v1/cockpit/auth/reset",
+        CODEX_LOCAL_ACCESS_DEFAULT_CLIENT_URL_HOST, port
+    );
+    let response = client
+        .post(url)
+        .bearer_auth(collection.api_key.trim())
+        .json(&json!({ "accountIds": selected }))
+        .send()
+        .await
+        .map_err(|error| format!("请求 Sidecar 恢复账号状态失败: {}", error))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "Sidecar 恢复账号状态失败: HTTP {} {}",
+            status,
+            body.chars().take(300).collect::<String>()
+        ));
+    }
+
+    let reset_account_ids = serde_json::from_str::<Value>(&body)
+        .ok()
+        .and_then(|payload| payload.get("accountIds").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|account_id| !account_id.is_empty())
+        .collect::<Vec<_>>();
+    if reset_account_ids.is_empty() {
+        return Err("Sidecar 未恢复任何账号调度状态".to_string());
+    }
+
+    let mut runtime = gateway_runtime().lock().await;
+    clear_runtime_account_health(&mut runtime, &reset_account_ids);
+    Ok(build_fresh_state_snapshot(&mut runtime))
 }
 
 async fn update_sidecar_account_health_from_values(
@@ -12201,6 +12434,7 @@ fn write_local_access_profile_model_catalog(
         &content,
     )
     .map_err(|e| format!("写入 Codex API 服务模型目录失败: {}", e))?;
+    invalidate_codex_model_cache(profile_dir)?;
 
     let config_path = profile_config_path(profile_dir);
     let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
@@ -12213,6 +12447,15 @@ fn write_local_access_profile_model_catalog(
     doc["model_catalog_json"] = value(CODEX_LOCAL_ACCESS_MODEL_CATALOG_FILE);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
+}
+
+fn invalidate_codex_model_cache(profile_dir: &Path) -> Result<(), String> {
+    let cache_path = profile_dir.join(CODEX_MODEL_CACHE_FILE);
+    match std::fs::remove_file(&cache_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("清理 Codex 模型缓存失败: {}", error)),
+    }
 }
 
 async fn write_local_access_profile_takeover(
@@ -15322,6 +15565,9 @@ fn build_account_health_snapshot(runtime: &GatewayRuntime) -> Vec<CodexLocalAcce
                 .model_cooldowns
                 .iter()
                 .filter_map(|(key, cooldown)| {
+                    if cooldown.next_retry_at_ms <= now {
+                        return None;
+                    }
                     key.strip_prefix(&format!("{}{}", account_id, COOLDOWN_KEY_SEPARATOR))
                         .map(|_| {
                             let remaining_ms = cooldown.next_retry_at_ms.saturating_sub(now).max(0);
@@ -15352,7 +15598,9 @@ fn build_account_health_snapshot(runtime: &GatewayRuntime) -> Vec<CodexLocalAcce
                     .or_else(|| stats_emails.get(account_id.as_str()).copied())
                     .unwrap_or_default()
                     .to_string(),
-                available: cooldowns.is_empty() && !account_health_blocks_routing(health),
+                available: cooldowns.is_empty()
+                    && !account_health_blocks_routing(health)
+                    && !sidecar_scheduler_blocks_account(health, now),
                 consecutive_failures: health
                     .map(|item| item.consecutive_failures)
                     .unwrap_or_default(),
@@ -15364,6 +15612,15 @@ fn build_account_health_snapshot(runtime: &GatewayRuntime) -> Vec<CodexLocalAcce
                 image_generation_status,
                 image_generation_checked_at: health
                     .and_then(|item| item.image_generation_checked_at),
+                scheduler_available: health.and_then(|item| {
+                    item.sidecar_scheduler_available.map(|available| {
+                        available || !sidecar_scheduler_blocks_account(Some(item), now)
+                    })
+                }),
+                scheduler_reason: health.and_then(|item| item.sidecar_scheduler_reason.clone()),
+                scheduler_next_retry_at: health
+                    .and_then(|item| item.sidecar_scheduler_next_retry_at)
+                    .filter(|value| *value > now),
                 cooldowns,
             }
         })
@@ -16882,6 +17139,7 @@ fn write_provider_gateway_model_catalog(
         &content,
     )
     .map_err(|e| format!("写入 Codex 模型目录失败: {}", e))?;
+    invalidate_codex_model_cache(profile_dir)?;
 
     let config_path = profile_config_path(profile_dir);
     let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
@@ -24933,6 +25191,116 @@ mod tests {
     }
 
     #[test]
+    fn sidecar_scheduler_state_updates_runtime_cooldown_and_health() {
+        let now = 1_000_000_i64;
+        let mut runtime = super::GatewayRuntime::default();
+        let event = super::SidecarAuthResultEvent {
+            account_id: "account-1".to_string(),
+            account_email: "user@example.com".to_string(),
+            request_kind: "text".to_string(),
+            success: false,
+            http_status: Some(401),
+            error_code: Some("auth_unavailable".to_string()),
+            error_message: Some("invalid or expired token".to_string()),
+            model: "gpt-5.5".to_string(),
+            auth_available: Some(false),
+            next_retry_at_ms: Some(now + 30 * 60 * 1000),
+            auth_state_reason: Some("unauthorized".to_string()),
+        };
+
+        super::apply_sidecar_scheduler_state(&mut runtime, &event, now);
+
+        let health = runtime
+            .account_health
+            .get("account-1")
+            .expect("account health should be created");
+        assert_eq!(health.sidecar_scheduler_available, Some(false));
+        assert_eq!(
+            health.sidecar_scheduler_reason.as_deref(),
+            Some("unauthorized")
+        );
+        assert!(super::sidecar_scheduler_blocks_account(Some(health), now));
+        assert_eq!(runtime.model_cooldowns.len(), 1);
+    }
+
+    #[test]
+    fn sidecar_scheduler_state_expires_without_stale_page_cooldown() {
+        let now = 1_000_000_i64;
+        let mut runtime = super::GatewayRuntime::default();
+        let event = super::SidecarAuthResultEvent {
+            account_id: "account-1".to_string(),
+            account_email: String::new(),
+            request_kind: String::new(),
+            success: false,
+            http_status: Some(503),
+            error_code: Some("upstream_timeout".to_string()),
+            error_message: None,
+            model: "gpt-5.5".to_string(),
+            auth_available: Some(false),
+            next_retry_at_ms: Some(now + 1),
+            auth_state_reason: Some("transient_upstream".to_string()),
+        };
+
+        super::apply_sidecar_scheduler_state(&mut runtime, &event, now);
+        let later = now + 2;
+        super::prune_runtime_routing_state(&mut runtime, later);
+
+        let health = runtime
+            .account_health
+            .get("account-1")
+            .expect("account health should be created");
+        assert!(!super::sidecar_scheduler_blocks_account(
+            Some(health),
+            later
+        ));
+        assert!(runtime.model_cooldowns.is_empty());
+    }
+
+    #[test]
+    fn manual_recovery_clears_only_selected_runtime_account_health() {
+        let mut runtime = super::GatewayRuntime::default();
+        runtime.account_health.insert(
+            "account-1".to_string(),
+            super::RuntimeAccountHealth::default(),
+        );
+        runtime.account_health.insert(
+            "account-2".to_string(),
+            super::RuntimeAccountHealth::default(),
+        );
+        runtime.model_cooldowns.insert(
+            super::build_cooldown_key("account-1", "gpt-5.5").unwrap(),
+            super::AccountModelCooldown {
+                model_key: "gpt-5.5".to_string(),
+                next_retry_at_ms: 2_000_000,
+                reason: "unauthorized".to_string(),
+            },
+        );
+
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()]);
+
+        assert!(!runtime.account_health.contains_key("account-1"));
+        assert!(runtime.account_health.contains_key("account-2"));
+        assert!(runtime.model_cooldowns.is_empty());
+    }
+
+    #[test]
+    fn sidecar_localized_messages_include_chinese_and_english() {
+        let value =
+            super::sidecar_localized_messages("codex.localAccess.gatewayErrors.authUnavailable");
+        let object = value
+            .as_object()
+            .expect("localized messages should be an object");
+        assert!(object
+            .get("zh-cn")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|message| message.contains("账号池")));
+        assert!(object
+            .get("en")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|message| message.contains("account")));
+    }
+
+    #[test]
     fn calendar_stats_windows_start_at_local_day_week_and_month() {
         use chrono::{Datelike, TimeZone, Timelike};
 
@@ -25394,6 +25762,21 @@ mod tests {
             scoped.get("responsesWebsockets").and_then(Value::as_bool),
             Some(false)
         );
+        assert_eq!(
+            scoped.get("boundOAuth").and_then(Value::as_bool),
+            Some(false)
+        );
+
+        collection.bound_oauth_account_id = Some("oauth-account".to_string());
+        let oauth_bound = sidecar_api_key_manifest_values(&collection)
+            .into_iter()
+            .find(|value| value.get("key").and_then(Value::as_str) == Some("team-a-key"))
+            .expect("OAuth-bound key should still be emitted");
+        assert_eq!(
+            oauth_bound.get("boundOAuth").and_then(Value::as_bool),
+            Some(true)
+        );
+        collection.bound_oauth_account_id = None;
 
         collection.responses_websockets_enabled = true;
         let enabled = sidecar_api_key_manifest_values(&collection)
@@ -29487,6 +29870,26 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 assert_eq!(requested_model, "gpt-5.4");
             }
             _ => panic!("expected chat completions adapter"),
+        }
+    }
+
+    #[test]
+    fn rejects_gpt_image_models_from_chat_completions() {
+        for model in ["gpt-image-1", "GPT-IMAGE-2", "team/gpt-image-2"] {
+            let request = ParsedRequest {
+                method: "POST".to_string(),
+                target: "/v1/chat/completions".to_string(),
+                headers: HashMap::new(),
+                body: format!(
+                    r#"{{"model":"{}","messages":[{{"role":"user","content":"draw"}}]}}"#,
+                    model
+                )
+                .into_bytes(),
+            };
+
+            let err = prepare_gateway_request(request)
+                .expect_err("image-only model should be rejected before proxying");
+            assert!(err.contains("Chat Completions"), "model={model}, err={err}");
         }
     }
 

@@ -2684,6 +2684,86 @@ fn detect_codex_exec_path() -> Option<std::path::PathBuf> {
     None
 }
 
+#[cfg(any(test, target_os = "macos"))]
+fn normalized_macos_codex_path_text(path: &Path) -> String {
+    path.to_string_lossy()
+        .trim()
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn is_official_legacy_codex_macos_path(path: &Path) -> bool {
+    matches!(
+        normalized_macos_codex_path_text(path).as_str(),
+        "/applications/codex.app" | "/applications/codex.app/contents/macos/codex"
+    )
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn is_official_chatgpt_macos_path(path: &Path) -> bool {
+    matches!(
+        normalized_macos_codex_path_text(path).as_str(),
+        "/applications/chatgpt.app" | "/applications/chatgpt.app/contents/macos/chatgpt"
+    )
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn should_migrate_legacy_codex_launch_path(current: &Path, detected: &Path) -> bool {
+    is_official_legacy_codex_macos_path(current) && is_official_chatgpt_macos_path(detected)
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_legacy_codex_launch_path(custom_path: &str) -> Option<std::path::PathBuf> {
+    let current_path = std::path::PathBuf::from(custom_path);
+    let detected = detect_codex_exec_path()?;
+    if !should_migrate_legacy_codex_launch_path(&current_path, &detected) {
+        return None;
+    }
+
+    update_app_path_in_config("codex", &detected, custom_path);
+    crate::modules::logger::log_info(&format!(
+        "[Path Detect] migrated legacy Codex launch path to ChatGPT: old={} new={}",
+        current_path.to_string_lossy(),
+        detected.to_string_lossy()
+    ));
+    Some(detected)
+}
+
+#[cfg(test)]
+mod codex_path_migration_tests {
+    use super::should_migrate_legacy_codex_launch_path;
+    use std::path::Path;
+
+    #[test]
+    fn migrates_official_macos_codex_path_when_chatgpt_exists() {
+        assert!(should_migrate_legacy_codex_launch_path(
+            Path::new("/Applications/Codex.app"),
+            Path::new("/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"),
+        ));
+        assert!(should_migrate_legacy_codex_launch_path(
+            Path::new("/Applications/Codex.app/Contents/MacOS/Codex"),
+            Path::new("/Applications/ChatGPT.app"),
+        ));
+    }
+
+    #[test]
+    fn keeps_macos_legacy_path_when_chatgpt_is_not_detected() {
+        assert!(!should_migrate_legacy_codex_launch_path(
+            Path::new("/Applications/Codex.app"),
+            Path::new("/Applications/Codex.app/Contents/MacOS/Codex"),
+        ));
+    }
+
+    #[test]
+    fn does_not_replace_custom_macos_codex_path() {
+        assert!(!should_migrate_legacy_codex_launch_path(
+            Path::new("/Users/test/Applications/Codex.app"),
+            Path::new("/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"),
+        ));
+    }
+}
+
 fn detect_opencode_exec_path() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -3004,6 +3084,9 @@ fn resolve_workbuddy_launch_path() -> Result<std::path::PathBuf, String> {
 fn resolve_codex_launch_path() -> Result<std::path::PathBuf, String> {
     let configured_path = config::get_user_config().codex_app_path;
     if let Some(custom) = normalize_custom_path(Some(&configured_path)) {
+        if let Some(migrated) = migrate_legacy_codex_launch_path(&custom) {
+            return Ok(migrated);
+        }
         if let Some(exec) = resolve_codex_macos_exec_path(&custom) {
             return Ok(exec);
         }
@@ -3055,6 +3138,10 @@ pub fn detect_and_save_app_path(app: &str, force: bool) -> Option<String> {
         }
         "codex" => {
             if !force && !current.codex_app_path.trim().is_empty() {
+                #[cfg(target_os = "macos")]
+                if migrate_legacy_codex_launch_path(&current.codex_app_path).is_some() {
+                    return Some(config::get_user_config().codex_app_path);
+                }
                 return Some(current.codex_app_path);
             }
             if let Some(detected) = detect_codex_exec_path() {
@@ -6792,11 +6879,10 @@ pub fn is_codex_running() -> bool {
 pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<u32, String> {
     #[cfg(target_os = "macos")]
     {
-        let app_root = resolve_macos_app_root_from_config("codex").or_else(|| {
-            resolve_codex_launch_path()
-                .ok()
-                .and_then(|p| resolve_macos_app_root_from_launch_path(&p))
-        });
+        let app_root = resolve_codex_launch_path()
+            .ok()
+            .and_then(|p| resolve_macos_app_root_from_launch_path(&p))
+            .or_else(|| resolve_macos_app_root_from_config("codex"));
         let app_root = app_root.ok_or_else(|| app_path_missing_error("codex"))?;
 
         let codex_home_trimmed = codex_home.trim();
@@ -6929,11 +7015,10 @@ pub fn start_codex_with_args(codex_home: &str, extra_args: &[String]) -> Result<
 pub fn start_codex_default(extra_args: &[String]) -> Result<u32, String> {
     #[cfg(target_os = "macos")]
     {
-        let app_root = resolve_macos_app_root_from_config("codex").or_else(|| {
-            resolve_codex_launch_path()
-                .ok()
-                .and_then(|p| resolve_macos_app_root_from_launch_path(&p))
-        });
+        let app_root = resolve_codex_launch_path()
+            .ok()
+            .and_then(|p| resolve_macos_app_root_from_launch_path(&p))
+            .or_else(|| resolve_macos_app_root_from_config("codex"));
         let app_root = app_root.ok_or_else(|| app_path_missing_error("codex"))?;
 
         let mut args: Vec<String> = Vec::new();

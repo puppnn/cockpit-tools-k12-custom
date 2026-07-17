@@ -403,34 +403,31 @@ pub fn run() {
 
             {
                 let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    match app_handle.deep_link().get_current() {
-                        Ok(Some(urls)) => {
-                            let args: Vec<String> =
-                                urls.iter().map(|url| url.to_string()).collect();
-                            logger::log_info(&format!(
-                                "[DeepLink] 启动时 get_current 命中: url_count={}, urls={:?}",
-                                args.len(),
-                                summarize_deep_link_args(&args)
-                            ));
-                            let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
-                            let handled = zcode_oauth_handled
-                                || modules::external_import::handle_external_import_args(
-                                    &app_handle,
-                                    &args,
-                                    "deep-link-current",
-                                );
-                            logger::log_info(&format!(
-                                "[DeepLink] get_current 外部导入处理结果: handled={}",
-                                handled
-                            ));
-                        }
-                        Ok(None) => {
-                            logger::log_info("[DeepLink] 启动时 get_current: empty");
-                        }
-                        Err(err) => {
-                            logger::log_warn(&format!("[DeepLink] get_current 失败: {}", err));
-                        }
+                std::thread::spawn(move || match app_handle.deep_link().get_current() {
+                    Ok(Some(urls)) => {
+                        let args: Vec<String> = urls.iter().map(|url| url.to_string()).collect();
+                        logger::log_info(&format!(
+                            "[DeepLink] 启动时 get_current 命中: url_count={}, urls={:?}",
+                            args.len(),
+                            summarize_deep_link_args(&args)
+                        ));
+                        let zcode_oauth_handled = handle_zcode_oauth_deep_links(&args);
+                        let handled = zcode_oauth_handled
+                            || modules::external_import::handle_external_import_args(
+                                &app_handle,
+                                &args,
+                                "deep-link-current",
+                            );
+                        logger::log_info(&format!(
+                            "[DeepLink] get_current 外部导入处理结果: handled={}",
+                            handled
+                        ));
+                    }
+                    Ok(None) => {
+                        logger::log_info("[DeepLink] 启动时 get_current: empty");
+                    }
+                    Err(err) => {
+                        logger::log_warn(&format!("[DeepLink] get_current 失败: {}", err));
                     }
                 });
             }
@@ -818,6 +815,7 @@ pub fn run() {
             commands::codex::codex_local_access_save_accounts,
             commands::codex::codex_local_access_append_accounts,
             commands::codex::codex_local_access_remove_account,
+            commands::codex::codex_local_access_recover_accounts,
             commands::codex::codex_local_access_rotate_api_key,
             commands::codex::codex_local_access_update_bound_oauth_account,
             commands::codex::codex_local_access_clear_stats,

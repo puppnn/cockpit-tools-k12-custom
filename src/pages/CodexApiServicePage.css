@@ -919,7 +919,8 @@
   gap: 8px;
 }
 
-.codex-api-service-health-grid > div {
+.codex-api-service-health-grid > div,
+.codex-api-service-health-grid > button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -930,6 +931,19 @@
   border: 1px solid var(--codex-api-border-soft);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+}
+
+.codex-api-service-health-action {
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-api-service-health-action:hover,
+.codex-api-service-health-action:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--codex-api-border-soft));
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg-surface));
 }
 
 .codex-api-service-health-grid span {

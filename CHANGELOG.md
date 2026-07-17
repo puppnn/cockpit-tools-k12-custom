@@ -7,12 +7,30 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.8] - 2026-07-17
+
+### Added
+
+- **Existing Codex accounts can be added directly to Codex API Service (#1628)**: eligible accounts already imported into Cockpit can now be added from the card, list, or table view without leaving the current page; the action reuses the incremental account-pool flow and keeps the existing restrictions for Free accounts, pending authorization, and incompatible API keys. Thanks @Ac-spider.
+- **Kiro supports AWS IAM Identity Center sign-in**: the add-account dialog now supports AWS Builder ID and Enterprise device authorization; Enterprise sign-in accepts an AWS Region and IAM Identity Center Start URL, while successful accounts preserve their client-registration context and write the official AWS SSO cache files so token refresh and real Kiro account switching continue to work.
+
+### Fixed
+
+- **Fixed Codex conversations stopping when image tool results reached text-only third-party models**: Provider Gateway now advertises image input according to each model's actual capabilities; when the selected model has neither image support nor a valid vision route, `view_image` results and historical images are replaced with an explicit omission notice and the conversation continues on the current model, while configured vision routes still switch automatically and remain preserved across app restarts.
+- **Fixed managed Codex instances on macOS sometimes being reported as started before their GUI was ready**: instances now launch through LaunchServices with `open -n -a`, while `CODEX_HOME`, `CODEX_ELECTRON_USER_DATA_PATH`, and the isolated `--user-data-dir` are preserved; Cockpit resolves the real ChatGPT process PID and no longer stores the temporary `open` launcher PID or zombie processes.
+- **Fixed macOS Codex launches remaining pinned to the legacy `/Applications/Codex.app` after the official client moved to `/Applications/ChatGPT.app`**: exact legacy official paths are migrated through the guarded config update before the app root is resolved, while custom locations and systems without the ChatGPT app remain unchanged. (#1631) Thanks @jackychanisnotme.
+- **Fixed Responses streams emitting incomplete or concatenated JSON events**: transport fragments are buffered until they form a complete event, while narrowly valid concatenated event documents are separated into independent SSE frames, preventing client parse failures and lost follow-up events. (#1632) Thanks @Ac-spider.
+- **Fixed long Responses conversations failing with `Item with id not found` while history storage is disabled**: orphan reasoning IDs without usable encrypted content are removed before replay, valid reasoning signatures and explicit `store=true` requests remain unchanged, and large histories are rebuilt in one pass. (#1634) Thanks @Ac-spider.
+- **Fixed compatible Chat Completions providers omitting tool-call IDs and breaking Codex tool execution**: deterministic fallback IDs are preserved across streaming and non-streaming Responses events without replacing IDs supplied by conforming providers. (#1633) Thanks @Ac-spider.
+- **Fixed image-only `gpt-image-*` models being dispatched through Chat Completions**: invalid requests now return a clear `400` before occupying account-pool concurrency, while Responses and dedicated image endpoints keep their existing behavior. (#1630) Thanks @Ac-spider.
+
+---
 ## [1.3.7] - 2026-07-16
 
 ### Added
 
 - **Codex API Service is now a first-class platform entry**: it has its own navigation identity and page entry, with collection members and operations moved out of the regular Codex accounts page; existing platform layouts attach it to the Codex group once, while the dashboard, floating card, and data transfer treat it as an accountless service page; the page shows whether it is current and provides an explicit action to enable the service and switch the default Codex instance.
-- **Codex API Service client catalog includes GPT-5.6 Sol / Terra / Luna**: official model metadata covers context windows, Fast service tiers, search-tool capability, and reasoning efforts through `max` / `ultra` (where the model supports them), with Responses Lite routing for these models.
+- **Codex API Service client catalog includes GPT-5.6 Sol / Terra / Luna**: official model metadata covers context windows, search-tool capability, and reasoning efforts through `max` / `ultra` (where the model supports them), with Responses Lite routing for these models.
 - **Codex API Key provider changes synchronize linked account snapshots**: editing a managed model provider updates the linked API Key accounts' endpoint, wire protocol, model catalog, vision capabilities, and WebSocket support while preserving account usage metadata.
 - **Codex API Service can add accounts without leaving the current page**: the existing Codex OAuth, Token / JSON, API Key, and local-import flows open in place; new accounts can join the API Service automatically, empty collections offer direct add/manage actions, nested import and account-note dialogs remain usable, and operation feedback can be dismissed independently.
 
@@ -26,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- **Fixed Codex client catalog wiping official Fast service tiers and overwriting template context limits**: the API Service no longer forces empty `service_tiers` or a hard-coded `max_context_window` of `1000000` on every model; official template values (including GPT-5.6) are preserved, and defaults fill only missing fields on synthesized models.
+- **Fixed Codex client catalog overwriting template context limits**: the API Service no longer forces a hard-coded `max_context_window` of `1000000` on every model; official template values (including GPT-5.6) are preserved, and defaults fill only missing fields on synthesized models.
 - **Fixed Codex Desktop Responses Lite sessions that send `tools: null` and lose tool definitions**: tool definitions carried in `additional_tools` input items are merged into the upstream request, custom tool history is replayed, and freeform tool outputs with content-part arrays are flattened so the model still sees available tools and prior tool results.
 - **Fixed Codex account deletion removing the local file before API Service pool cleanup completed**: deletion now removes the account from the API Service pool through the same path as manual removal before deleting local credentials, preventing a false deletion failure followed by an empty JSON export.
 - **Fixed new Codex conversations on Chat Completions providers briefly failing with `auth_unavailable` before recovering**: WebSocket support for Chat Completions is now always normalized to `false` when provider settings are loaded, created, or updated, and its editor no longer shows the WebSocket toggle; provider-gateway profile takeover explicitly writes `supports_websockets = false` regardless of the previous profile value; the Sidecar also prevents provider-gateway requests from entering the Codex WebSocket auth route.

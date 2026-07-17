@@ -1273,7 +1273,9 @@
         "renameFailed": "Đổi tên nhóm thất bại: {{error}}",
         "deleteFailed": "Xóa nhóm thất bại: {{error}}",
         "addFailed": "Thêm vào nhóm thất bại: {{error}}",
-        "createAndAddFailed": "Tạo nhóm và thêm thất bại: {{error}}"
+        "createAndAddFailed": "Tạo nhóm và thêm thất bại: {{error}}",
+        "quotaRefreshFailed": "Không thể cập nhật cài đặt làm mới hạn mức: {{error}}",
+        "notFound": "Không tìm thấy nhóm"
       },
       "addAccounts": "Thêm tài khoản",
       "editTitle": "Sửa nhóm",
@@ -1281,7 +1283,14 @@
       "currentGroupLabel": "Nhóm hiện tại",
       "accountPickerEmpty": "Không có tài khoản phù hợp",
       "filterHint": "Đã chọn {{count}} nhóm để lọc",
-      "filterToggle": "Chọn để lọc theo nhóm này"
+      "filterToggle": "Chọn để lọc theo nhóm này",
+      "quotaRefresh": "Làm mới hạn mức",
+      "quotaRefreshOffBadge": "Không làm mới",
+      "quotaRefreshOffHint": "Nhóm này không được làm mới; làm mới tự động và toàn bộ sẽ bỏ qua các tài khoản trong nhóm",
+      "refreshForceHint": "Bạn vẫn có thể làm mới nhóm này thủ công khi chính sách không phải kế thừa",
+      "quotaRefreshInherit": "Kế thừa nền tảng",
+      "quotaRefreshPolicyHint": "Chính sách làm mới hạn mức của nhóm có ưu tiên cao nhất: kế thừa nền tảng, khoảng tùy chỉnh hoặc tắt",
+      "quotaRefreshMinutesBadge": "{{count}} phút"
     },
     "switchHistory": {
       "title": "Lịch sử chuyển đổi",
@@ -1898,6 +1907,7 @@
       "testConnectFailed": "Không thể kết nối tới {{url}}. Hãy xác nhận dịch vụ API đang chạy, cổng chưa bị đổi và không bị chặn.",
       "testAuthFailed": "Dịch vụ truy cập được nhưng xác thực thất bại: {{detail}}. Hãy kiểm tra khóa dịch vụ API hoặc trạng thái đăng nhập tài khoản.",
       "testServiceUnavailable": "Dịch vụ truy cập được nhưng hiện không khả dụng: {{detail}}. Hãy kiểm tra dịch vụ đã bật chưa, bộ sưu tập tài khoản có trống không hoặc tài khoản có dùng được không.",
+      "gatewayErrors": {"authUnavailable": "Hiện không có tài khoản nào có thể định tuyến. Tài khoản có thể đang tạm nghỉ, mất xác thực hoặc bị giới hạn hạn mức. Kiểm tra trạng thái trong dịch vụ API của Cockpit Tools.", "authNotFound": "Chưa cấu hình tài khoản khả dụng trong nhóm tài khoản. Hãy thêm hoặc bật tài khoản trong dịch vụ API của Cockpit Tools."},
       "testRateLimited": "Dịch vụ truy cập được nhưng upstream bị giới hạn hoặc hết hạn mức: {{detail}}.",
       "testHttpFailed": "Dịch vụ truy cập được nhưng yêu cầu trả về HTTP {{status}}: {{detail}}.",
       "activateAction": "Khởi động dịch vụ API",
@@ -2116,7 +2126,31 @@
         "allAvailable": "Tất cả OK {{count}}",
         "availableRatio": "Tốt {{available}}/{{total}}",
         "issueSummary": "Lỗi {{abnormal}} · Chờ {{cooldown}}",
-        "detail": "OK {{available}}/{{total}}, lỗi {{abnormal}}, chờ {{cooldown}}, thiếu {{missing}}, auth {{authError}}, hạn mức {{quotaLimited}}"
+        "detail": "OK {{available}}/{{total}}, lỗi {{abnormal}}, chờ {{cooldown}}, thiếu {{missing}}, auth {{authError}}, hạn mức {{quotaLimited}}",
+        "openDetails": "Xem tài khoản lỗi",
+        "recover": "Khôi phục trạng thái",
+        "recoverSuccess": "Đã yêu cầu khôi phục {{count}} tài khoản",
+        "dialog": {
+          "title": "Tài khoản lỗi",
+          "description": "Các trạng thái này đến từ bộ lập lịch OAuth Sidecar. Khôi phục sẽ xóa thời gian chờ và thử lại tài khoản.",
+          "noIssues": "Không có tài khoản lỗi",
+          "missing": "Thiếu tài khoản",
+          "cooldown": "Đang chờ",
+          "quota": "Giới hạn hạn mức",
+          "missingDetail": "Tài khoản không còn trong danh sách",
+          "cooldownModel": "Mô hình {{model}} đang chờ",
+          "cooldownUntil": "Mô hình {{model}} chờ đến {{time}}",
+          "authDetail": "Ủy quyền OAuth có thể đã hết hạn. Hãy ủy quyền lại.",
+          "quotaDetail": "Hạn mức tạm thời không khả dụng. Hãy chờ hoặc kiểm tra gói.",
+          "paymentDetail": "Gói hoặc trạng thái thanh toán không khả dụng. Hãy kiểm tra đăng ký.",
+          "modelDetail": "Tài khoản không hỗ trợ mô hình được yêu cầu.",
+          "upstreamDetail": "Dịch vụ thượng nguồn tạm thời lỗi. Sẽ thử lại sau khi phục hồi.",
+          "disabledDetail": "Tài khoản đã bị tắt. Hãy bật trước.",
+          "unavailableDetail": "Sidecar hiện không xem tài khoản này là có thể lập lịch.",
+          "recover": "Khôi phục",
+          "recovering": "Đang khôi phục…",
+          "recoverAll": "Khôi phục tất cả"
+        }
       },
       "testChatModel": "Mô hình",
       "testChatClear": "Xóa chat",
@@ -3241,7 +3275,9 @@
       },
       "accountHealth": {
         "failures": "{{count}} lỗi liên tiếp",
-        "image": "Ảnh {{status}}"
+        "image": "Ảnh {{status}}",
+        "unavailable": "Tạm thời không khả dụng",
+        "authError": "Lỗi xác thực"
       },
       "models": {
         "availableTitle": "Mô hình khả dụng",
@@ -4092,10 +4128,21 @@
       "description": "Nhấp vào \"Thêm tài khoản\" để bắt đầu quản lý tài khoản Kiro của bạn"
     },
     "addModal": {
-      "title": "Thêm tài khoản Kiro"
+      "title": "Thêm tài khoản Kiro",
+      "idc": "Đăng nhập AWS"
     },
     "oauth": {
       "desc": "Nhấp vào nút bên dưới và hoàn tất ủy quyền Kiro trong trình duyệt của bạn."
+    },
+    "idc": {
+      "builderId": "Tài khoản AWS Builder ID",
+      "enterprise": "Tài khoản doanh nghiệp",
+      "desc": "Hoàn tất ủy quyền AWS IAM Identity Center trong trình duyệt. Tài khoản sẽ được lưu tự động.",
+      "region": "Khu vực AWS",
+      "startUrl": "URL bắt đầu IAM Identity Center",
+      "start": "Bắt đầu đăng nhập doanh nghiệp",
+      "regionRequired": "Nhập khu vực AWS",
+      "startUrlRequired": "Nhập URL bắt đầu IAM Identity Center"
     },
     "token": {
       "desc": "Dán mã thông báo truy cập Kiro của bạn hoặc dữ liệu JSON đã xuất."

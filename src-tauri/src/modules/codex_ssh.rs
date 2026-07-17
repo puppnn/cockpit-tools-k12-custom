@@ -4,10 +4,10 @@ use crate::modules::atomic_write;
 use crate::modules::codex_account;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
+use std::process::Command;
 
 const STORE_FILE: &str = "codex_ssh_servers.json";
 #[cfg(target_os = "windows")]
@@ -43,14 +43,9 @@ pub fn sanitize_remote_codex_dir(raw: &str) -> Result<String, String> {
         return Err("远端 Codex 目录过长".to_string());
     }
     // Disallow shell metacharacters and whitespace to prevent injection into `ssh … sh -c`.
-    let allowed = |c: char| {
-        c.is_ascii_alphanumeric()
-            || matches!(c, '/' | '.' | '_' | '-' | '~')
-    };
+    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '~');
     if !path.chars().all(allowed) {
-        return Err(
-            "远端 Codex 目录含非法字符（仅允许字母数字、~、/、.、_、-）".to_string(),
-        );
+        return Err("远端 Codex 目录含非法字符（仅允许字母数字、~、/、.、_、-）".to_string());
     }
     if path.contains("..") {
         return Err("远端 Codex 目录不允许包含 ..".to_string());
@@ -128,7 +123,10 @@ fn validate_ssh_user_or_host(kind: &str, value: &str) -> Result<String, String> 
     if trimmed.len() > 253 {
         return Err(format!("{kind} 过长"));
     }
-    if trimmed.chars().any(|c| c.is_whitespace() || c.is_control() || c == '@') {
+    if trimmed
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '@')
+    {
         return Err(format!("{kind} 含非法空白、控制字符或 @"));
     }
     Ok(trimmed.to_string())
@@ -298,18 +296,13 @@ pub fn sync_current_account(id: &str) -> Result<String, String> {
     }
 
     // Best-effort remote size check for auth.json (not full SHA when scp is used).
-    let remote_auth = format!(
-        "{}/auth.json",
-        remote_dir.trim_end_matches('/')
-    );
+    let remote_auth = format!("{}/auth.json", remote_dir.trim_end_matches('/'));
     let remote_auth_quoted = shell_single_quote(&remote_auth);
     let mut stat_args = ssh_base_args(&server);
     stat_args.push(format!("wc -c < {remote_auth_quoted}"));
     match run_hidden("ssh", &stat_args) {
         Ok(remote_len) => {
-            let local_len = fs::metadata(&local_auth)
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let local_len = fs::metadata(&local_auth).map(|m| m.len()).unwrap_or(0);
             let remote_len = remote_len.trim().parse::<u64>().unwrap_or(0);
             if remote_len > 0 && local_len > 0 && remote_len != local_len {
                 return Err(format!(
@@ -389,10 +382,7 @@ mod tests {
 
     #[test]
     fn sanitize_remote_codex_dir_rejects_metacharacters() {
-        assert_eq!(
-            sanitize_remote_codex_dir("").unwrap(),
-            "~/.codex"
-        );
+        assert_eq!(sanitize_remote_codex_dir("").unwrap(), "~/.codex");
         assert_eq!(
             sanitize_remote_codex_dir("~/workspace/.codex").unwrap(),
             "~/workspace/.codex"

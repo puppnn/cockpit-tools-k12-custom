@@ -90,26 +90,18 @@ fn load_instance_store(
         CodebuddySessionPlatform::Cn => {
             crate::modules::codebuddy_cn_instance::load_instance_store()
         }
-        CodebuddySessionPlatform::Intl => {
-            crate::modules::codebuddy_instance::load_instance_store()
-        }
+        CodebuddySessionPlatform::Intl => crate::modules::codebuddy_instance::load_instance_store(),
     }
 }
 
 /// Build the list of (instance_id, instance_name, user_data_dir) tuples.
 /// The first entry is always the default installation.
-fn collect_data_dirs(
-    platform: &CodebuddySessionPlatform,
-) -> Vec<(String, String, PathBuf)> {
+fn collect_data_dirs(platform: &CodebuddySessionPlatform) -> Vec<(String, String, PathBuf)> {
     let mut dirs = Vec::new();
 
     // Default installation (id = "default")
     if let Ok(default_dir) = get_default_user_data_dir(platform) {
-        dirs.push((
-            "default".to_string(),
-            "Default".to_string(),
-            default_dir,
-        ));
+        dirs.push(("default".to_string(), "Default".to_string(), default_dir));
     }
 
     // Multi-instance directories
@@ -140,20 +132,18 @@ fn read_sessions_from_db(db_path: &Path) -> Vec<RawSession> {
         return Vec::new();
     }
 
-    let conn = match Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            logger::log_warn(&format!(
-                "[CodebuddySession] Failed to open {}: {}",
-                db_path.display(),
-                e
-            ));
-            return Vec::new();
-        }
-    };
+    let conn =
+        match Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            Ok(c) => c,
+            Err(e) => {
+                logger::log_warn(&format!(
+                    "[CodebuddySession] Failed to open {}: {}",
+                    db_path.display(),
+                    e
+                ));
+                return Vec::new();
+            }
+        };
 
     let mut stmt = match conn.prepare("SELECT value FROM ItemTable WHERE key LIKE 'session:%'") {
         Ok(s) => s,
@@ -321,11 +311,7 @@ pub fn list_sessions(
     }
 
     let mut records: Vec<CodebuddySessionRecord> = aggregated.into_values().collect();
-    records.sort_by(|a, b| {
-        b.updated_at
-            .unwrap_or(0)
-            .cmp(&a.updated_at.unwrap_or(0))
-    });
+    records.sort_by(|a, b| b.updated_at.unwrap_or(0).cmp(&a.updated_at.unwrap_or(0)));
 
     Ok(records)
 }

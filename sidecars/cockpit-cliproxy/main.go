@@ -122,6 +122,7 @@ type apiKeySpec struct {
 	Label               string               `json:"label"`
 	Key                 string               `json:"key"`
 	ProviderGateway     *providerGatewaySpec `json:"providerGateway,omitempty"`
+	BoundOAuth          bool                 `json:"boundOAuth,omitempty"`
 	AccountIDs          []string             `json:"accountIds"`
 	ModelPrefix         string               `json:"modelPrefix,omitempty"`
 	ResponsesWebsockets bool                 `json:"responsesWebsockets,omitempty"`
@@ -358,6 +359,9 @@ type requestDiagnosticPayload struct {
 	HTTPStatus       int    `json:"httpStatus,omitempty"`
 	Retryable        *bool  `json:"retryable,omitempty"`
 	RetryAfterMS     int64  `json:"retryAfterMs,omitempty"`
+	AuthAvailable    *bool  `json:"authAvailable,omitempty"`
+	NextRetryAtMS    int64  `json:"nextRetryAtMs,omitempty"`
+	AuthStateReason  string `json:"authStateReason,omitempty"`
 }
 
 type upstreamAttemptPayload struct {
@@ -1744,6 +1748,9 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec) gin.H {
 		preferWebsockets := spec != nil && spec.ProviderGateway == nil && spec.ResponsesWebsockets
 		for _, model := range data {
 			model["prefer_websockets"] = preferWebsockets
+			if spec != nil && spec.ProviderGateway != nil {
+				applyProviderGatewayCodexInputModalities(model, spec.ProviderGateway)
+			}
 			slug, _ := model["slug"].(string)
 			if isHiddenCodexClientModel(slug) {
 				model["visibility"] = "hide"
@@ -1770,6 +1777,20 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec) gin.H {
 		}
 	}
 	return response
+}
+
+func applyProviderGatewayCodexInputModalities(model map[string]any, gateway *providerGatewaySpec) {
+	slug, _ := model["slug"].(string)
+	slug = strings.TrimSpace(slug)
+	supportsImage := providerGatewayModelSupportsVision(gateway, slug) ||
+		strings.TrimSpace(providerGatewayVisionRoutingModel(gateway)) != ""
+	if supportsImage {
+		model["input_modalities"] = []any{"text", "image"}
+		model["supports_image_detail_original"] = true
+		return
+	}
+	model["input_modalities"] = []any{"text"}
+	delete(model, "supports_image_detail_original")
 }
 
 func intModelValueAny(value any) int {
@@ -2093,9 +2114,6 @@ func providerGatewayValueHasVisionInput(value any) bool {
 		if typ, _ := typed["type"].(string); strings.EqualFold(strings.TrimSpace(typ), "input_image") || strings.EqualFold(strings.TrimSpace(typ), "image_url") {
 			return true
 		}
-		if _, ok := typed["image_url"]; ok {
-			return true
-		}
 		for _, child := range typed {
 			if providerGatewayValueHasVisionInput(child) {
 				return true
@@ -2109,6 +2127,58 @@ func providerGatewayValueHasVisionInput(value any) bool {
 		}
 	}
 	return false
+}
+
+const providerGatewayOmittedImageText = "[Image omitted because the current model does not support image input.]"
+
+func omitProviderGatewayVisionInput(body []byte, sourceFormat sdktranslator.Format) ([]byte, int, error) {
+	var payload any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, 0, err
+	}
+	textType := "text"
+	if sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAIResponse) {
+		textType = "input_text"
+	}
+	omitted, count := omitProviderGatewayVisionValue(payload, textType)
+	if count == 0 {
+		return body, 0, nil
+	}
+	normalized, err := json.Marshal(omitted)
+	if err != nil {
+		return nil, 0, err
+	}
+	return normalized, count, nil
+}
+
+func omitProviderGatewayVisionValue(value any, textType string) (any, int) {
+	switch typed := value.(type) {
+	case map[string]any:
+		typ, _ := typed["type"].(string)
+		if strings.EqualFold(strings.TrimSpace(typ), "input_image") || strings.EqualFold(strings.TrimSpace(typ), "image_url") {
+			return map[string]any{
+				"type": textType,
+				"text": providerGatewayOmittedImageText,
+			}, 1
+		}
+		count := 0
+		for key, child := range typed {
+			next, childCount := omitProviderGatewayVisionValue(child, textType)
+			typed[key] = next
+			count += childCount
+		}
+		return typed, count
+	case []any:
+		count := 0
+		for index, child := range typed {
+			next, childCount := omitProviderGatewayVisionValue(child, textType)
+			typed[index] = next
+			count += childCount
+		}
+		return typed, count
+	default:
+		return value, 0
+	}
 }
 
 func stripModelPrefix(model string, spec *apiKeySpec) string {
@@ -3848,6 +3918,15 @@ func (h *authHook) OnResult(ctx context.Context, result coreauth.Result) {
 		retryAfterMS = result.RetryAfter.Milliseconds()
 	}
 	success := result.Success
+	var authAvailable *bool
+	if result.AuthStateKnown {
+		value := result.AuthAvailable
+		authAvailable = &value
+	}
+	nextRetryAtMS := int64(0)
+	if !result.NextRetryAt.IsZero() {
+		nextRetryAtMS = result.NextRetryAt.UnixMilli()
+	}
 	logicalRequestID := internallogging.GetRequestID(ctx)
 	h.emitter.emit(requestDiagnosticPayload{
 		Type:             "auth_result",
@@ -3867,6 +3946,9 @@ func (h *authHook) OnResult(ctx context.Context, result coreauth.Result) {
 		ErrorMessage:     errorMessage,
 		Retryable:        retryablePtr,
 		RetryAfterMS:     retryAfterMS,
+		AuthAvailable:    authAvailable,
+		NextRetryAtMS:    nextRetryAtMS,
+		AuthStateReason:  result.AuthStateReason,
 	})
 }
 
@@ -4919,6 +5001,7 @@ type relayServer struct {
 	runtime            executorRuntime
 	cfg                *config.Config
 	manifest           *manifest
+	authManager        *coreauth.Manager
 	emitter            *eventEmitter
 	policy             *requestPolicy
 	quota              *quotaReserveStateStore
@@ -4931,6 +5014,7 @@ func (s *relayServer) router() *gin.Engine {
 	router.Use(corsMiddleware())
 	router.Use(s.policy.middleware())
 	router.GET("/v1/models", s.handleModels)
+	router.POST("/v1/cockpit/auth/reset", s.handleResetAuthState)
 	// Codex Responses WebSocket upgrade uses GET /v1/responses (not POST/SSE).
 	router.GET("/v1/responses", s.handleResponsesWebsocket)
 	router.POST("/v1/responses", s.handleResponses)
@@ -4957,6 +5041,71 @@ func (s *relayServer) router() *gin.Engine {
 		writeAPIError(c, http.StatusNotFound, "endpoint not supported", "not_found")
 	})
 	return router
+}
+
+type resetAuthStateRequest struct {
+	AccountIDs []string `json:"accountIds"`
+}
+
+func (s *relayServer) handleResetAuthState(c *gin.Context) {
+	spec, ok := s.requireAPIKey(c)
+	if !ok {
+		return
+	}
+	if s.authManager == nil || s.manifest == nil {
+		writeAPIError(c, http.StatusServiceUnavailable, "auth manager unavailable", "service_unavailable")
+		return
+	}
+
+	var req resetAuthStateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeAPIError(c, http.StatusBadRequest, "invalid request body", "invalid_request")
+		return
+	}
+
+	accountIDs := normalizeStringList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		writeAPIError(c, http.StatusBadRequest, "accountIds is required", "invalid_request")
+		return
+	}
+
+	allowed := make(map[string]struct{}, len(spec.AccountIDs))
+	for _, accountID := range spec.AccountIDs {
+		allowed[strings.TrimSpace(accountID)] = struct{}{}
+	}
+	type resetTarget struct {
+		accountID string
+		authID    string
+	}
+	targets := make([]resetTarget, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		account := s.manifest.accountByID[accountID]
+		if account == nil || strings.TrimSpace(account.AuthID) == "" {
+			continue
+		}
+		if len(allowed) > 0 {
+			if _, ok := allowed[accountID]; !ok {
+				continue
+			}
+		}
+		targets = append(targets, resetTarget{accountID: accountID, authID: account.AuthID})
+	}
+	if len(targets) == 0 {
+		writeAPIError(c, http.StatusNotFound, "no resettable accounts found", "account_not_found")
+		return
+	}
+
+	resetAccountIDs := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if auth, _ := s.authManager.ResetAuthState(c.Request.Context(), target.authID); auth != nil {
+			resetAccountIDs = append(resetAccountIDs, target.accountID)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "ok",
+		"reset":      len(resetAccountIDs),
+		"accountIds": resetAccountIDs,
+	})
 }
 
 func corsMiddleware() gin.HandlerFunc {
@@ -5995,6 +6144,11 @@ func (s *relayServer) handleExecutorBody(c *gin.Context, spec *apiKeySpec, body 
 		writeAPIError(c, http.StatusBadRequest, "model is required", "invalid_request")
 		return
 	}
+	canonicalModel := canonicalModelForClientModel(s.manifest, spec, model)
+	if sourceFormatEqual(sourceFormat, sdktranslator.FormatOpenAI) && isGPTImageGenerationModel(canonicalModel) {
+		writeAPIError(c, http.StatusBadRequest, "This model is not supported on the Chat Completions endpoint", "invalid_request")
+		return
+	}
 
 	if spec.ProviderGateway != nil {
 		s.handleProviderGatewayRequest(c, spec, spec.ProviderGateway, body, model, sourceFormat, fixedAlt)
@@ -6540,24 +6694,43 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, spec *apiKeyS
 	if providerGatewayRequestHasVisionInput(body) && !supportsVision {
 		visionRoutingModel := providerGatewayVisionRoutingModel(gateway)
 		if strings.TrimSpace(visionRoutingModel) == "" {
-			writeAPIError(c, http.StatusBadRequest, fmt.Sprintf("model %s does not support image input", upstreamModel), "unsupported_image_input")
-			return
-		}
-		originalModel := upstreamModel
-		upstreamModel = visionRoutingModel
-		if s.emitter != nil {
-			logicalRequestID := internallogging.GetRequestID(c.Request.Context())
-			s.emitter.emit(requestDiagnosticPayload{
-				Type:             "provider_gateway_vision_routed",
-				RequestID:        logicalRequestID,
-				LogicalRequestID: logicalRequestID,
-				Method:           c.Request.Method,
-				Path:             requestPath(c.Request),
-				RequestKind:      requestKindFromPath(requestPath(c.Request)),
-				Model:            upstreamModel,
-				Transport:        diagnosticTransport(c.Request),
-				ErrorMessage:     fmt.Sprintf("routed image input from %s to %s", originalModel, upstreamModel),
-			})
+			omittedBody, omittedCount, err := omitProviderGatewayVisionInput(body, sourceFormat)
+			if err != nil || omittedCount == 0 {
+				writeAPIError(c, http.StatusBadRequest, fmt.Sprintf("model %s does not support image input", upstreamModel), "unsupported_image_input")
+				return
+			}
+			body = omittedBody
+			if s.emitter != nil {
+				logicalRequestID := internallogging.GetRequestID(c.Request.Context())
+				s.emitter.emit(requestDiagnosticPayload{
+					Type:             "provider_gateway_vision_omitted",
+					RequestID:        logicalRequestID,
+					LogicalRequestID: logicalRequestID,
+					Method:           c.Request.Method,
+					Path:             requestPath(c.Request),
+					RequestKind:      requestKindFromPath(requestPath(c.Request)),
+					Model:            upstreamModel,
+					Transport:        diagnosticTransport(c.Request),
+					ErrorMessage:     fmt.Sprintf("omitted %d image input item(s) for text-only model", omittedCount),
+				})
+			}
+		} else {
+			originalModel := upstreamModel
+			upstreamModel = visionRoutingModel
+			if s.emitter != nil {
+				logicalRequestID := internallogging.GetRequestID(c.Request.Context())
+				s.emitter.emit(requestDiagnosticPayload{
+					Type:             "provider_gateway_vision_routed",
+					RequestID:        logicalRequestID,
+					LogicalRequestID: logicalRequestID,
+					Method:           c.Request.Method,
+					Path:             requestPath(c.Request),
+					RequestKind:      requestKindFromPath(requestPath(c.Request)),
+					Model:            upstreamModel,
+					Transport:        diagnosticTransport(c.Request),
+					ErrorMessage:     fmt.Sprintf("routed image input from %s to %s", originalModel, upstreamModel),
+				})
+			}
 		}
 	}
 	upstreamPath := "/v1/responses"
@@ -9066,6 +9239,10 @@ func modelBase(model string) string {
 	return model
 }
 
+func isGPTImageGenerationModel(model string) bool {
+	return strings.HasPrefix(modelBase(model), "gpt-image-")
+}
+
 func jsonContainsImageGenerationTool(body []byte) bool {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return false
@@ -9512,7 +9689,7 @@ func (f *responsesSSEFramer) WriteChunk(w io.Writer, chunk []byte) error {
 		if frameLen == 0 {
 			break
 		}
-		if err := writeResponsesSSEChunk(w, f.pending[:frameLen]); err != nil {
+		if err := writeResponsesSSEFrame(w, f.pending[:frameLen]); err != nil {
 			return err
 		}
 		copy(f.pending, f.pending[frameLen:])
@@ -9525,7 +9702,7 @@ func (f *responsesSSEFramer) WriteChunk(w io.Writer, chunk []byte) error {
 	if !responsesSSECanEmitWithoutDelimiter(f.pending) {
 		return nil
 	}
-	if err := writeResponsesSSEChunk(w, f.pending); err != nil {
+	if err := writeResponsesSSEFrame(w, f.pending); err != nil {
 		return err
 	}
 	f.pending = f.pending[:0]
@@ -9544,10 +9721,82 @@ func (f *responsesSSEFramer) Flush(w io.Writer) error {
 		f.pending = f.pending[:0]
 		return nil
 	}
-	if err := writeResponsesSSEChunk(w, f.pending); err != nil {
+	if err := writeResponsesSSEFrame(w, f.pending); err != nil {
 		return err
 	}
 	f.pending = f.pending[:0]
+	return nil
+}
+
+const (
+	maxResponsesConcatenatedJSONDocuments = 16
+	maxResponsesConcatenatedJSONBytes     = 16 * 1024 * 1024
+)
+
+func splitResponsesConcatenatedJSONDocuments(payload []byte) ([][]byte, bool) {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 || len(payload) > maxResponsesConcatenatedJSONBytes || json.Valid(payload) {
+		return nil, false
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	documents := make([][]byte, 0, 2)
+	for {
+		var raw json.RawMessage
+		err := decoder.Decode(&raw)
+		if err != nil {
+			if errors.Is(err, io.EOF) && len(documents) > 1 {
+				return documents, true
+			}
+			return nil, false
+		}
+
+		raw = bytes.TrimSpace(raw)
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			return nil, false
+		}
+		eventType := strings.TrimSpace(envelope.Type)
+		if eventType == "" || strings.ContainsAny(eventType, "\r\n") {
+			return nil, false
+		}
+		if len(documents) == maxResponsesConcatenatedJSONDocuments {
+			return nil, false
+		}
+		documents = append(documents, bytes.Clone(raw))
+	}
+}
+
+func writeResponsesSSEFrame(w io.Writer, chunk []byte) error {
+	payload, ok := responsesSSEDataPayload(chunk)
+	if !ok {
+		return writeResponsesSSEChunk(w, chunk)
+	}
+	documents, repaired := splitResponsesConcatenatedJSONDocuments(payload)
+	if !repaired {
+		return writeResponsesSSEChunk(w, chunk)
+	}
+
+	for _, document := range documents {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(document, &envelope); err != nil {
+			return err
+		}
+		frame := make([]byte, 0, len(document)+len(envelope.Type)+17)
+		frame = append(frame, "event: "...)
+		frame = append(frame, strings.TrimSpace(envelope.Type)...)
+		frame = append(frame, '\n')
+		frame = append(frame, "data: "...)
+		frame = append(frame, document...)
+		frame = append(frame, '\n', '\n')
+		if err := writeResponsesSSEChunk(w, frame); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -9614,7 +9863,45 @@ func responsesSSECanEmitWithoutDelimiter(chunk []byte) bool {
 	if responsesSSENeedsMoreData(trimmed) {
 		return false
 	}
-	return isSSEFieldChunk(trimmed) || bytes.HasPrefix(trimmed, []byte("{")) || bytes.HasPrefix(trimmed, []byte("["))
+	if payload, ok := responsesSSEDataPayload(trimmed); ok {
+		if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+			return true
+		}
+		if json.Valid(payload) {
+			return true
+		}
+		_, repaired := splitResponsesConcatenatedJSONDocuments(payload)
+		return repaired
+	}
+	return isSSEFieldChunk(trimmed)
+}
+
+func responsesSSEDataPayload(chunk []byte) ([]byte, bool) {
+	trimmed := bytes.TrimSpace(chunk)
+	if len(trimmed) == 0 {
+		return nil, false
+	}
+	if bytes.HasPrefix(trimmed, []byte("{")) || bytes.HasPrefix(trimmed, []byte("[")) {
+		return trimmed, true
+	}
+
+	lines := bytes.Split(bytes.ReplaceAll(trimmed, []byte("\r\n"), []byte("\n")), []byte("\n"))
+	dataLines := make([][]byte, 0, 1)
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		value := line[len("data:"):]
+		if len(value) > 0 && value[0] == ' ' {
+			value = value[1:]
+		}
+		dataLines = append(dataLines, value)
+	}
+	if len(dataLines) == 0 {
+		return nil, false
+	}
+	return bytes.Join(dataLines, []byte("\n")), true
 }
 
 func responsesSSENeedsMoreData(chunk []byte) bool {
@@ -9779,6 +10066,7 @@ func main() {
 		runtime:            runtime,
 		cfg:                cfg,
 		manifest:           m,
+		authManager:        coreManager,
 		emitter:            emitter,
 		policy:             policy,
 		quota:              quotaState,

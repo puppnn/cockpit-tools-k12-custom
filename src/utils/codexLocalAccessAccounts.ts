@@ -99,6 +99,17 @@ export function isCodexLocalAccessEligibleAccount(
   ) === null;
 }
 
+export function canAddCodexAccountToLocalAccess(
+  account: CodexAccount,
+  currentAccountIds: ReadonlySet<string>,
+  restrictFreeAccounts: boolean,
+): boolean {
+  return (
+    !currentAccountIds.has(account.id) &&
+    isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)
+  );
+}
+
 export function filterCodexLocalAccessAccountIds(
   accountIds: string[],
   accounts: CodexAccount[],

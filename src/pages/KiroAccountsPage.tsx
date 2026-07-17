@@ -80,6 +80,10 @@ const KIRO_TOKEN_BATCH_EXAMPLE = `[
 
 export function KiroAccountsPage() {
   const [activeTab, setActiveTab] = useState<KiroTab>('overview');
+  const [idcLoginMethod, setIdcLoginMethod] = useState<'builderId' | 'enterprise'>('builderId');
+  const [idcRegion, setIdcRegion] = useState('us-east-1');
+  const [idcStartUrl, setIdcStartUrl] = useState('');
+  const [idcFormError, setIdcFormError] = useState<string | null>(null);
   const [filterTypes, setFilterTypes] = useState<string[]>(() =>
     readAccountsOverviewFilterPersistenceEnabled(KIRO_FILTER_PERSISTENCE_SCOPE)
       ? readAccountsOverviewFilterStringArray(KIRO_FILTER_PERSISTENCE_SCOPE, FILTER_TYPES_FIELD)
@@ -109,11 +113,21 @@ export function KiroAccountsPage() {
       updateAccountTags: store.updateAccountTags,
     },
     oauthService: {
-      startLogin: kiroService.startKiroOAuthLogin,
+      startLogin: (options) => kiroService.startKiroOAuthLogin(
+        options?.tabKey === 'idc'
+          ? {
+              method: idcLoginMethod,
+              region: idcRegion,
+              startUrl: idcStartUrl,
+            }
+          : { method: 'social' },
+      ),
       completeLogin: kiroService.completeKiroOAuthLogin,
       cancelLogin: kiroService.cancelKiroOAuthLogin,
       submitCallbackUrl: kiroService.submitKiroOAuthCallbackUrl,
     },
+    oauthTabKeys: ['oauth', 'idc'],
+    oauthAutoPrepare: (tabKey) => tabKey === 'oauth' || idcLoginMethod === 'builderId',
     dataService: {
       importFromJson: kiroService.importKiroFromJson,
       importFromLocal: kiroService.importKiroFromLocal,
@@ -153,11 +167,33 @@ export function KiroAccountsPage() {
     oauthManualCallbackSubmitting, oauthManualCallbackError, oauthSupportsManualCallback,
     handleCopyOauthUrl, handleCopyOauthUserCode, handleRetryOauth, handleOpenOauthUrl,
     handleSubmitOauthCallbackUrl,
+    prepareOauthUrl,
     handleInjectToVSCode,
     isFlowNoticeCollapsed, setIsFlowNoticeCollapsed,
     currentAccountId,
     formatDate, normalizeTag,
   } = page;
+
+  const handleSelectIdcLoginMethod = useCallback((method: 'builderId' | 'enterprise') => {
+    setIdcLoginMethod(method);
+    setIdcFormError(null);
+    openAddModal('idc');
+  }, [openAddModal]);
+
+  const handleStartEnterpriseLogin = useCallback(() => {
+    const region = idcRegion.trim();
+    const startUrl = idcStartUrl.trim();
+    if (!region) {
+      setIdcFormError(t('kiro.idc.regionRequired', '请填写 AWS Region'));
+      return;
+    }
+    if (!startUrl) {
+      setIdcFormError(t('kiro.idc.startUrlRequired', '请填写 IAM Identity Center Start URL'));
+      return;
+    }
+    setIdcFormError(null);
+    prepareOauthUrl();
+  }, [idcRegion, idcStartUrl, prepareOauthUrl, t]);
 
   useEffect(() => {
     if (!filterPersistenceEnabled) {
@@ -1123,15 +1159,67 @@ export function KiroAccountsPage() {
 
             <div className="modal-tabs">
               <button className={`modal-tab ${addTab === 'oauth' ? 'active' : ''}`} onClick={() => openAddModal('oauth')}><Globe size={14} />{t('common.shared.addModal.oauth', 'OAuth Authorization')}</button>
+              <button className={`modal-tab ${addTab === 'idc' ? 'active' : ''}`} onClick={() => handleSelectIdcLoginMethod('builderId')}><Lock size={14} />{t('kiro.addModal.idc', 'IAM Identity Center')}</button>
               <button className={`modal-tab ${addTab === 'token' ? 'active' : ''}`} onClick={() => openAddModal('token')}><KeyRound size={14} />{t('common.shared.addModal.token', 'Token / JSON')}</button>
               <button className={`modal-tab ${addTab === 'import' ? 'active' : ''}`} onClick={() => openAddModal('import')}><Database size={14} />{t('common.shared.addModal.import', '本地导入')}</button>
             </div>
 
             <div className="modal-body">
               <MfaQuickCodeSelect />
-              {addTab === 'oauth' && (
+              {(addTab === 'oauth' || addTab === 'idc') && (
                 <div className="add-section">
-                  <p className="section-desc">{t('kiro.oauth.desc', '点击下方按钮，在浏览器中完成 Kiro OAuth 授权。')}</p>
+                  {addTab === 'idc' && (
+                    <>
+                      <div className="oauth-provider-switch">
+                        <button
+                          className={`btn btn-sm ${idcLoginMethod === 'builderId' ? 'btn-primary' : 'btn-outline'}`}
+                          onClick={() => handleSelectIdcLoginMethod('builderId')}
+                        >
+                          {t('kiro.idc.builderId', 'AWS Builder ID')}
+                        </button>
+                        <button
+                          className={`btn btn-sm ${idcLoginMethod === 'enterprise' ? 'btn-primary' : 'btn-outline'}`}
+                          onClick={() => handleSelectIdcLoginMethod('enterprise')}
+                        >
+                          {t('kiro.idc.enterprise', 'Enterprise')}
+                        </button>
+                      </div>
+                      {idcLoginMethod === 'enterprise' && !oauthUrl && (
+                        <div className="oauth-idc-form">
+                          <label>
+                            <span>{t('kiro.idc.region', 'AWS Region')}</span>
+                            <input
+                              type="text"
+                              value={idcRegion}
+                              onChange={(event) => {
+                                setIdcRegion(event.target.value);
+                                setIdcFormError(null);
+                              }}
+                              placeholder="us-east-1"
+                            />
+                          </label>
+                          <label>
+                            <span>{t('kiro.idc.startUrl', 'IAM Identity Center Start URL')}</span>
+                            <input
+                              type="url"
+                              value={idcStartUrl}
+                              onChange={(event) => {
+                                setIdcStartUrl(event.target.value);
+                                setIdcFormError(null);
+                              }}
+                              placeholder="https://example.awsapps.com/start"
+                            />
+                          </label>
+                          {idcFormError && <div className="add-status error"><CircleAlert size={16} /><span>{idcFormError}</span></div>}
+                          <button className="btn btn-primary btn-full" onClick={handleStartEnterpriseLogin}>
+                            <Globe size={16} />{t('kiro.idc.start', '开始企业登录')}
+                          </button>
+                        </div>
+                      )}
+                      <p className="section-desc">{t('kiro.idc.desc', '在浏览器中完成 AWS IAM Identity Center 授权，授权完成后账号会自动保存。')}</p>
+                    </>
+                  )}
+                  {addTab === 'oauth' && <p className="section-desc">{t('kiro.oauth.desc', '点击下方按钮，在浏览器中完成 Kiro OAuth 授权。')}</p>}
 
                   {oauthPrepareError ? (
                     <div className="add-status error">
@@ -1192,9 +1280,9 @@ export function KiroAccountsPage() {
                       )}
                       <p className="oauth-hint">{t('common.shared.oauth.hint', 'Once authorized, this window will update automatically')}</p>
                     </div>
-                  ) : (
+                  ) : (!oauthUrl && addTab === 'idc' && idcLoginMethod === 'enterprise' ? null : (
                     <div className="oauth-loading"><RefreshCw size={24} className="loading-spinner" /><span>{t('common.shared.oauth.preparing', '正在准备授权信息...')}</span></div>
-                  )}
+                  ))}
                 </div>
               )}
 

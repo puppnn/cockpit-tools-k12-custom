@@ -260,10 +260,7 @@ fn build_launch_command_with_binary(
             ));
         }
         if let Some(api_key) = context.xai_api_key.as_deref() {
-            command_parts.push(format!(
-                "$env:XAI_API_KEY={}",
-                powershell_quote(api_key)
-            ));
+            command_parts.push(format!("$env:XAI_API_KEY={}", powershell_quote(api_key)));
         }
         if context.managed {
             command_parts.push(format!(
@@ -376,9 +373,7 @@ async fn prepare_bound_account(
                 let should_write_fallback = instance_id != DEFAULT_INSTANCE_ID
                     || !config::get_user_config().grok_sync_official_auth_on_switch;
                 if should_write_fallback {
-                    if let Err(write_error) =
-                        write_account_launch_profiles(instance_id, &account)
-                    {
+                    if let Err(write_error) = write_account_launch_profiles(instance_id, &account) {
                         logger::log_warn(&format!(
                             "[Grok Launch] reauth 状态下写入 profile 失败: account_id={}, error={}",
                             account_id, write_error

@@ -33,7 +33,7 @@ function getOldStorage<T>(key: string, parse: (val: string) => T, fallback: T): 
 export const useSideNavLayoutStore = create<SideNavLayoutState>()(
   persist(
     (set) => ({
-      mode: getOldStorage<SideNavLayoutMode>('agtools.side_nav.layout.v1', (v) => (v === 'classic' ? 'classic' : 'original'), 'original'),
+      mode: getOldStorage<SideNavLayoutMode>('agtools.side_nav.layout.v1', (v) => (v === 'classic' ? 'classic' : 'original'), 'classic'),
       classicCollapsed: getOldStorage('agtools.side_nav.classic_collapsed.v1', (v) => v === '1', false),
       hideClassicSwitchPrompt: getOldStorage('agtools.side_nav.hide_classic_switch_prompt.v1', (v) => v === '1', false),
       classicFirstSyncDone: getOldStorage('agtools.side_nav.classic_first_sync_done.v1', (v) => v === '1', false),

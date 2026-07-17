@@ -30,6 +30,99 @@ import (
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 )
 
+func TestResponsesSSEFramerBuffersPartialJSONAcrossChunks(t *testing.T) {
+	framer := newRelayStreamFramer(sdktranslator.FormatOpenAIResponse, "/v1/responses")
+	var output strings.Builder
+
+	first := []byte("event: response.completed\ndata: {\"type\":\"response.comp")
+	if err := framer.Write(&output, first); err != nil {
+		t.Fatalf("write first chunk: %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("partial JSON should remain buffered, got %q", output.String())
+	}
+
+	second := []byte("leted\",\"response\":{\"id\":\"resp_1\"}}")
+	if err := framer.Write(&output, second); err != nil {
+		t.Fatalf("write second chunk: %v", err)
+	}
+	if err := framer.Close(&output); err != nil {
+		t.Fatalf("close framer: %v", err)
+	}
+
+	want := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n"
+	if got := output.String(); got != want {
+		t.Fatalf("framed output = %q, want %q", got, want)
+	}
+}
+
+func TestResponsesSSEFramerRepairsConcatenatedJSONDocuments(t *testing.T) {
+	first := `{"type":"response.in_progress","response":{"id":"resp_1"}}`
+	second := `{"type":"response.output_item.added","output_index":0,"item":{"type":"message"}}`
+
+	tests := []struct {
+		name  string
+		chunk string
+	}{
+		{
+			name:  "plain JSON chunk",
+			chunk: first + second,
+		},
+		{
+			name:  "SSE data line",
+			chunk: "event: response.in_progress\ndata: " + first + second + "\n\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			framer := newRelayStreamFramer(sdktranslator.FormatOpenAIResponse, "/v1/responses")
+			var output strings.Builder
+			if err := framer.Write(&output, []byte(tc.chunk)); err != nil {
+				t.Fatalf("write concatenated chunk: %v", err)
+			}
+			if err := framer.Close(&output); err != nil {
+				t.Fatalf("close framer: %v", err)
+			}
+
+			frames := strings.Split(strings.TrimSpace(output.String()), "\n\n")
+			wantTypes := []string{"response.in_progress", "response.output_item.added"}
+			if len(frames) != len(wantTypes) {
+				t.Fatalf("frame count = %d, want %d; output=%q", len(frames), len(wantTypes), output.String())
+			}
+			for i, frame := range frames {
+				lines := strings.Split(frame, "\n")
+				if len(lines) != 2 {
+					t.Fatalf("frame %d lines = %d, want 2; frame=%q", i, len(lines), frame)
+				}
+				if got := strings.TrimSpace(strings.TrimPrefix(lines[0], "event:")); got != wantTypes[i] {
+					t.Fatalf("frame %d event = %q, want %q", i, got, wantTypes[i])
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(lines[1], "data:"))
+				if !json.Valid([]byte(data)) {
+					t.Fatalf("frame %d data is invalid JSON: %q", i, data)
+				}
+				var envelope struct {
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal([]byte(data), &envelope); err != nil {
+					t.Fatalf("decode frame %d: %v", i, err)
+				}
+				if envelope.Type != wantTypes[i] {
+					t.Fatalf("frame %d payload type = %q, want %q", i, envelope.Type, wantTypes[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSplitResponsesConcatenatedJSONDocumentsRejectsMalformedPayload(t *testing.T) {
+	payload := []byte(`{"type":"response.in_progress"}{"missing_type":true}`)
+	if documents, repaired := splitResponsesConcatenatedJSONDocuments(payload); repaired || documents != nil {
+		t.Fatalf("malformed payload should not be repaired: %#v", documents)
+	}
+}
+
 func TestCodexClientModelsResponseShape(t *testing.T) {
 	response := buildCodexClientModelsResponse([]string{"gpt-5.4", "gpt-image-2", codexAutoReviewModel}, &apiKeySpec{})
 	models, ok := response["models"].([]map[string]any)
@@ -125,6 +218,44 @@ func TestCodexClientModelsResponsePreserves56Template(t *testing.T) {
 	}
 }
 
+func TestCodexClientModelsResponseDoesNotInjectFastMode(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		spec     *apiKeySpec
+		wantFast bool
+	}{
+		{name: "plain API key", spec: &apiKeySpec{}, wantFast: false},
+		{name: "OAuth-bound API key", spec: &apiKeySpec{BoundOAuth: true}, wantFast: false},
+		{name: "provider gateway", spec: &apiKeySpec{ProviderGateway: &providerGatewaySpec{}}, wantFast: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := buildCodexClientModelsResponse([]string{"gpt-5.6-sol", "custom-compat-model"}, test.spec)
+			models, ok := response["models"].([]map[string]any)
+			if !ok {
+				t.Fatalf("models response should contain a models array: %#v", response["models"])
+			}
+			for _, slug := range []string{"gpt-5.6-sol", "custom-compat-model"} {
+				model := findCodexClientModelForTest(models, slug)
+				if model == nil {
+					t.Fatalf("expected model %s", slug)
+				}
+				hasFast := false
+				for _, raw := range model["service_tiers"].([]any) {
+					tier, _ := raw.(map[string]any)
+					id := strings.ToLower(strings.TrimSpace(stringFromAny(tier["id"])))
+					name := strings.ToLower(strings.TrimSpace(stringFromAny(tier["name"])))
+					if id == "priority" || id == "fast" || name == "fast" {
+						hasFast = true
+					}
+				}
+				if hasFast != test.wantFast {
+					t.Fatalf("model %s Fast tier = %v, want %v: %#v", slug, hasFast, test.wantFast, model["service_tiers"])
+				}
+			}
+		})
+	}
+}
+
 func TestCodexClientModelsResponseEnablesWebsocketsWhenConfigured(t *testing.T) {
 	response := buildCodexClientModelsResponse([]string{"gpt-5.6-sol"}, &apiKeySpec{
 		ResponsesWebsockets: true,
@@ -156,6 +287,94 @@ func TestCodexClientModelsResponseDisablesSearchForProviderGateway(t *testing.T)
 	}
 	if got, ok := sol["supports_search_tool"].(bool); !ok || got {
 		t.Fatalf("provider gateway supports_search_tool = %#v, want false", sol["supports_search_tool"])
+	}
+}
+
+func TestCodexClientModelsResponseGatesProviderGatewayImageInput(t *testing.T) {
+	tests := []struct {
+		name          string
+		gateway       *providerGatewaySpec
+		model         string
+		supportsImage bool
+	}{
+		{
+			name: "text only",
+			gateway: &providerGatewaySpec{
+				UpstreamModels: []string{"deepseek-v4-pro"},
+			},
+			model: "deepseek-v4-pro",
+		},
+		{
+			name: "model supports vision",
+			gateway: &providerGatewaySpec{
+				UpstreamModels: []string{"qwen-vl-plus"},
+				ModelCapabilities: map[string]providerGatewayModelCapability{
+					"qwen-vl-plus": {SupportsVision: true},
+				},
+			},
+			model:         "qwen-vl-plus",
+			supportsImage: true,
+		},
+		{
+			name: "routes images to vision model",
+			gateway: &providerGatewaySpec{
+				UpstreamModels:     []string{"deepseek-v4-pro", "qwen-vl-plus"},
+				VisionRoutingModel: "qwen-vl-plus",
+				ModelCapabilities: map[string]providerGatewayModelCapability{
+					"qwen-vl-plus": {SupportsVision: true},
+				},
+			},
+			model:         "deepseek-v4-pro",
+			supportsImage: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := buildCodexClientModelsResponse([]string{test.model}, &apiKeySpec{
+				ProviderGateway: test.gateway,
+			})
+			models, ok := response["models"].([]map[string]any)
+			if !ok {
+				t.Fatalf("models response should contain a models array: %#v", response["models"])
+			}
+			entry := findCodexClientModelForTest(models, test.model)
+			if entry == nil {
+				t.Fatalf("expected model %s", test.model)
+			}
+			modalities, ok := entry["input_modalities"].([]any)
+			if !ok {
+				t.Fatalf("input_modalities = %#v", entry["input_modalities"])
+			}
+			want := []any{"text"}
+			if test.supportsImage {
+				want = []any{"text", "image"}
+			}
+			if !reflect.DeepEqual(modalities, want) {
+				t.Fatalf("input_modalities = %#v, want %#v", modalities, want)
+			}
+			_, hasImageDetail := entry["supports_image_detail_original"]
+			if hasImageDetail != test.supportsImage {
+				t.Fatalf("supports_image_detail_original present = %v, want %v", hasImageDetail, test.supportsImage)
+			}
+		})
+	}
+}
+
+func TestProviderGatewayVisionDetectionIgnoresToolSchemaFieldNames(t *testing.T) {
+	body := []byte(`{
+		"model":"deepseek-v4-pro",
+		"tools":[{
+			"type":"function",
+			"name":"inspect_url",
+			"parameters":{
+				"type":"object",
+				"properties":{"image_url":{"type":"string"}}
+			}
+		}]
+	}`)
+	if providerGatewayRequestHasVisionInput(body) {
+		t.Fatal("tool schema field names must not be treated as image input")
 	}
 }
 
@@ -3216,12 +3435,15 @@ func TestAuthHookEmitsRequestScopedResultDiagnostics(t *testing.T) {
 	ctx = context.WithValue(ctx, clientAPIKeyContextKey, apiKey)
 	ctx = context.WithValue(ctx, requestKindContextKey, "text")
 	ctx = context.WithValue(ctx, requestModelContextKey, "gpt-5.5")
-
 	hook.OnResult(ctx, coreauth.Result{
-		AuthID:   "auth.json",
-		Provider: "codex",
-		Model:    "upstream-model",
-		Success:  false,
+		AuthID:          "auth.json",
+		Provider:        "codex",
+		Model:           "upstream-model",
+		Success:         false,
+		AuthStateKnown:  true,
+		AuthAvailable:   false,
+		NextRetryAt:     time.Now().Add(30 * time.Minute),
+		AuthStateReason: "unauthorized",
 		Error: &coreauth.Error{
 			Code:       "upstream_timeout",
 			Message:    "upstream timed out",
@@ -3249,6 +3471,9 @@ func TestAuthHookEmitsRequestScopedResultDiagnostics(t *testing.T) {
 	}
 	if payload.HTTPStatus != http.StatusGatewayTimeout || payload.ErrorCode != "upstream_timeout" {
 		t.Fatalf("unexpected failure details: %#v", payload)
+	}
+	if payload.AuthAvailable == nil || *payload.AuthAvailable || payload.NextRetryAtMS <= time.Now().UnixMilli() || payload.AuthStateReason != "unauthorized" {
+		t.Fatalf("scheduler state should be preserved: %#v", payload)
 	}
 }
 
@@ -3285,6 +3510,63 @@ func TestRelayServerExecutesNonStreamingRequestThroughRuntime(t *testing.T) {
 	}
 	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Fatalf("CORS header should match CPA server behavior")
+	}
+}
+
+func TestRelayServerRejectsGPTImageModelsOnChatCompletionsBeforeRuntime(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	runtime := &fakeRuntime{}
+	apiKey := &apiKeySpec{
+		ID:          "key_1",
+		Label:       "Test key",
+		Key:         "client-key",
+		ModelPrefix: "team",
+		Enabled:     true,
+	}
+	m := &manifest{
+		APIKeys:  []apiKeySpec{*apiKey},
+		ModelIDs: []string{"gpt-5.5", "gpt-image-2"},
+		ModelAliases: []modelAliasSpec{{
+			SourceModel: "gpt-image-2",
+			Alias:       "image-latest",
+		}},
+		apiKeyByValue: map[string]*apiKeySpec{"client-key": apiKey},
+		aliasToSource: map[string]string{"image-latest": "gpt-image-2"},
+	}
+	router := (&relayServer{
+		runtime:  runtime,
+		cfg:      &config.Config{},
+		manifest: m,
+		policy:   &requestPolicy{manifest: m},
+	}).router()
+
+	for _, model := range []string{"team/gpt-image-2", "team/image-latest"} {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"draw"}]}`, model)))
+		req.Header.Set("Authorization", "Bearer client-key")
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("model %q status = %d, want %d; body=%s", model, w.Code, http.StatusBadRequest, w.Body.String())
+		}
+		var payload struct {
+			Error struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("model %q response should be JSON: %v", model, err)
+		}
+		if payload.Error.Type != "invalid_request_error" || !strings.Contains(payload.Error.Message, "Chat Completions") {
+			t.Fatalf("model %q unexpected error payload: %#v", model, payload.Error)
+		}
+	}
+
+	if runtime.executeCalls != 0 || runtime.streamCalls != 0 {
+		t.Fatalf("image-only models must be rejected before runtime scheduling: execute=%d stream=%d", runtime.executeCalls, runtime.streamCalls)
 	}
 }
 
@@ -4197,11 +4479,12 @@ func TestRelayServerProviderGatewayUsesSelectedUpstreamModel(t *testing.T) {
 	}
 }
 
-func TestRelayServerProviderGatewayRejectsVisionInputWhenUnsupported(t *testing.T) {
+func TestRelayServerProviderGatewayOmitsVisionInputWhenUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	upstreamCalled := false
+	var upstreamBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalled = true
+		body, _ := io.ReadAll(r.Body)
+		upstreamBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","created":1,"model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
 	}))
@@ -4234,14 +4517,20 @@ func TestRelayServerProviderGatewayRejectsVisionInputWhenUnsupported(t *testing.
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
+	if w.Code != http.StatusOK {
 		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
 	}
-	if upstreamCalled {
-		t.Fatal("unsupported image input without routing model should not call upstream")
+	if upstreamBody == "" {
+		t.Fatal("text-only fallback should call upstream")
 	}
-	if !strings.Contains(w.Body.String(), "unsupported_image_input") {
-		t.Fatalf("unsupported image input should return explicit error: %s", w.Body.String())
+	if strings.Contains(upstreamBody, "image_url") || strings.Contains(upstreamBody, "data:image") {
+		t.Fatalf("text-only fallback should omit image data: %s", upstreamBody)
+	}
+	if !strings.Contains(upstreamBody, providerGatewayOmittedImageText) {
+		t.Fatalf("text-only fallback should explain the omitted image: %s", upstreamBody)
+	}
+	if !strings.Contains(upstreamBody, `"model":"deepseek-v4-flash"`) {
+		t.Fatalf("text-only fallback should keep the selected model: %s", upstreamBody)
 	}
 }
 
@@ -4485,6 +4774,54 @@ func TestRelayServerModelsExposeCodexAutoReview(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), codexAutoReviewModel) {
 		t.Fatalf("models response should expose auto review model: %s", w.Body.String())
+	}
+}
+
+func TestRelayServerResetAuthStateClearsSelectedAccountCooldown(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
+	if _, err := manager.Register(context.Background(), &coreauth.Auth{
+		ID:       "auth-1.json",
+		Provider: "codex",
+		Metadata: map[string]any{"type": "codex"},
+		ModelStates: map[string]*coreauth.ModelState{
+			"gpt-5.5": {
+				Status:         coreauth.StatusError,
+				Unavailable:    true,
+				NextRetryAfter: time.Now().Add(30 * time.Minute),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("register auth: %v", err)
+	}
+	spec := &apiKeySpec{ID: "key_1", Key: "client-key", Enabled: true, AccountIDs: []string{"account-1"}}
+	account := &accountSpec{ID: "account-1", AuthID: "auth-1.json"}
+	m := &manifest{
+		APIKeys:       []apiKeySpec{*spec},
+		Accounts:      []accountSpec{*account},
+		apiKeyByValue: map[string]*apiKeySpec{"client-key": spec},
+		accountByID:   map[string]*accountSpec{"account-1": account},
+	}
+	router := (&relayServer{
+		runtime:     &fakeRuntime{},
+		cfg:         &config.Config{},
+		manifest:    m,
+		authManager: manager,
+		policy:      &requestPolicy{manifest: m},
+	}).router()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/cockpit/auth/reset", strings.NewReader(`{"accountIds":["account-1"]}`))
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", w.Code, w.Body.String())
+	}
+	updated, ok := manager.GetByID("auth-1.json")
+	if !ok || updated == nil || len(updated.ModelStates) != 0 || updated.Unavailable {
+		t.Fatalf("auth state was not reset: %#v", updated)
 	}
 }
 

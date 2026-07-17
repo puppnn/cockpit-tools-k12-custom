@@ -196,7 +196,10 @@ pub fn load_stored_account(account_id: &str) -> Option<ZedStoredAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file::<ZedStoredAccount>(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<ZedStoredAccount>(
+        &account_path,
+        &content,
+    ) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
                 let account_for_rewrite = account.clone();
@@ -221,8 +224,7 @@ pub fn load_stored_account(account_id: &str) -> Option<ZedStoredAccount> {
 
 fn save_stored_account_file(account: &ZedStoredAccount) -> Result<(), String> {
     let path = resolve_account_file_path(account.public_account.id.as_str())?;
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("zed", account)?;
+    let content = crate::modules::secure_account_storage::serialize_account_file("zed", account)?;
     crate::modules::atomic_write::write_string_atomic(&path, &content)
         .map_err(|e| format!("保存账号失败: {}", e))
 }

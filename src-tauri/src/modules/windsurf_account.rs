@@ -52,7 +52,10 @@ pub fn load_account(account_id: &str) -> Option<WindsurfAccount> {
         return None;
     }
     let content = fs::read_to_string(&account_path).ok()?;
-    match crate::modules::secure_account_storage::deserialize_account_file::<WindsurfAccount>(&account_path, &content) {
+    match crate::modules::secure_account_storage::deserialize_account_file::<WindsurfAccount>(
+        &account_path,
+        &content,
+    ) {
         Ok((account, needs_rotation)) => {
             if needs_rotation {
                 let account_for_rewrite = account.clone();
@@ -1093,11 +1096,7 @@ fn windsurf_state_db_candidates() -> Result<Vec<PathBuf>, String> {
     // Devin 为当前官网默认用户数据目录；Windsurf 保留兼容旧安装。
     crate::modules::windsurf_instance::windsurf_user_data_dir_candidates().map(|dirs| {
         dirs.into_iter()
-            .map(|dir| {
-                dir.join("User")
-                    .join("globalStorage")
-                    .join("state.vscdb")
-            })
+            .map(|dir| dir.join("User").join("globalStorage").join("state.vscdb"))
             .collect()
     })
 }

@@ -894,6 +894,22 @@ func TestApplyCodexWebsocketHeadersPassesThroughAgtoolsDiagnosticHeaders(t *test
 	}
 }
 
+func TestCodexUpstreamWebsocketsRequireExplicitCapability(t *testing.T) {
+	legacyOnly := &cliproxyauth.Auth{
+		Attributes: map[string]string{"websockets": "true"},
+	}
+	if codexUpstreamWebsocketsEnabled(legacyOnly) {
+		t.Fatal("downstream websocket flag must not enable the upstream websocket transport")
+	}
+
+	explicit := &cliproxyauth.Auth{
+		Attributes: map[string]string{codexUpstreamWebsocketCapability: "true"},
+	}
+	if !codexUpstreamWebsocketsEnabled(explicit) {
+		t.Fatal("explicit upstream websocket capability should enable the transport")
+	}
+}
+
 func contextWithGinHeaders(headers map[string]string) context.Context {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

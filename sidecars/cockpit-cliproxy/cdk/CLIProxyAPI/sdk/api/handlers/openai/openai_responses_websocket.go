@@ -35,6 +35,7 @@ const (
 	wsDoneMarker         = "[DONE]"
 	wsTurnStateHeader    = "x-codex-turn-state"
 	wsTimelineBodyKey    = "WEBSOCKET_TIMELINE_OVERRIDE"
+	wsUpstreamCapability = "upstream_websockets"
 )
 
 var responsesWebsocketUpgrader = websocket.Upgrader{
@@ -391,42 +392,82 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		}
 
 		modelName := gjson.GetBytes(requestJSON, "model").String()
-		cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
-		cliCtx = cliproxyexecutor.WithDownstreamWebsocket(cliCtx)
-		cliCtx = handlers.WithExecutionSessionID(cliCtx, passthroughSessionID)
-		if pinnedAuthID != "" {
-			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
-		} else {
-			cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
-				authID = strings.TrimSpace(authID)
-				if authID == "" || h == nil || h.AuthManager == nil {
-					return
-				}
-				selectedAuth, ok := sessionAuthByID(authID)
-				if !ok || selectedAuth == nil {
-					return
-				}
-				if websocketUpstreamSupportsIncrementalInput(selectedAuth.Attributes, selectedAuth.Metadata) {
-					pinnedAuthID = authID
-				}
-			})
+		availableAuths, _ := h.responsesWebsocketAvailableAuthsForModel(modelName)
+		maxCredentialAttempts := len(availableAuths)
+		if maxCredentialAttempts < 1 {
+			maxCredentialAttempts = 1
 		}
-		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
+		excludedAuthIDs := make([]string, 0, maxCredentialAttempts)
 
-		completedOutput, forwardErrMsg, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, wsTimelineLog, passthroughSessionID)
-		if errForward != nil {
-			wsTerminateErr = errForward
-			log.Warnf("responses websocket: forward failed id=%s error=%v", passthroughSessionID, errForward)
-			return
+		for credentialAttempt := 0; ; credentialAttempt++ {
+			selectedAuthID := ""
+			selectedUsesUpstreamWebsocket := false
+			cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+			cliCtx = cliproxyexecutor.WithDownstreamWebsocket(cliCtx)
+			cliCtx = handlers.WithExecutionSessionID(cliCtx, passthroughSessionID)
+			if len(excludedAuthIDs) > 0 {
+				cliCtx = handlers.WithExcludedAuthIDs(cliCtx, excludedAuthIDs)
+			}
+			if pinnedAuthID != "" {
+				selectedAuthID = pinnedAuthID
+				selectedUsesUpstreamWebsocket = true
+				cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+			} else {
+				cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
+					authID = strings.TrimSpace(authID)
+					selectedAuthID = authID
+					if authID == "" || h == nil || h.AuthManager == nil {
+						return
+					}
+					selectedAuth, ok := sessionAuthByID(authID)
+					if !ok || selectedAuth == nil {
+						return
+					}
+					if websocketUpstreamSupportsIncrementalInput(selectedAuth.Attributes, selectedAuth.Metadata) {
+						selectedUsesUpstreamWebsocket = true
+						pinnedAuthID = authID
+					}
+				})
+			}
+			dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
+			mayRetryCredential := credentialAttempt+1 < maxCredentialAttempts && selectedAuthID != "" && !selectedUsesUpstreamWebsocket
+
+			completedOutput, forwardErrMsg, retryCredential, errForward := h.forwardResponsesWebsocket(
+				c,
+				conn,
+				cliCancel,
+				dataChan,
+				errChan,
+				wsTimelineLog,
+				passthroughSessionID,
+				mayRetryCredential,
+			)
+			if errForward != nil {
+				wsTerminateErr = errForward
+				log.Warnf("responses websocket: forward failed id=%s error=%v", passthroughSessionID, errForward)
+				return
+			}
+			if retryCredential && selectedAuthID != "" {
+				excludedAuthIDs = append(excludedAuthIDs, selectedAuthID)
+				pinnedAuthID = ""
+				log.Infof(
+					"responses websocket: retrying with another credential id=%s attempt=%d/%d",
+					passthroughSessionID,
+					credentialAttempt+2,
+					maxCredentialAttempts,
+				)
+				continue
+			}
+			if shouldReleaseResponsesWebsocketPinnedAuth(forwardErrMsg) {
+				pinnedAuthID = ""
+				forceTranscriptReplayNextRequest = true
+				lastRequest = previousLastRequest
+				lastResponseOutput = previousLastResponseOutput
+				break
+			}
+			lastResponseOutput = completedOutput
+			break
 		}
-		if shouldReleaseResponsesWebsocketPinnedAuth(forwardErrMsg) {
-			pinnedAuthID = ""
-			forceTranscriptReplayNextRequest = true
-			lastRequest = previousLastRequest
-			lastResponseOutput = previousLastResponseOutput
-			continue
-		}
-		lastResponseOutput = completedOutput
 	}
 }
 
@@ -699,7 +740,7 @@ func dedupeFunctionCallsByCallID(rawArray string) (string, error) {
 
 func websocketUpstreamSupportsIncrementalInput(attributes map[string]string, metadata map[string]any) bool {
 	if len(attributes) > 0 {
-		if raw := strings.TrimSpace(attributes["websockets"]); raw != "" {
+		if raw := strings.TrimSpace(attributes[wsUpstreamCapability]); raw != "" {
 			parsed, errParse := strconv.ParseBool(raw)
 			if errParse == nil {
 				return parsed
@@ -709,7 +750,7 @@ func websocketUpstreamSupportsIncrementalInput(attributes map[string]string, met
 	if len(metadata) == 0 {
 		return false
 	}
-	raw, ok := metadata["websockets"]
+	raw, ok := metadata[wsUpstreamCapability]
 	if !ok || raw == nil {
 		return false
 	}
@@ -1026,8 +1067,10 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	errs <-chan *interfaces.ErrorMessage,
 	wsTimelineLog websocketTimelineAppender,
 	sessionID string,
-) ([]byte, *interfaces.ErrorMessage, error) {
+	allowCredentialRetry bool,
+) ([]byte, *interfaces.ErrorMessage, bool, error) {
 	completed := false
+	sentPayload := false
 	completedOutput := []byte("[]")
 	downstreamSessionKey := ""
 	if c != nil && c.Request != nil {
@@ -1038,13 +1081,17 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 		select {
 		case <-c.Request.Context().Done():
 			cancel(c.Request.Context().Err())
-			return completedOutput, nil, c.Request.Context().Err()
+			return completedOutput, nil, false, c.Request.Context().Err()
 		case errMsg, ok := <-errs:
 			if !ok {
 				errs = nil
 				continue
 			}
 			if errMsg != nil {
+				if allowCredentialRetry && !sentPayload && shouldReleaseResponsesWebsocketPinnedAuth(errMsg) {
+					cancel(errMsg.Error)
+					return completedOutput, errMsg, true, nil
+				}
 				h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
 				markAPIResponseTimestamp(c)
 				errorPayload, errWrite := writeResponsesWebsocketError(conn, wsTimelineLog, errMsg)
@@ -1063,7 +1110,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 					// 	errWrite,
 					// )
 					cancel(errMsg.Error)
-					return completedOutput, errMsg, errWrite
+					return completedOutput, errMsg, false, errWrite
 				}
 			}
 			if errMsg != nil {
@@ -1071,7 +1118,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 			} else {
 				cancel(nil)
 			}
-			return completedOutput, errMsg, nil
+			return completedOutput, errMsg, false, nil
 		case chunk, ok := <-data:
 			if !ok {
 				if !completed {
@@ -1097,17 +1144,18 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 							errWrite,
 						)
 						cancel(errMsg.Error)
-						return completedOutput, errMsg, errWrite
+						return completedOutput, errMsg, false, errWrite
 					}
 					cancel(errMsg.Error)
-					return completedOutput, errMsg, nil
+					return completedOutput, errMsg, false, nil
 				}
 				cancel(nil)
-				return completedOutput, nil, nil
+				return completedOutput, nil, false, nil
 			}
 
 			payloads := websocketJSONPayloadsFromChunk(chunk)
 			for i := range payloads {
+				sentPayload = true
 				recordResponsesWebsocketToolCallsFromPayload(downstreamSessionKey, payloads[i])
 				eventType := gjson.GetBytes(payloads[i], "type").String()
 				if eventType == wsEventTypeCompleted {
@@ -1130,7 +1178,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 						errWrite,
 					)
 					cancel(errWrite)
-					return completedOutput, nil, errWrite
+					return completedOutput, nil, false, errWrite
 				}
 			}
 		}

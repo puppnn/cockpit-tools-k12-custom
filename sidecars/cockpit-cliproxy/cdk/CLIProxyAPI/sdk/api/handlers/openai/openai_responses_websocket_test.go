@@ -71,10 +71,11 @@ type websocketAuthCaptureExecutor struct {
 }
 
 type websocketPinnedFailoverExecutor struct {
-	mu       sync.Mutex
-	authIDs  []string
-	calls    map[string]int
-	payloads map[string][][]byte
+	mu         sync.Mutex
+	authIDs    []string
+	calls      map[string]int
+	payloads   map[string][][]byte
+	syncErrors bool
 }
 
 type websocketPinnedFailoverStatusError struct {
@@ -222,11 +223,15 @@ func (e *websocketPinnedFailoverExecutor) ExecuteStream(_ context.Context, auth 
 	e.mu.Unlock()
 
 	if authID == "auth-a" && call == 2 {
-		chunks := make(chan coreexecutor.StreamChunk, 1)
-		chunks <- coreexecutor.StreamChunk{Err: websocketPinnedFailoverStatusError{
+		quotaErr := websocketPinnedFailoverStatusError{
 			status: http.StatusTooManyRequests,
 			msg:    `{"error":{"message":"quota exhausted","type":"rate_limit_error","code":"rate_limit_exceeded"}}`,
-		}}
+		}
+		if e.syncErrors {
+			return nil, quotaErr
+		}
+		chunks := make(chan coreexecutor.StreamChunk, 1)
+		chunks <- coreexecutor.StreamChunk{Err: quotaErr}
 		close(chunks)
 		return &coreexecutor.StreamResult{Chunks: chunks}, nil
 	}
@@ -897,7 +902,7 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 		close(errCh)
 
 		timelineLog := newInMemoryWebsocketTimelineLog()
-		completedOutput, errMsg, err := (*OpenAIResponsesAPIHandler)(nil).forwardResponsesWebsocket(
+		completedOutput, errMsg, retryCredential, err := (*OpenAIResponsesAPIHandler)(nil).forwardResponsesWebsocket(
 			ctx,
 			conn,
 			func(...interface{}) {},
@@ -905,6 +910,7 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 			errCh,
 			timelineLog,
 			"session-1",
+			false,
 		)
 		if err != nil {
 			serverErrCh <- err
@@ -912,6 +918,10 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 		}
 		if errMsg != nil {
 			serverErrCh <- fmt.Errorf("unexpected websocket error message: %v", errMsg.Error)
+			return
+		}
+		if retryCredential {
+			serverErrCh <- errors.New("completed response unexpectedly requested a credential retry")
 			return
 		}
 		if gjson.GetBytes(completedOutput, "0.id").String() != "out-1" {
@@ -980,7 +990,7 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
 			return
 		}
 
-		_, _, err = (*OpenAIResponsesAPIHandler)(nil).forwardResponsesWebsocket(
+		_, _, _, err = (*OpenAIResponsesAPIHandler)(nil).forwardResponsesWebsocket(
 			ctx,
 			conn,
 			func(...interface{}) {},
@@ -988,6 +998,7 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
 			errCh,
 			timelineLog,
 			"session-1",
+			false,
 		)
 		if err == nil {
 			serverErrCh <- errors.New("expected websocket write failure")
@@ -1125,7 +1136,7 @@ func TestWebsocketUpstreamSupportsIncrementalInputForModel(t *testing.T) {
 		ID:         "auth-ws",
 		Provider:   "test-provider",
 		Status:     coreauth.StatusActive,
-		Attributes: map[string]string{"websockets": "true"},
+		Attributes: map[string]string{wsUpstreamCapability: "true"},
 	}
 	if _, err := manager.Register(context.Background(), auth); err != nil {
 		t.Fatalf("Register auth: %v", err)
@@ -1139,6 +1150,15 @@ func TestWebsocketUpstreamSupportsIncrementalInputForModel(t *testing.T) {
 	h := NewOpenAIResponsesAPIHandler(base)
 	if !h.websocketUpstreamSupportsIncrementalInputForModel("test-model") {
 		t.Fatalf("expected websocket-capable upstream for test-model")
+	}
+}
+
+func TestWebsocketUpstreamIgnoresDownstreamOnlyCapability(t *testing.T) {
+	if websocketUpstreamSupportsIncrementalInput(
+		map[string]string{"websockets": "true"},
+		nil,
+	) {
+		t.Fatal("downstream-only websocket capability must use transcript replay upstream")
 	}
 }
 
@@ -1334,7 +1354,7 @@ func TestResponsesWebsocketPinsOnlyWebsocketCapableAuth(t *testing.T) {
 		ID:         "auth-ws",
 		Provider:   executor.Identifier(),
 		Status:     coreauth.StatusActive,
-		Attributes: map[string]string{"websockets": "true"},
+		Attributes: map[string]string{wsUpstreamCapability: "true"},
 	}
 	if _, err := manager.Register(context.Background(), authWS); err != nil {
 		t.Fatalf("Register websocket auth: %v", err)
@@ -1388,6 +1408,78 @@ func TestResponsesWebsocketPinsOnlyWebsocketCapableAuth(t *testing.T) {
 	}
 }
 
+func TestResponsesWebsocketDownstreamOnlyCapabilityFallsBackWithinRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	selector := &orderedWebsocketSelector{order: []string{"auth-a", "auth-a", "auth-b"}}
+	executor := &websocketPinnedFailoverExecutor{syncErrors: true}
+	manager := coreauth.NewManager(nil, selector, nil)
+	manager.RegisterExecutor(executor)
+
+	for _, authID := range []string{"auth-a", "auth-b"} {
+		auth := &coreauth.Auth{
+			ID:         authID,
+			Provider:   executor.Identifier(),
+			Status:     coreauth.StatusActive,
+			Attributes: map[string]string{"websockets": "true"},
+		}
+		if _, err := manager.Register(context.Background(), auth); err != nil {
+			t.Fatalf("Register %s: %v", authID, err)
+		}
+		registry.GetGlobalRegistry().RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: "quota-model"}})
+		t.Cleanup(func() {
+			registry.GetGlobalRegistry().UnregisterClient(auth.ID)
+		})
+	}
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	requests := []string{
+		`{"type":"response.create","model":"quota-model","input":[{"type":"message","id":"msg-1"}]}`,
+		`{"type":"response.create","previous_response_id":"resp-auth-a-1","input":[{"type":"message","id":"msg-2"}]}`,
+	}
+	for i := range requests {
+		if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(requests[i])); errWrite != nil {
+			t.Fatalf("write websocket message %d: %v", i+1, errWrite)
+		}
+		_, payload, errReadMessage := conn.ReadMessage()
+		if errReadMessage != nil {
+			t.Fatalf("read websocket message %d: %v", i+1, errReadMessage)
+		}
+		if got := gjson.GetBytes(payload, "type").String(); got != wsEventTypeCompleted {
+			t.Fatalf("message %d payload type = %s, want %s: %s", i+1, got, wsEventTypeCompleted, payload)
+		}
+	}
+
+	if got := executor.AuthIDs(); len(got) != 3 || got[0] != "auth-a" || got[1] != "auth-a" || got[2] != "auth-b" {
+		t.Fatalf("selected auth IDs = %v, want [auth-a auth-a auth-b]", got)
+	}
+	authBPayloads := executor.Payloads("auth-b")
+	if len(authBPayloads) != 1 {
+		t.Fatalf("auth-b payload count = %d, want 1", len(authBPayloads))
+	}
+	if gjson.GetBytes(authBPayloads[0], "previous_response_id").Exists() {
+		t.Fatalf("previous_response_id leaked during same-request failover: %s", authBPayloads[0])
+	}
+	input := gjson.GetBytes(authBPayloads[0], "input").Raw
+	if !strings.Contains(input, `"id":"msg-1"`) || !strings.Contains(input, `"id":"msg-2"`) {
+		t.Fatalf("auth-b replay input missing expected transcript items: %s", input)
+	}
+}
+
 func TestResponsesWebsocketReleasesPinnedAuthAfterQuotaError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1400,7 +1492,7 @@ func TestResponsesWebsocketReleasesPinnedAuthAfterQuotaError(t *testing.T) {
 		ID:         "auth-a",
 		Provider:   executor.Identifier(),
 		Status:     coreauth.StatusActive,
-		Attributes: map[string]string{"websockets": "true"},
+		Attributes: map[string]string{wsUpstreamCapability: "true"},
 	}
 	if _, err := manager.Register(context.Background(), authA); err != nil {
 		t.Fatalf("Register auth A: %v", err)
@@ -1409,7 +1501,7 @@ func TestResponsesWebsocketReleasesPinnedAuthAfterQuotaError(t *testing.T) {
 		ID:         "auth-b",
 		Provider:   executor.Identifier(),
 		Status:     coreauth.StatusActive,
-		Attributes: map[string]string{"websockets": "true"},
+		Attributes: map[string]string{wsUpstreamCapability: "true"},
 	}
 	if _, err := manager.Register(context.Background(), authB); err != nil {
 		t.Fatalf("Register auth B: %v", err)

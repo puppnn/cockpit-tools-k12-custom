@@ -37,6 +37,7 @@ const (
 	codexResponsesWebsocketBetaHeaderValue = "responses_websockets=2026-02-06"
 	codexResponsesWebsocketIdleTimeout     = 5 * time.Minute
 	codexResponsesWebsocketHandshakeTO     = 30 * time.Second
+	codexUpstreamWebsocketCapability       = "upstream_websockets"
 )
 
 // CodexWebsocketsExecutor executes Codex Responses requests using a WebSocket transport.
@@ -1692,7 +1693,7 @@ func (e *CodexAutoExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	if e == nil || e.httpExec == nil || e.wsExec == nil {
 		return cliproxyexecutor.Response{}, fmt.Errorf("codex auto executor: executor is nil")
 	}
-	if cliproxyexecutor.DownstreamWebsocket(ctx) && codexWebsocketsEnabled(auth) {
+	if cliproxyexecutor.DownstreamWebsocket(ctx) && codexUpstreamWebsocketsEnabled(auth) {
 		return e.wsExec.Execute(ctx, auth, req, opts)
 	}
 	return e.httpExec.Execute(ctx, auth, req, opts)
@@ -1702,7 +1703,7 @@ func (e *CodexAutoExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	if e == nil || e.httpExec == nil || e.wsExec == nil {
 		return nil, fmt.Errorf("codex auto executor: executor is nil")
 	}
-	if cliproxyexecutor.DownstreamWebsocket(ctx) && codexWebsocketsEnabled(auth) {
+	if cliproxyexecutor.DownstreamWebsocket(ctx) && codexUpstreamWebsocketsEnabled(auth) {
 		return e.wsExec.ExecuteStream(ctx, auth, req, opts)
 	}
 	return e.httpExec.ExecuteStream(ctx, auth, req, opts)
@@ -1736,12 +1737,15 @@ func (e *CodexAutoExecutor) UpstreamDisconnectChan(sessionID string) <-chan erro
 	return e.wsExec.UpstreamDisconnectChan(sessionID)
 }
 
-func codexWebsocketsEnabled(auth *cliproxyauth.Auth) bool {
+// Downstream Responses WebSockets stay enabled independently. Upstream
+// WebSockets require an explicit capability so post-upgrade 429 errors do not
+// bypass the auth manager's credential fallback path.
+func codexUpstreamWebsocketsEnabled(auth *cliproxyauth.Auth) bool {
 	if auth == nil {
 		return false
 	}
 	if len(auth.Attributes) > 0 {
-		if raw := strings.TrimSpace(auth.Attributes["websockets"]); raw != "" {
+		if raw := strings.TrimSpace(auth.Attributes[codexUpstreamWebsocketCapability]); raw != "" {
 			parsed, errParse := strconv.ParseBool(raw)
 			if errParse == nil {
 				return parsed
@@ -1751,7 +1755,7 @@ func codexWebsocketsEnabled(auth *cliproxyauth.Auth) bool {
 	if len(auth.Metadata) == 0 {
 		return false
 	}
-	raw, ok := auth.Metadata["websockets"]
+	raw, ok := auth.Metadata[codexUpstreamWebsocketCapability]
 	if !ok || raw == nil {
 		return false
 	}

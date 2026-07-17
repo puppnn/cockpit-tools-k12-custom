@@ -54,6 +54,7 @@ const (
 
 type pinnedAuthContextKey struct{}
 type selectedAuthCallbackContextKey struct{}
+type excludedAuthIDsContextKey struct{}
 type executionSessionContextKey struct{}
 type disallowFreeAuthContextKey struct{}
 
@@ -78,6 +79,31 @@ func WithSelectedAuthIDCallback(ctx context.Context, callback func(string)) cont
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, selectedAuthCallbackContextKey{}, callback)
+}
+
+// WithExcludedAuthIDs returns a child context that prevents higher-level safe
+// retries from selecting credentials which already failed this logical request.
+func WithExcludedAuthIDs(ctx context.Context, authIDs []string) context.Context {
+	normalized := make([]string, 0, len(authIDs))
+	seen := make(map[string]struct{}, len(authIDs))
+	for _, authID := range authIDs {
+		authID = strings.TrimSpace(authID)
+		if authID == "" {
+			continue
+		}
+		if _, exists := seen[authID]; exists {
+			continue
+		}
+		seen[authID] = struct{}{}
+		normalized = append(normalized, authID)
+	}
+	if len(normalized) == 0 {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, excludedAuthIDsContextKey{}, normalized)
 }
 
 // WithExecutionSessionID returns a child context tagged with a long-lived execution session ID.
@@ -241,6 +267,9 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 	if selectedCallback := selectedAuthIDCallbackFromContext(ctx); selectedCallback != nil {
 		meta[coreexecutor.SelectedAuthCallbackMetadataKey] = selectedCallback
 	}
+	if excludedAuthIDs := excludedAuthIDsFromContext(ctx); len(excludedAuthIDs) > 0 {
+		meta[coreexecutor.ExcludedAuthIDsMetadataKey] = excludedAuthIDs
+	}
 	if executionSessionID := executionSessionIDFromContext(ctx); executionSessionID != "" {
 		meta[coreexecutor.ExecutionSessionMetadataKey] = executionSessionID
 	}
@@ -298,6 +327,18 @@ func selectedAuthIDCallbackFromContext(ctx context.Context) func(string) {
 		return callback
 	}
 	return nil
+}
+
+func excludedAuthIDsFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	raw := ctx.Value(excludedAuthIDsContextKey{})
+	authIDs, ok := raw.([]string)
+	if !ok || len(authIDs) == 0 {
+		return nil
+	}
+	return append([]string(nil), authIDs...)
 }
 
 func executionSessionIDFromContext(ctx context.Context) string {
